@@ -6,18 +6,29 @@ Integrates with the Tool Builder infrastructure:
 - Uses tool_builder_agents/ for workspace discovery
 - Captures execution traces for debugging
 - Generates roaming RAG instructions for Cursor to fix issues
+- AUTO-DETECTS version and draft status from metadata (no flags needed)
+- RECOVERS action_id automatically if lost
 
 Usage:
-    # Test workflow in an agent
-    python test_wdl_action.py workflow-id --agent my-agent
-
-    # Test standalone workflow
+    # Test workflow (auto-detects everything)
     python test_wdl_action.py workflow-id
 
     # Just validate WDL structure (no remote execution)
     python test_wdl_action.py workflow-id --local-only
 
-Note: Auto-save is DISABLED by default. Use save_wdl_draft.py separately after testing.
+    # Run all test cases
+    python test_wdl_action.py workflow-id --all
+
+    # Auto-fix validation issues
+    python test_wdl_action.py workflow-id --auto-fix
+
+TRANSPARENT BEHAVIOR (default):
+- Version: Auto-detected from checked-out/working version
+- Draft flag: Auto-determined from version status
+- Agent/Standalone: Auto-detected from workspace location
+- Action ID: Auto-recovered by title search if missing
+
+USE FLAGS ONLY when automatic behavior doesn't work.
 """
 
 import argparse
@@ -32,6 +43,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from cli.wdl_common.api_client import AdoptAPIClient
 from cli.wdl_common.cursor_prompt_builder import RoamingInstructionsBuilder
 from cli.wdl_common.workspace_manager import WorkspaceManager
+from cli.wdl_common.metadata_manager import MetadataManager
+from cli.wdl_common.validator import validate_wdl_file, WDLValidator
+from cli.wdl_common.error_patterns import enhance_error_message
 from cli.wdl_common.version_tracker import (
     get_checked_out_version_info,
     get_current_version_info,
@@ -432,17 +446,30 @@ def run_test(
             print("\n▶️  Running test...")
 
         # Check if this is a remote action by looking at metadata
-        action_id = metadata.get("action_id")
+        # Use MetadataManager for enhanced action_id handling with recovery
+        meta_manager = MetadataManager(workspace)
+        action_id = meta_manager.get_action_id()
 
         if not action_id:
-            print("⚠️  No action_id found in metadata. This appears to be a local workflow.")
+            # Try to recover by searching for action by title
+            meta_data = meta_manager.load()
+            title = meta_data.title or metadata.get("title")
+            if title:
+                print(f"🔍 No action_id found. Searching for action by title: {title}")
+                client = AdoptAPIClient()
+                success_list, tools, msg_list = client.list_tools()
+                if success_list and tools:
+                    for tool in tools:
+                        if tool.get("title") == title:
+                            action_id = tool.get("action_id") or tool.get("id")
+                            print(f"✅ Found and recovered action_id: {action_id}")
+                            meta_manager.set_action_id(action_id)
+                            break
+
+        if not action_id:
+            print("⚠️  No action_id found in metadata and could not recover.")
             print("   To create remote action and save draft:")
-            print(
-                "   1. Create action: python cli/manage_wdl_action.py --workflow-id {workflow_id} --create-remote"
-            )
-            print(
-                "   2. Save draft: python cli/save_wdl_draft.py --workflow-id {workflow_id}"
-            )
+            print(f"   python cli/save_wdl_draft.py --workflow-id {workflow_id}")
             print("   Or use --local-only to validate structure only")
             test_results["success"] = False
             test_results["error"] = "Cannot test local workflow remotely - no action_id found"
@@ -450,57 +477,15 @@ def run_test(
             overall_success = False
             continue
 
-        print(f"🔑 Using action_id from metadata: {action_id}")
+        print(f"🔑 Action ID: {action_id}")
         client = AdoptAPIClient()
 
-        # Determine which version to test
-        version_to_test = None
-        allow_draft_flag = False
-        
-        # Check for checked-out version first
-        checked_out_info = get_checked_out_version_info(workspace)
-        if checked_out_info:
-            version_to_test = checked_out_info.get("version_number")
-            is_published = checked_out_info.get("is_published", False)
-            allow_draft_flag = not is_published
-            status_str = "published" if is_published else "draft"
-            print(f"🧪 Testing checked-out version {version_to_test} ({status_str})")
-        else:
-            # Check for current version
-            current_info = get_current_version_info(workspace)
-            if current_info:
-                version_to_test = current_info.get("version_number")
-                is_published = current_info.get("is_published", False)
-                allow_draft_flag = not is_published
-                status_str = "published" if is_published else "draft"
-                print(f"🧪 Testing current version {version_to_test} ({status_str})")
-            else:
-                # Fallback: check metadata directly (backward compatibility)
-                metadata_check = read_metadata(workspace)
-                checked_out_version = metadata_check.get("checked_out_version")
-                current_version = metadata_check.get("current_version")
-                
-                if checked_out_version:
-                    version_to_test = checked_out_version
-                    # Try to get version info from versions map
-                    versions = metadata_check.get("versions", {})
-                    version_info = versions.get(str(checked_out_version), {})
-                    is_published = version_info.get("is_published", False)
-                    allow_draft_flag = not is_published
-                    status_str = "published" if is_published else "draft"
-                    print(f"🧪 Testing checked-out version {version_to_test} ({status_str})")
-                elif current_version:
-                    version_to_test = current_version
-                    # Try to get version info from versions map
-                    versions = metadata_check.get("versions", {})
-                    version_info = versions.get(str(current_version), {})
-                    is_published = version_info.get("is_published", False)
-                    allow_draft_flag = not is_published
-                    status_str = "published" if is_published else "draft"
-                    print(f"🧪 Testing current version {version_to_test} ({status_str})")
-                else:
-                    # Default: latest published (backward compatible)
-                    print("🧪 Testing latest published version (default)")
+        # Determine which version to test using MetadataManager (TRANSPARENT)
+        # This auto-detects the correct version and draft status
+        test_target = meta_manager.determine_test_version()
+        version_to_test = test_target.version
+        allow_draft_flag = test_target.allow_draft
+        print(f"🧪 {test_target.reason}")
 
         try:
             success, response, msg = client.run_action(
@@ -856,18 +841,12 @@ def run_test(
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Test a WDL workflow action and generate fix suggestions",
+        description="Test a WDL workflow action with transparent version detection",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Test with default test case
+  # Test workflow (auto-detects version, draft status, agent)
   python test_wdl_action.py my-workflow-id
-
-  # Test workflow in specific agent
-  python test_wdl_action.py my-workflow-id --agent my-agent
-
-  # Test with specific test file
-  python test_wdl_action.py my-workflow-id --test test_2.json
 
   # Run all test cases
   python test_wdl_action.py my-workflow-id --all
@@ -875,14 +854,25 @@ Examples:
   # Just validate WDL (no remote execution)
   python test_wdl_action.py my-workflow-id --local-only
 
-Note: Auto-save is DISABLED by default. Save drafts separately:
-  python cli/save_wdl_draft.py --workflow-id my-workflow-id --standalone
+  # Auto-fix validation issues
+  python test_wdl_action.py my-workflow-id --local-only --auto-fix
+
+TRANSPARENT BEHAVIOR (default):
+  - Version: Auto-detected from metadata (working/checked-out version)
+  - Draft flag: Auto-determined from version publish status
+  - Agent: Auto-detected from workspace location
+  - Action ID: Auto-recovered by title search if missing
+
+USE THESE FLAGS ONLY when automatic behavior doesn't work:
+  --agent NAME      Override agent detection
+  --version NUM     Override version detection
+  --allow-draft     Force allow draft flag
 """,
     )
 
     parser.add_argument("workflow_id", help="Workflow ID / workspace name")
     parser.add_argument(
-        "--agent", help="Agent name (auto-detect if not specified)"
+        "--agent", help="Agent name (override auto-detection)"
     )
     parser.add_argument("--test", "-t", help="Test file to run (default: test_1.json)")
     parser.add_argument(
@@ -894,11 +884,24 @@ Note: Auto-save is DISABLED by default. Save drafts separately:
         action="store_true",
         help="Validate WDL only, no remote test",
     )
-    # Auto-save is now disabled by default - agents should save drafts explicitly
-    # Keeping --no-auto-save for backwards compatibility (but it's now the default)
+    parser.add_argument(
+        "--auto-fix",
+        action="store_true",
+        help="Auto-fix validation issues where possible",
+    )
+    # Hidden/advanced flags for when auto-detection doesn't work
+    parser.add_argument(
+        "--version", type=int,
+        help="Force specific version (override auto-detection)"
+    )
+    parser.add_argument(
+        "--allow-draft", action="store_true",
+        help="Force allow draft flag (override auto-detection)"
+    )
+    # Backward compatibility
     parser.add_argument(
         "--no-auto-save", action="store_true", default=True,
-        help="(Default) Don't auto-save draft on success"
+        help=argparse.SUPPRESS  # Hidden, always True
     )
 
     args = parser.parse_args()
@@ -908,7 +911,7 @@ Note: Auto-save is DISABLED by default. Save drafts separately:
         agent_name=args.agent,
         test_file=args.test,
         local_only=args.local_only,
-        no_auto_save=True,  # Always disabled - use save_wdl_draft.py separately
+        no_auto_save=True,
         run_all=args.all,
     )
 

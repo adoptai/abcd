@@ -16,6 +16,30 @@ from .trace_analyzer import TraceAnalyzer, TraceIssue
 from .cursor_prompt_builder import RoamingInstructionsBuilder
 from .tool_discovery import ToolDiscovery
 from .workspace_manager import WorkspaceManager
+from .metadata_manager import (
+    MetadataManager,
+    WorkspaceMetadata,
+    RemoteState,
+    WorkingVersion,
+    RemoteVersions,
+    VersionInfo,
+    load_metadata,
+    get_action_id,
+    set_action_id,
+)
+from .validator import (
+    WDLValidator,
+    ValidationResult,
+    validate_wdl,
+    validate_wdl_file,
+)
+from .error_patterns import (
+    enhance_error_message,
+    detect_error_type,
+    is_auto_fixable,
+    get_fix_suggestion,
+    format_api_error,
+)
 
 __all__ = [
     "WDLDocumentationProvider",
@@ -25,4 +49,22 @@ __all__ = [
     "RoamingInstructionsBuilder",
     "ToolDiscovery",
     "WorkspaceManager",
+    "MetadataManager",
+    "WorkspaceMetadata",
+    "RemoteState",
+    "WorkingVersion",
+    "RemoteVersions",
+    "VersionInfo",
+    "load_metadata",
+    "get_action_id",
+    "set_action_id",
+    "WDLValidator",
+    "ValidationResult",
+    "validate_wdl",
+    "validate_wdl_file",
+    "enhance_error_message",
+    "detect_error_type",
+    "is_auto_fixable",
+    "get_fix_suggestion",
+    "format_api_error",
 ]

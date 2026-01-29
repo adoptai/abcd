@@ -1,9 +1,10 @@
-# Tool Builder - Agent Instructions
+# ABCD - Agent CLI Instructions
 
-This document provides comprehensive guidance for AI agents (like Cursor) working with the Tool Builder repository. It explains all available functionalities, CLI tools, and when to use each.
+This document provides comprehensive guidance for AI agents (like Cursor) working with the ABCD repository. It explains all available functionalities, CLI tools, and when to use each.
 
 ## Table of Contents
 
+- [Simplified CLI Commands (NEW)](#simplified-cli-commands-new)
 - [Overview](#overview)
 - [Quick Decision Tree](#quick-decision-tree)
 - [Functionality Categories](#functionality-categories)
@@ -13,6 +14,76 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 - [CLI Tools Reference](#cli-tools-reference)
 - [When to Use Each Tool](#when-to-use-each-tool)
 - [Integration Points](#integration-points)
+- [PROMPT_AND_TOOLS_AGENT Requirements](#prompt_and_tools_agent-requirements)
+- [Test-First Workflow](#test-first-workflow)
+
+---
+
+## Transparent CLI Behavior
+
+**Core Principle**: CLI commands are transparent - they auto-detect version, draft status, agent/standalone mode, and action_id from metadata. **Only use flags when automatic behavior doesn't work.**
+
+### Primary Commands
+
+| Command | Purpose |
+|---------|---------|
+| `python cli/test_wdl_action.py <workflow-id>` | Test workflow (auto-detects version/draft) |
+| `python cli/save_wdl_draft.py --workflow-id <id>` | Save draft (auto-creates action if needed) |
+| `python cli/publish_wdl_action.py --workflow-id <id>` | Publish workflow (requires confirmation) |
+| `python cli/list_wdl_versions.py --workflow-id <id>` | List all versions |
+| `python cli/checkout_wdl_version.py --workflow-id <id> -v N` | Checkout specific version |
+| `python cli/status.py <workflow-id>` | Show comprehensive workspace status |
+| `python cli/validate.py <workflow-id>` | Validate WDL locally |
+| `python cli/reconnect.py <workflow-id> --search` | Reconnect workspace to action |
+
+### Workflow Example
+
+```bash
+# 1. Create workflow workspace
+python cli/manage_wdl_action.py --create -r requirements.md -t "My Workflow"
+
+# 2. Check status
+python cli/status.py my-workflow
+
+# 3. Validate locally before testing
+python cli/test_wdl_action.py my-workflow --local-only
+
+# 4. Test remotely (auto-detects version/draft)
+python cli/test_wdl_action.py my-workflow
+
+# 5. Save draft (auto-creates action if needed)
+python cli/save_wdl_draft.py --workflow-id my-workflow --description "Fixed pagination"
+
+# 6. View versions
+python cli/list_wdl_versions.py --workflow-id my-workflow
+
+# 7. Publish when ready
+python cli/publish_wdl_action.py --workflow-id my-workflow
+```
+
+### Automatic Features
+
+1. **Auto-version detection**: Commands auto-detect which version to use from metadata
+2. **Auto-draft flag**: Commands auto-determine if allow_draft is needed
+3. **Auto-action creation**: `save_wdl_draft.py` creates remote action if not linked
+4. **Auto-recovery**: If action_id is lost, CLI searches by title to recover
+5. **Auto-agent detection**: Commands auto-detect agent vs standalone from workspace location
+6. **Auto-validation**: `save_wdl_draft.py` validates WDL before upload
+
+### When to Use Flags
+
+**Only use explicit flags when automatic behavior fails:**
+
+```bash
+# Force specific version (when auto-detection picks wrong version)
+python cli/test_wdl_action.py my-workflow --version 3 --allow-draft
+
+# Force standalone mode (when agent detection fails)
+python cli/save_wdl_draft.py --workflow-id my-workflow --standalone
+
+# Force specific action_id (when recovery by title fails)
+python cli/publish_wdl_action.py abc123-action-id --version 5
+```
 
 ---
 
@@ -788,4 +859,150 @@ python cli/publish_wdl_action.py workflow-id
 6. Publish (`publish_wdl_action.py`)
 
 For detailed WDL workflow creation instructions, **always refer to [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**.
+
+---
+
+## PROMPT_AND_TOOLS_AGENT Requirements
+
+When using actions as sub-tools in a `PROMPT_AND_TOOLS_AGENT` orchestrator, follow these requirements:
+
+### Sub-Action Requirements
+
+1. **Must be PUBLISHED** - Draft actions cannot be used as sub-tools
+2. **Title format** - Must match pattern: `^[a-zA-Z0-9_-]{1,128}$`
+   - ✅ Good: `odoo-get-orderpoints`, `inventory_check`, `create-po`
+   - ❌ Bad: `Odoo Get Orderpoints`, `Check (Inventory)`, `create po`
+3. **required_inputs format** - Must be a list of JSON strings:
+   ```json
+   "required_inputs": [
+     "{\"company_id\": {\"type\": \"integer\", \"description\": \"Company ID\"}}"
+   ]
+   ```
+   NOT a dict like `"required_inputs": {"company_id": {...}}`
+
+### Architecture Pattern
+
+Build atomic tools first, then compose with orchestrator:
+
+```
+Individual Tools (publish each separately):
+├── odoo-get-orderpoints      # Simple REST wrapper
+├── odoo-create-po            # Simple REST wrapper
+├── odoo-exception-check      # Simple REST wrapper
+└── ...
+
+Orchestrator (uses tools above):
+└── inventory-orchestrator    # PROMPT_AND_TOOLS_AGENT
+    └── Uses: odoo-get-orderpoints, odoo-create-po, ...
+```
+
+⚠️ **Anti-pattern**: Don't build a single 30+ operation monolithic WDL.
+   Instead, create small focused tools and compose them with an orchestrator.
+
+### Validation
+
+Use the validator to check for orchestrator compatibility:
+
+```bash
+python cli/validate.py my-workflow --orchestrator
+python cli/validate.py my-workflow --orchestrator --auto-fix
+```
+
+---
+
+## Test-First Workflow
+
+### Before Testing
+
+1. **Generate 3 test cases** in `test_cases/`:
+   - `test_1.json` - Basic/common use case
+   - `test_2.json` - Different input scenario
+   - `test_3.json` - Edge case
+
+2. Each test case must include:
+   ```json
+   {
+     "prompt": "User input",
+     "workflow_params": {},
+     "expected_output": {
+       "description": "What the output should contain",
+       "validation": "similarity",
+       "key_fields": ["field1", "field2"]
+     }
+   }
+   ```
+
+### Simplified Testing Commands
+
+```bash
+# Validate locally (no remote execution)
+python cli/test.py my-workflow --local-only
+
+# Test remotely (auto-detects version)
+python cli/test.py my-workflow
+
+# Test all cases
+python cli/test.py my-workflow --all
+
+# Auto-fix validation issues
+python cli/test.py my-workflow --auto-fix
+```
+
+Note: The CLI automatically determines which version to test based on your
+working state. No need to specify `--version` or `--allow-draft`.
+
+---
+
+## Common Error Patterns and Solutions
+
+| Error | Cause | Fix |
+|-------|-------|-----|
+| `required_inputs should be a list` | required_inputs is a dict | Run `python cli/validate.py workflow-id --auto-fix` |
+| `tool names have invalid characters` | Title has spaces/special chars | Run `python cli/validate.py workflow-id --auto-fix --orchestrator` |
+| `Action not found` | action_id is lost/wrong | Run `python cli/reconnect.py workflow-id --search` |
+| `Session expired` | Odoo cookie expired | Update `security_params.cookie` in `adopt_profile.json` |
+| `Empty WDL field` | Save failed partially | Run `python cli/save.py workflow-id` again |
+
+---
+
+## Quick Reference
+
+```bash
+# === TRANSPARENT COMMANDS (auto-detect everything) ===
+
+# Check status
+python cli/status.py my-workflow
+
+# Validate locally
+python cli/validate.py my-workflow
+python cli/validate.py my-workflow --auto-fix
+python cli/validate.py my-workflow --orchestrator  # For sub-tool use
+
+# Test (auto-detects version/draft from metadata)
+python cli/test_wdl_action.py my-workflow --local-only  # Validate only
+python cli/test_wdl_action.py my-workflow               # Remote test
+python cli/test_wdl_action.py my-workflow --all         # All test cases
+
+# Save draft (auto-creates action if needed)
+python cli/save_wdl_draft.py --workflow-id my-workflow
+python cli/save_wdl_draft.py --workflow-id my-workflow --description "Fixed bug"
+
+# Publish (requires confirmation)
+python cli/publish_wdl_action.py --workflow-id my-workflow
+
+# Version management
+python cli/list_wdl_versions.py --workflow-id my-workflow
+python cli/checkout_wdl_version.py --workflow-id my-workflow --version 3
+
+# Reconnect workspace to action
+python cli/reconnect.py my-workflow --search  # Search by title
+python cli/reconnect.py my-workflow abc-123-action-id
+
+# === USE THESE FLAGS ONLY WHEN AUTO-DETECTION FAILS ===
+--version N       # Force specific version
+--allow-draft     # Force allow draft flag
+--standalone      # Force standalone mode (no agent)
+--agent NAME      # Force specific agent
+--action-id ID    # Force specific action_id (legacy)
+```
 

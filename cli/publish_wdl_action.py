@@ -5,11 +5,18 @@ Approve and publish a WDL action (makes it live).
 ⚠️  EXPLICIT USER ACTION REQUIRED
 
 This script:
-1. Gets the latest draft version
-2. Approves the version
-3. Makes the action live
+1. AUTO-DETECTS action_id from metadata (or recovers by title)
+2. AUTO-FINDS latest draft version to publish
+3. Approves the version
+4. Makes the action live
+
+TRANSPARENT BEHAVIOR (default):
+- Action ID: Auto-detected from metadata, recovered by title if lost
+- Version: Auto-finds latest draft
+- Agent/Standalone: Auto-detected from workspace location
 
 Only run this when you've tested thoroughly and are ready to deploy.
+USE FLAGS ONLY when automatic behavior doesn't work.
 """
 
 import argparse
@@ -22,6 +29,7 @@ from typing import Optional
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.version_tracker import (
     update_current_version,
     update_metadata_version,
@@ -32,7 +40,7 @@ from cli.wdl_common.workspace_manager import WorkspaceManager
 
 
 def publish_wdl_action(
-    action_id: str,
+    action_id: Optional[str] = None,
     version_id: Optional[str] = None,
     skip_confirm: bool = False,
     description: Optional[str] = None,
@@ -42,13 +50,15 @@ def publish_wdl_action(
     """
     Approve and publish the action.
 
+    TRANSPARENT: Can be called with just workflow_id - action_id auto-detected.
+
     Args:
-        action_id: The action ID
-        version_id: Specific version to publish (default: latest)
+        action_id: The action ID (optional - auto-detected from metadata)
+        version_id: Specific version to publish (default: latest draft)
         skip_confirm: Skip confirmation prompt
         description: Optional description for this version
-        workflow_id: Optional workflow ID to find workspace
-        standalone: Use standalone mode (no agents)
+        workflow_id: Workflow ID to find workspace (recommended)
+        standalone: Use standalone mode (override auto-detection)
 
     Returns:
         True if successful
@@ -56,20 +66,58 @@ def publish_wdl_action(
     print("\n" + "=" * 80)
     print("🚀 PUBLISH WDL ACTION")
     print("=" * 80)
-    print(f"Action ID: {action_id}")
     print("⚠️  This will make the action LIVE")
 
-    # Try to find workspace
+    # Try to find workspace by workflow_id first (preferred)
     workspace = None
+    meta_manager = None
+
     if workflow_id:
-        workspace_manager = WorkspaceManager(use_agents=not standalone)
+        # Try agent mode first
+        workspace_manager = WorkspaceManager(use_agents=True)
         success, data, msg = workspace_manager.load_workspace(workflow_id)
         if success:
             workspace = data.get("workspace_path")
-    
-    # Fallback to legacy location
-    if not workspace:
+        else:
+            # Try standalone mode
+            workspace_manager = WorkspaceManager(use_agents=False)
+            success, data, msg = workspace_manager.load_workspace(workflow_id)
+            if success:
+                workspace = data.get("workspace_path")
+
+    # If workspace found, use MetadataManager for action_id
+    if workspace and workspace.exists():
+        meta_manager = MetadataManager(workspace)
+
+        # Get action_id from metadata if not provided
+        if not action_id:
+            action_id = meta_manager.get_action_id()
+
+        # Try to recover action_id by title if still not found
+        if not action_id:
+            meta_data = meta_manager.load()
+            title = meta_data.title
+            if title:
+                print(f"🔍 No action_id found. Searching by title: {title}")
+                client = AdoptAPIClient()
+                success_list, tools, msg_list = client.list_tools()
+                if success_list and tools:
+                    for tool in tools:
+                        if tool.get("title") == title:
+                            action_id = tool.get("action_id") or tool.get("id")
+                            print(f"   ✅ Found action: {action_id}")
+                            meta_manager.set_action_id(action_id)
+                            break
+
+    # Fallback to legacy location if no workspace
+    if not workspace and action_id:
         workspace = Path(__file__).parent.parent / "actions" / action_id
+
+    if not action_id:
+        print("❌ No action_id found. Provide --action-id or use --workflow-id with linked workspace.")
+        return False
+
+    print(f"Action ID: {action_id}")
 
     client = AdoptAPIClient()
 
@@ -242,24 +290,54 @@ def publish_wdl_action(
 def main() -> None:
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Approve and publish action (makes it live)"
+        description="Approve and publish action (makes it live)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+TRANSPARENT BEHAVIOR (default):
+  - Action ID: Auto-detected from workspace metadata
+  - Version: Auto-finds latest draft to publish
+  - Agent: Auto-detected from workspace location
+
+Examples:
+  # Publish using workflow_id (RECOMMENDED - auto-detects action_id)
+  python publish_wdl_action.py --workflow-id my-workflow
+
+  # Publish with explicit action_id (legacy)
+  python publish_wdl_action.py abc123-action-id
+
+USE FLAGS ONLY when automatic behavior doesn't work.
+""",
     )
-    parser.add_argument("action_id", help="Action ID")
-    parser.add_argument("--version", "-v", help="Specific version to publish")
+    # Make action_id optional - can be derived from workflow_id
+    parser.add_argument(
+        "action_id", nargs="?", default=None,
+        help="Action ID (optional if --workflow-id provided)"
+    )
+    parser.add_argument("--version", "-v", help="Specific version to publish (default: latest draft)")
     parser.add_argument(
         "--yes", "-y", action="store_true", help="Skip confirmation prompt"
     )
     parser.add_argument(
         "--description", "-d", help="Description of changes for this version"
     )
-    parser.add_argument("--workflow-id", "-w", help="Workflow ID (to find workspace)")
-    parser.add_argument("--standalone", "-s", action="store_true", help="Standalone mode")
+    parser.add_argument(
+        "--workflow-id", "-w",
+        help="Workflow ID (RECOMMENDED - auto-detects action_id)"
+    )
+    parser.add_argument(
+        "--standalone", "-s", action="store_true",
+        help="Override agent detection with standalone mode"
+    )
     args = parser.parse_args()
 
+    # Require either action_id or workflow_id
+    if not args.action_id and not args.workflow_id:
+        parser.error("Either action_id or --workflow-id is required")
+
     success = publish_wdl_action(
-        args.action_id,
-        args.version,
-        args.yes,
+        action_id=args.action_id,
+        version_id=args.version,
+        skip_confirm=args.yes,
         description=args.description,
         workflow_id=args.workflow_id,
         standalone=args.standalone,

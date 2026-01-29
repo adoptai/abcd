@@ -4,12 +4,21 @@ Save WDL to remote as draft (without publishing).
 
 This script:
 1. Automatically creates remote action if it doesn't exist
-2. Automatically publishes WDL if not already published
-3. Saves as draft (creates version)
-4. Does NOT approve - action stays in draft state
+2. RECOVERS action_id by title search if lost
+3. Automatically publishes WDL if not already published
+4. Saves as draft (creates version)
+5. Does NOT approve - action stays in draft state
+
+TRANSPARENT BEHAVIOR (default):
+- Action creation: Auto-creates if not linked
+- Action recovery: Auto-searches by title if action_id lost
+- Agent detection: Auto-detects from workspace location
+- Validation: Validates WDL before upload
 
 Use this after tests pass to persist changes.
 Use publish_wdl_action.py when ready to make it live.
+
+USE FLAGS ONLY when automatic behavior doesn't work.
 """
 
 import argparse
@@ -23,6 +32,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.api_client import AdoptAPIClient
 from cli.wdl_common.workspace_manager import WorkspaceManager
+from cli.wdl_common.metadata_manager import MetadataManager
+from cli.wdl_common.validator import validate_wdl_file
 from cli.wdl_common.version_tracker import (
     set_current_version,
     update_metadata_version,
@@ -84,84 +95,129 @@ def save_wdl_draft(
 
     print(f"📁 Workspace: {workspace}")
 
+    # Use MetadataManager for enhanced action_id handling
+    meta_manager = MetadataManager(workspace)
+    meta_data = meta_manager.load()
+
     # Load WDL
     wdl_path = workspace / "widdle.json"
     if not wdl_path.exists():
         print("❌ widdle.json not found")
         return False, ""
 
+    # Validate WDL before upload
+    print("\n📋 Validating WDL...")
+    validation = validate_wdl_file(wdl_path)
+    if not validation.is_valid:
+        print(f"\n{validation}")
+        print("💡 Fix validation errors before saving. Use --auto-fix if applicable.")
+        return False, ""
+    print("   ✅ WDL is valid")
+
     wdl = json.loads(wdl_path.read_text())
     print(f"📝 Loaded WDL: {len(wdl)} operations")
 
     client = AdoptAPIClient()
 
-    # Step 1: Check if action exists, create if not
+    # Step 1: Get action_id with recovery
+    # Use MetadataManager's protected action_id mechanism
+    if not action_id:
+        action_id = meta_manager.get_action_id()
+
+    # If still no action_id, try to recover by title search
+    if not action_id:
+        title = meta_data.title or workspace_data.get("metadata", {}).get("title") if workspace_data else None
+        if title:
+            print(f"\n🔍 No action_id found. Searching by title: {title}")
+            success_list, tools, msg_list = client.list_tools()
+            if success_list and tools:
+                for tool in tools:
+                    if tool.get("title") == title:
+                        action_id = tool.get("action_id") or tool.get("id")
+                        print(f"   ✅ Found existing action: {action_id}")
+                        meta_manager.set_action_id(action_id)
+                        break
+
+    # If still no action_id, create new action
     if not action_id:
         print("\n🔧 Step 1: Creating remote action...")
-        
-        # Load metadata for title
-        metadata_path = workspace / "metadata.json"
-        if metadata_path.exists():
-            metadata = json.loads(metadata_path.read_text())
-            title = metadata.get("title", "New WDL Workflow")
-        else:
-            title = "New WDL Workflow"
-        
+
+        # Get title from metadata
+        title = meta_data.title
+        if not title:
+            metadata_path = workspace / "metadata.json"
+            if metadata_path.exists():
+                metadata = json.loads(metadata_path.read_text())
+                title = metadata.get("title", "New WDL Workflow")
+            else:
+                title = "New WDL Workflow"
+
         # Load requirements for description
         requirements_path = workspace / "requirements.md"
         if requirements_path.exists():
             requirements = requirements_path.read_text()[:200]
-            description = f"Generated from requirements: {requirements}..."
+            action_description = f"Generated from requirements: {requirements}..."
         else:
-            description = f"WDL workflow: {title}"
-        
+            action_description = f"WDL workflow: {title}"
+
         # Load API IDs from manifest
         api_ids = []
         apis_manifest = workspace / "apis" / "manifest.json"
         if apis_manifest.exists():
             manifest = json.loads(apis_manifest.read_text())
             api_ids = manifest.get("api_ids", [])
-        
+
         print(f"   Title: {title}")
         print(f"   API IDs: {api_ids}")
-        
+
         success, data, msg = client.create_action(
             title=title,
-            description=description,
+            description=action_description,
             api_ids=api_ids if api_ids else None,
         )
-        
+
         if not success:
             print(f"❌ Failed to create action: {msg}")
             return False, ""
-        
+
         action_id = data.get("action_id") if data else None
         if not action_id:
             print("❌ No action_id in response")
             return False, ""
-        
+
         print(f"   ✅ Action created: {action_id}")
-        
+
         # Set deployment rules
         client.set_deployment_rules(action_id)
-        
-        # Update metadata
-        if metadata_path.exists():
-            metadata = json.loads(metadata_path.read_text())
-        else:
-            metadata = {}
-        metadata["action_id"] = action_id
-        metadata_path.write_text(json.dumps(metadata, indent=2))
-        print("   ✅ Updated metadata.json with action_id")
+
+        # Save action_id using MetadataManager (protected file + metadata)
+        meta_manager.set_action_id(action_id)
+        print("   ✅ Updated metadata with action_id")
     else:
         print(f"\n🔑 Step 1: Using existing action ID: {action_id}")
         # Verify action exists
         success, current_data, msg = client.get_action(action_id)
         if not success:
-            print(f"❌ Action not found: {msg}")
-            print("💡 The action_id may be invalid. Try removing it from metadata.json and run again.")
-            return False, ""
-        print("   ✅ Action exists on remote")
+            print(f"⚠️  Action not found on remote: {msg}")
+            print("   Attempting to recover by title search...")
+            title = meta_data.title
+            if title:
+                success_list, tools, msg_list = client.list_tools()
+                if success_list and tools:
+                    for tool in tools:
+                        if tool.get("title") == title:
+                            action_id = tool.get("action_id") or tool.get("id")
+                            print(f"   ✅ Recovered action: {action_id}")
+                            meta_manager.set_action_id(action_id)
+                            break
+                    else:
+                        print("❌ Could not recover action by title")
+                        return False, ""
+            else:
+                print("❌ Cannot recover - no title in metadata")
+                return False, ""
+        else:
+            print("   ✅ Action exists on remote")
 
     print(f"\n🔑 Action ID: {action_id}")
 

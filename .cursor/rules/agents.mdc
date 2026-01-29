@@ -1,18 +1,53 @@
-# Tool Builder - Agent Instructions
+# ABCD - Agent CLI Instructions
 
-This document provides comprehensive guidance for AI agents (like Cursor) working with the Tool Builder repository. It explains all available functionalities, CLI tools, and when to use each.
+This document provides comprehensive guidance for AI agents (like Cursor) working with the ABCD repository.
+
+## Transparent CLI Behavior (RECOMMENDED)
+
+**Core Principle**: CLI commands auto-detect version, draft status, agent mode, and action_id from metadata. **Only use flags when automatic behavior doesn't work.**
+
+### Primary Commands
+
+| Command | Purpose |
+|---------|---------|
+| `test_wdl_action.py <id>` | Test (auto-detects version/draft) |
+| `save_wdl_draft.py --workflow-id <id>` | Save draft (auto-creates action) |
+| `publish_wdl_action.py --workflow-id <id>` | Publish (requires confirmation) |
+| `list_wdl_versions.py --workflow-id <id>` | List versions |
+| `checkout_wdl_version.py --workflow-id <id> -v N` | Checkout version |
+| `status.py <id>` | Show workspace status |
+| `validate.py <id>` | Validate WDL |
+| `reconnect.py <id> --search` | Reconnect workspace |
+
+### Quick Workflow
+
+```bash
+python cli/status.py my-workflow                    # Check status
+python cli/test_wdl_action.py my-workflow --local-only  # Validate
+python cli/test_wdl_action.py my-workflow           # Test remotely
+python cli/save_wdl_draft.py --workflow-id my-workflow  # Save draft
+python cli/publish_wdl_action.py --workflow-id my-workflow  # Publish
+```
+
+### When to Use Flags
+
+Only use explicit flags when auto-detection fails:
+```bash
+--version N      # Force specific version
+--allow-draft    # Force allow draft flag
+--standalone     # Force standalone mode
+--agent NAME     # Force specific agent
+```
+
+---
 
 ## Table of Contents
 
+- [Simplified CLI Commands](#simplified-cli-commands-recommended)
 - [Overview](#overview)
 - [Quick Decision Tree](#quick-decision-tree)
 - [Functionality Categories](#functionality-categories)
-  - [Agent Management](#agent-management)
-  - [Simple Tools (API Wrappers)](#simple-tools-api-wrappers)
-  - [Complex Workflows (WDL)](#complex-workflows-wdl)
-- [CLI Tools Reference](#cli-tools-reference)
-- [When to Use Each Tool](#when-to-use-each-tool)
-- [Integration Points](#integration-points)
+- [PROMPT_AND_TOOLS_AGENT Requirements](#prompt_and_tools_agent-requirements)
 
 ---
 
@@ -635,4 +670,32 @@ python cli/eval_wdl_action.py workflow-id --exclude-fields header_message,footer
 - **Publishing**: Only when user explicitly confirms
 
 For detailed WDL workflow creation instructions, **always refer to [`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**.
+
+---
+
+## PROMPT_AND_TOOLS_AGENT Requirements
+
+When using actions as sub-tools in `PROMPT_AND_TOOLS_AGENT`:
+
+1. **Must be PUBLISHED** - Draft actions cannot be used as sub-tools
+2. **Title format** - Pattern: `^[a-zA-Z0-9_-]{1,128}$`
+   - ✅ `odoo-get-orderpoints`, `inventory_check`
+   - ❌ `Odoo Get Orderpoints`, `Check (Inventory)`
+3. **required_inputs format** - Must be list of JSON strings, not dict
+
+### Validate for Orchestrator
+
+```bash
+python cli/validate.py my-workflow --orchestrator --auto-fix
+```
+
+---
+
+## Common Error Fixes
+
+| Error | Fix |
+|-------|-----|
+| `required_inputs should be list` | `python cli/validate.py workflow-id --auto-fix` |
+| `invalid tool name` | `python cli/validate.py workflow-id --orchestrator --auto-fix` |
+| `Action not found` | `python cli/reconnect.py workflow-id --search` |
 
