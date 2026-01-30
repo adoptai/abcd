@@ -259,49 +259,35 @@ User Request
 
 **Purpose**: Create single-API wrapper actions that follow REST → OUTPUT pattern
 
+**Template**: See `prompts/templates/simple_tool_template.md` for the complete guide.
+
 **Characteristics**:
 - One REST API call
 - Simple data transformation (optional)
 - Single output operation
 - Fast to create and test
 
-**Unified CLI**: `cli/manage_wdl_action.py --template simple`
+**How to Create Simple Actions**:
 
-**Tools**:
+1. **Create workspace**: `python cli/manage_wdl_action.py --create --template simple -t "My Action"`
+2. **Edit `widdle.json`** using the template pattern (REST → EXTRACT → OUTPUT_TEXT)
+3. **Test**: `python cli/test_wdl_action.py my-action`
+4. **Save**: `python cli/save_wdl_draft.py --workflow-id my-action`
+5. **Publish**: `python cli/publish_wdl_action.py --workflow-id my-action`
 
-#### 1. **Create Simple Action** (unified CLI)
-- **Purpose**: Create new simple actions from a single API
-- **Usage**: `python cli/manage_wdl_action.py --create --template simple --use-api <api-id> -t "Title"`
-- **Features**:
-  - Auto-discovers API details
-  - Creates workspace with placeholder WDL
-  - Agent refines WDL based on template
-  - Optionally creates remote action on Adopt
-- **Menu Option**: 5
+**Template Pattern**:
+```json
+[
+  {"required_inputs": {"param": {"type": "string", "definition": "Description"}}},
+  {"id": "apiCall", "operation": "REST", "method": "GET", "url": "/api/endpoint"},
+  {"id": "extractData", "operation": "EXTRACT", "input": "apiCall", "field": "data"},
+  {"id": "output", "operation": "OUTPUT_TEXT", "format_string": "{}", "values": ["extractData"], "raw": true}
+]
+```
 
-#### 2. **List APIs** (`cli/manage_wdl_action.py --list-apis`)
-- **Purpose**: Browse all available APIs in AdoptAI instance
-- **Features**: Paginated view, JSON output
-- **Usage**: `python cli/manage_wdl_action.py --list-apis [--json]`
-
-#### 3. **Search APIs** (`cli/manage_wdl_action.py --search-apis`)
-- **Purpose**: Semantic search for APIs using natural language
-- **Features**: FAISS indexing, sentence-transformers embeddings
-- **Menu Option**: 4
-
-#### 4. **Checkout Tools** (`checkout_tools.py`)
-- **Purpose**: Download tool definitions from AdoptAI to local workspace
-- **Usage**: Get existing tools for modification or reference
-- **Menu Option**: 6
-
-#### 5. **Test Actions** (`test_adopt_zaction.py` / `patch_wdls.py`)
-- **Purpose**: Test simple actions and generate WDL test structures
-- **Features**: Validates WDL structure, tests execution
-- **Menu Option**: 7
-
-#### 6. **Update Actions** (`update_adopt_zaction.py`)
-- **Purpose**: Update existing simple actions
-- **Usage**: Modify action definitions, WDL, or metadata
+**API Discovery**:
+- List APIs: `python cli/manage_wdl_action.py --list-apis`
+- Search APIs: `python cli/manage_wdl_action.py --search-apis "query"`
 
 **When to Use Simple Actions**:
 - User needs a quick API wrapper
@@ -518,12 +504,12 @@ python tool_agents.py                    # Interactive agent management
 
 #### Simple Actions
 ```bash
-python list_tools.py                     # List all tools
-python search_tools.py                   # Search tools semantically
-python create_tools.py                   # Create new tools
-python checkout_tools.py                 # Checkout existing actions
-python cli/test_adopt_zaction.py        # Test simple actions
-python cli/update_adopt_zaction.py      # Update simple actions
+python cli/manage_wdl_action.py --list-apis    # List available APIs
+python cli/manage_wdl_action.py --search-apis  # Search APIs semantically
+python cli/manage_wdl_action.py --create --template simple -t "Title"  # Create action
+python cli/test_wdl_action.py my-action        # Test action
+python cli/save_wdl_draft.py --workflow-id my-action   # Save draft
+python cli/publish_wdl_action.py --workflow-id my-action  # Publish
 ```
 
 #### Complex Workflows (WDL)
@@ -653,7 +639,8 @@ See these files for AI agent guidance:
 ### Scenario-Based Guide
 
 #### "I need to wrap a single API endpoint"
-→ **Use Simple Actions** (`create_tools.py`)
+→ **Use Simple Actions** (template-based approach)
+- See `prompts/templates/simple_tool_template.md`
 - Quick setup
 - Single REST operation
 - Simple output
@@ -665,8 +652,8 @@ See these files for AI agent guidance:
 - Complex data flow
 - AI integration
 
-#### "I want to find existing tools"
-→ **Use Search** (`search_tools.py` or `cli/manage_wdl_action.py --search`)
+#### "I want to find existing actions/APIs"
+→ **Use Search** (`cli/manage_wdl_action.py --search` or `--search-apis`)
 - Semantic search
 - Natural language queries
 - Tool discovery
@@ -723,7 +710,7 @@ All tools share common infrastructure:
    - Used by WDL workflow tools
 
 3. **Tool Discovery** (`cli/wdl_common/tool_discovery.py`)
-   - Wraps `search_tools.py`, `list_tools.py`, `create_tools.py`
+   - API and action discovery
    - Semantic search integration
    - Used by WDL workflow creation
 
@@ -780,10 +767,11 @@ tool_builder_agents/
 
 ### For Simple Action Creation
 
-1. **Search** for existing tools/APIs (`search_tools.py`)
-2. **Create** tool (`create_tools.py`)
-3. **Test** tool (`test_adopt_zaction.py`)
-4. **Update** if needed (`update_adopt_zaction.py`)
+1. **Search** for existing APIs: `manage_wdl_action.py --search-apis`
+2. **Create** action workspace: `manage_wdl_action.py --create --template simple`
+3. **Edit** `widdle.json` using simple template pattern
+4. **Test**: `test_wdl_action.py my-action`
+5. **Save/Publish**: `save_wdl_draft.py` then `publish_wdl_action.py`
 
 ### For Complex WDL Workflow Creation
 
@@ -831,11 +819,11 @@ tool_builder_agents/
 ## Quick Reference: Common Commands
 
 ```bash
-# Simple action creation
-python create_tools.py
+# Simple action creation (template-based)
+python cli/manage_wdl_action.py --create --template simple -t "My Action"
 
-# Search for tools
-python search_tools.py
+# Search for APIs
+python cli/manage_wdl_action.py --search-apis "query"
 # OR
 python cli/manage_wdl_action.py --search "query"
 
@@ -882,10 +870,10 @@ python cli/publish_wdl_action.py workflow-id
 
 ## Summary
 
-- **Simple Actions**: Use for single-API wrappers → `create_tools.py`
+- **Simple Actions**: Use for single-API wrappers → See `prompts/templates/simple_tool_template.md`
 - **Complex Workflows**: Use for multi-step operations → **See [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
 - **Uber Agents**: Use for multi-action orchestrators → **See [`prompts/system/UBER_AGENT_PROMPT.md`](UBER_AGENT_PROMPT.md)**
-- **Discovery**: Use `search_tools.py` or `--search` / `--auto-discover` options
+- **Discovery**: Use `--search-apis` / `--search` / `--auto-discover` options
 - **Testing**: Always validate locally first (`--local-only`), then test remotely (`--all`)
 - **Publishing**: Only when user explicitly confirms
 

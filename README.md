@@ -49,13 +49,6 @@ ADOPT_CLIENT_SECRET=your_client_secret_here
 # Optional (defaults shown)
 ADOPT_API_ENDPOINT=https://connect.adopt.ai
 ADOPT_ACTIONS_ENDPOINT=https://api.adopt.ai
-
-# Optional - for LLM features
-OPENAI_API_KEY=your_openai_api_key_here
-
-# Optional - for bulk evaluation
-MAXIM_API_KEY=your_maxim_api_key_here
-MAXIM_WORKSPACE_ID=your_maxim_workspace_id_here
 ```
 
 ## Quick Decision Tree

@@ -352,21 +352,20 @@ class AdoptAPIClient:
         Returns:
             Tuple of (success, response_data, message)
         """
-        try:
-            from langchain_core.messages import HumanMessage
-        except ImportError:
-            return False, None, "langchain_core not installed"
-
         url = f"{self.api_endpoint}/v1/actions/run?include_trace=true"
 
-        message = HumanMessage(content=user_input)
+        # Format message in langchain HumanMessage format
+        message = {
+            "type": "human",
+            "content": user_input,
+        }
 
         combined_params = {**profile.get("workflow_params", {})}
         if workflow_params:
             combined_params.update(workflow_params)
 
         payload = {
-            "messages": [message.model_dump()],
+            "messages": [message],
             "action_id": action_id,
             "execution_type": "TOOL",
             "base_url": profile.get("base_url", ""),

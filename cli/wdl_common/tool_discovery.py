@@ -2,13 +2,13 @@
 """
 Tool Discovery - Fetch and list available tools/APIs from AdoptAI.
 
-Integrates with existing Tool Builder infrastructure:
-- Uses ToolManager from list_tools.py for fetching tools
-- Uses APIManager from create_tools.py for fetching APIs
-- Uses ToolSearcher from search_tools.py for semantic search
-- Provides unified interface for the WDL action generator
+Provides unified interface for discovering tools and APIs:
+- List all available tools (existing actions)
+- List all available APIs (for REST operations)
+- Fetch detailed info for specific tools/APIs
+- Optional semantic search if sentence-transformers is installed
 
-This allows the WDL generator (and Cursor) to autonomously discover
+This allows agents (Cursor, Claude Code) to autonomously discover
 and select relevant tools/APIs based on requirements.
 """
 
@@ -343,38 +343,8 @@ class ToolDiscovery:
         Returns:
             Tuple of (success, matching_apis_with_scores, message)
         """
-        try:
-            from cli.search_apis import APISearcher, FAISS_AVAILABLE, SENTENCE_TRANSFORMERS_AVAILABLE
-            
-            # Check if dependencies are available
-            if not FAISS_AVAILABLE or not SENTENCE_TRANSFORMERS_AVAILABLE:
-                # Fall back to text search if semantic search dependencies not available
-                return self.search_apis(query, top_k)
-        except ImportError:
-            # Fall back to text search if semantic search module not available
-            return self.search_apis(query, top_k)
-
-        try:
-            searcher = APISearcher()
-            if not searcher.build_index(self.bearer_token):
-                return False, [], "Failed to build API search index"
-
-            # Use hybrid search (semantic + fuzzy)
-            results = searcher.search(query, top_k=top_k, bearer_token=self.bearer_token, use_hybrid=True)
-
-            # Format results with scores
-            formatted = []
-            for api, score in results:
-                api_with_score = dict(api)
-                api_with_score["_similarity_score"] = round(score * 100, 1)
-                formatted.append(api_with_score)
-
-            return True, formatted, f"Found {len(formatted)} relevant APIs"
-
-        except Exception as e:
-            # Fall back to text search on any error
-            print(f"⚠️  Hybrid search failed: {e}, falling back to text search", file=sys.stderr)
-            return self.search_apis(query, top_k)
+        # Use text-based search
+        return self.search_apis(query, top_k)
 
     def search_apis(
         self, query: str, limit: int = 10
