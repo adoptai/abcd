@@ -45,13 +45,16 @@ class ToolDiscovery:
     - Search tools by name/description
     """
 
-    def __init__(self, bearer_token: Optional[str] = None) -> None:
+    def __init__(self, bearer_token: Optional[str] = None, verbose: bool = False) -> None:
         """
         Initialize tool discovery.
 
         Args:
             bearer_token: Optional pre-fetched token. Will fetch if not provided.
+            verbose: If True, print function entry/exit messages for debugging.
         """
+        self._verbose = verbose
+        self._verbose_print("__init__", "ENTER")
         self._bearer_token = bearer_token
         self.api_endpoint = os.getenv(
             "ADOPT_API_ENDPOINT", "https://connect.adopt.ai"
@@ -61,12 +64,24 @@ class ToolDiscovery:
         )
         self._tools_cache: List[Dict[str, Any]] = []
         self._apis_cache: List[Dict[str, Any]] = []
+        self._verbose_print("__init__", "EXIT")
+
+    def _verbose_print(self, func_name: str, stage: str, extra: str = "") -> None:
+        """Print verbose message if verbose mode is enabled."""
+        if self._verbose:
+            msg = f"[VERBOSE] ToolDiscovery.{func_name}: {stage}"
+            if extra:
+                msg += f" - {extra}"
+            print(msg, file=sys.stderr)
 
     @property
     def bearer_token(self) -> str:
         """Get bearer token, fetching if needed."""
+        self._verbose_print("bearer_token", "ENTER")
         if self._bearer_token is None:
+            self._verbose_print("bearer_token", "fetching token")
             self._bearer_token = get_bearer_token()
+        self._verbose_print("bearer_token", "EXIT")
         return self._bearer_token
 
     @property
@@ -82,57 +97,91 @@ class ToolDiscovery:
     # =========================================================================
 
     def fetch_tools(
-        self, force_refresh: bool = False
+        self, force_refresh: bool = False, execution_type: str = "TOOL"
     ) -> Tuple[bool, List[Dict[str, Any]], str]:
         """
-        Fetch all available tools (actions with execution_type=TOOL).
+        Fetch all available tools/actions with specified execution_type.
 
         Args:
             force_refresh: If True, bypass cache and fetch fresh
+            execution_type: Type of actions to fetch. Options:
+                - "TOOL" (default): Regular tools
+                - "DEFAULT": All actions with default execution mode
+                - "WORKFLOW": Workflow-type actions
 
         Returns:
             Tuple of (success, tools_list, message)
         """
-        # Try to load from cache file first
-        cache_file = Path("tools_cache.json")
+        self._verbose_print("fetch_tools", "ENTER", f"force_refresh={force_refresh}, execution_type={execution_type}")
+        
+        # Use different cache files for different execution types
+        cache_suffix = execution_type.lower().replace(" ", "_")
+        cache_file = Path(f"tools_cache_{cache_suffix}.json") if execution_type != "TOOL" else Path("tools_cache.json")
+        
         if cache_file.exists() and not force_refresh:
+            self._verbose_print("fetch_tools", "checking file cache")
             try:
                 with open(cache_file, 'r') as f:
                     cached_tools = json.load(f)
                     if cached_tools:
-                        self._tools_cache = cached_tools
-                        return True, self._tools_cache, f"Loaded {len(self._tools_cache)} tools from cache"
+                        # Only use memory cache for default TOOL type
+                        if execution_type == "TOOL":
+                            self._tools_cache = cached_tools
+                        self._verbose_print("fetch_tools", "EXIT", "loaded from file cache")
+                        return True, cached_tools, f"Loaded {len(cached_tools)} items from cache"
             except Exception:
                 pass  # Fall through to fetch from API
         
-        if self._tools_cache and not force_refresh:
+        # Only use memory cache for default TOOL type
+        if execution_type == "TOOL" and self._tools_cache and not force_refresh:
+            self._verbose_print("fetch_tools", "EXIT", "using memory cache")
             return True, self._tools_cache, f"Cached {len(self._tools_cache)} tools"
 
+        self._verbose_print("fetch_tools", "fetching from API")
         url = f"{self.api_endpoint}/v1/actions/list"
-        params = {"execution_type": "TOOL"}
+        params = {"execution_type": execution_type}
 
         try:
+            self._verbose_print("fetch_tools", "making HTTP request", f"url={url}")
             response = requests.get(
                 url, headers=self.headers, params=params, timeout=30
             )
+            self._verbose_print("fetch_tools", "HTTP response received", f"status={response.status_code}")
 
             if response.status_code != 200:
+                self._verbose_print("fetch_tools", "EXIT", "request failed")
                 return False, [], f"Failed: {response.status_code} - {response.text}"
 
+            self._verbose_print("fetch_tools", "parsing JSON response")
             data = response.json()
             tools = data.get("capabilities", [])
-            self._tools_cache = tools
+            
+            # Only update memory cache for default TOOL type
+            if execution_type == "TOOL":
+                self._tools_cache = tools
 
             # Save to cache file
+            self._verbose_print("fetch_tools", "saving to file cache")
             try:
                 with open(cache_file, 'w') as f:
                     json.dump(tools, f, indent=2)
             except Exception as e:
-                print(f"⚠️  Warning: Could not save tools cache: {e}", file=sys.stderr)
+                print(f"⚠️  Warning: Could not save cache: {e}", file=sys.stderr)
 
-            return True, tools, f"Fetched {len(tools)} tools"
+            # Use appropriate label based on execution_type
+            if execution_type == "TOOL":
+                item_label = "tools"
+            elif execution_type == "WORKFLOW":
+                item_label = "workflows"
+            elif execution_type == "DEFAULT":
+                item_label = "actions"
+            else:
+                item_label = f"{execution_type} items"
+            self._verbose_print("fetch_tools", "EXIT", f"fetched {len(tools)} {item_label}")
+            return True, tools, f"Fetched {len(tools)} {item_label}"
 
         except requests.exceptions.RequestException as e:
+            self._verbose_print("fetch_tools", "EXIT", f"network error: {e}")
             return False, [], f"Network error: {e}"
 
     def get_tool_details(
@@ -147,17 +196,23 @@ class ToolDiscovery:
         Returns:
             Tuple of (success, tool_data, message)
         """
+        self._verbose_print("get_tool_details", "ENTER", f"tool_id={tool_id}")
         url = f"{self.actions_endpoint}/v1/actions/{tool_id}/current/"
 
         try:
+            self._verbose_print("get_tool_details", "making HTTP request", f"url={url}")
             response = requests.get(url, headers=self.headers, timeout=30)
+            self._verbose_print("get_tool_details", "HTTP response received", f"status={response.status_code}")
 
             if response.status_code != 200:
+                self._verbose_print("get_tool_details", "EXIT", "request failed")
                 return False, None, f"Failed: {response.status_code} - {response.text}"
 
+            self._verbose_print("get_tool_details", "EXIT", "success")
             return True, response.json(), "Tool details fetched"
 
         except requests.exceptions.RequestException as e:
+            self._verbose_print("get_tool_details", "EXIT", f"network error: {e}")
             return False, None, f"Network error: {e}"
 
     def search_tools(
@@ -173,12 +228,15 @@ class ToolDiscovery:
         Returns:
             Tuple of (success, matching_tools, message)
         """
+        self._verbose_print("search_tools", "ENTER", f"query={query}, limit={limit}")
         # Ensure tools are fetched
         success, tools, msg = self.fetch_tools()
         if not success:
+            self._verbose_print("search_tools", "EXIT", "fetch_tools failed")
             return False, [], msg
 
         # Simple text-based search (could be enhanced with semantic search)
+        self._verbose_print("search_tools", "performing text search")
         query_lower = query.lower()
         matches = []
 
@@ -192,6 +250,7 @@ class ToolDiscovery:
             if len(matches) >= limit:
                 break
 
+        self._verbose_print("search_tools", "EXIT", f"found {len(matches)} matches")
         return True, matches, f"Found {len(matches)} matching tools"
 
     # =========================================================================
@@ -211,21 +270,26 @@ class ToolDiscovery:
         Returns:
             Tuple of (success, apis_list, message)
         """
+        self._verbose_print("fetch_apis", "ENTER", f"page_size={page_size}, force_refresh={force_refresh}")
         # Try to load from cache file first
         cache_file = Path("apis_cache.json")
         if cache_file.exists() and not force_refresh:
+            self._verbose_print("fetch_apis", "checking file cache")
             try:
                 with open(cache_file, 'r') as f:
                     cached_apis = json.load(f)
                     if cached_apis:
                         self._apis_cache = cached_apis
+                        self._verbose_print("fetch_apis", "EXIT", "loaded from file cache")
                         return True, self._apis_cache, f"Loaded {len(self._apis_cache)} APIs from cache"
             except Exception:
                 pass  # Fall through to fetch from API
         
         if self._apis_cache and not force_refresh:
+            self._verbose_print("fetch_apis", "EXIT", "using memory cache")
             return True, self._apis_cache, f"Cached {len(self._apis_cache)} APIs"
 
+        self._verbose_print("fetch_apis", "fetching from API")
         url = f"{self.api_endpoint}/v1/tools/apis"
         all_apis: List[Dict[str, Any]] = []
         page = 1
@@ -233,17 +297,21 @@ class ToolDiscovery:
         try:
             while True:
                 params = {"page": page, "page_size": page_size}
+                self._verbose_print("fetch_apis", "making HTTP request", f"page={page}, url={url}")
                 response = requests.get(
                     url, headers=self.headers, params=params, timeout=30
                 )
+                self._verbose_print("fetch_apis", "HTTP response received", f"status={response.status_code}")
 
                 if response.status_code != 200:
+                    self._verbose_print("fetch_apis", "EXIT", "request failed")
                     return (
                         False,
                         [],
                         f"Failed: {response.status_code} - {response.text}",
                     )
 
+                self._verbose_print("fetch_apis", "parsing JSON response")
                 data = response.json()
 
                 # Handle different response formats
@@ -253,6 +321,7 @@ class ToolDiscovery:
                 elif isinstance(data, dict):
                     page_apis = data.get("apis", data.get("data", data.get("items", [])))
 
+                self._verbose_print("fetch_apis", "page processed", f"got {len(page_apis)} APIs")
                 if not page_apis:
                     break
 
@@ -272,15 +341,18 @@ class ToolDiscovery:
             self._apis_cache = all_apis
             
             # Save to cache file
+            self._verbose_print("fetch_apis", "saving to file cache")
             try:
                 with open(cache_file, 'w') as f:
                     json.dump(all_apis, f, indent=2)
             except Exception as e:
                 print(f"⚠️  Warning: Could not save API cache: {e}", file=sys.stderr)
             
+            self._verbose_print("fetch_apis", "EXIT", f"fetched {len(all_apis)} APIs")
             return True, all_apis, f"Fetched {len(all_apis)} APIs"
 
         except requests.exceptions.RequestException as e:
+            self._verbose_print("fetch_apis", "EXIT", f"network error: {e}")
             return False, [], f"Network error: {e}"
 
     def get_api_details(
@@ -297,21 +369,28 @@ class ToolDiscovery:
         Returns:
             Tuple of (success, api_data, message)
         """
+        self._verbose_print("get_api_details", "ENTER", f"api_id={api_id}")
         url = f"{self.api_endpoint}/v1/tools/apis-detailed/{api_id}"
 
         try:
+            self._verbose_print("get_api_details", "making HTTP request", f"url={url}")
             response = requests.get(url, headers=self.headers, timeout=30)
+            self._verbose_print("get_api_details", "HTTP response received", f"status={response.status_code}")
 
             if response.status_code == 200:
+                self._verbose_print("get_api_details", "EXIT", "success")
                 return True, response.json(), "API details fetched"
             
             # Remote fetch failed - try cache fallback
+            self._verbose_print("get_api_details", "remote failed, trying cache fallback")
             print(f"   ⚠️  Remote API fetch failed ({response.status_code}), checking cache...", file=sys.stderr)
             
         except requests.exceptions.RequestException as e:
+            self._verbose_print("get_api_details", "network error, trying cache fallback", str(e))
             print(f"   ⚠️  Network error fetching API: {e}, checking cache...", file=sys.stderr)
         
         # Fallback: Try to find API in cache
+        self._verbose_print("get_api_details", "checking file cache")
         cache_file = Path("apis_cache.json")
         if cache_file.exists():
             try:
@@ -320,10 +399,12 @@ class ToolDiscovery:
                     for api in cached_apis:
                         if api.get("id") == api_id:
                             print(f"   ✅ Found API in cache", file=sys.stderr)
+                            self._verbose_print("get_api_details", "EXIT", "found in cache")
                             return True, api, "API details loaded from cache"
             except Exception as e:
                 print(f"   ⚠️  Could not read cache: {e}", file=sys.stderr)
         
+        self._verbose_print("get_api_details", "EXIT", "not found")
         return False, None, f"API not found in remote or cache: {api_id}"
 
     def semantic_search_apis(
@@ -343,36 +424,47 @@ class ToolDiscovery:
         Returns:
             Tuple of (success, matching_apis_with_scores, message)
         """
+        self._verbose_print("semantic_search_apis", "ENTER", f"query={query[:50]}..., top_k={top_k}")
         try:
+            self._verbose_print("semantic_search_apis", "importing APISearcher")
             from cli.search_apis import APISearcher, FAISS_AVAILABLE, SENTENCE_TRANSFORMERS_AVAILABLE
             
             # Check if dependencies are available
             if not FAISS_AVAILABLE or not SENTENCE_TRANSFORMERS_AVAILABLE:
                 # Fall back to text search if semantic search dependencies not available
+                self._verbose_print("semantic_search_apis", "falling back to text search (deps not available)")
                 return self.search_apis(query, top_k)
         except ImportError:
             # Fall back to text search if semantic search module not available
+            self._verbose_print("semantic_search_apis", "falling back to text search (import error)")
             return self.search_apis(query, top_k)
 
         try:
+            self._verbose_print("semantic_search_apis", "creating APISearcher")
             searcher = APISearcher()
+            self._verbose_print("semantic_search_apis", "building index")
             if not searcher.build_index(self.bearer_token):
+                self._verbose_print("semantic_search_apis", "EXIT", "index build failed")
                 return False, [], "Failed to build API search index"
 
             # Use hybrid search (semantic + fuzzy)
+            self._verbose_print("semantic_search_apis", "performing hybrid search")
             results = searcher.search(query, top_k=top_k, bearer_token=self.bearer_token, use_hybrid=True)
 
             # Format results with scores
+            self._verbose_print("semantic_search_apis", "formatting results")
             formatted = []
             for api, score in results:
                 api_with_score = dict(api)
                 api_with_score["_similarity_score"] = round(score * 100, 1)
                 formatted.append(api_with_score)
 
+            self._verbose_print("semantic_search_apis", "EXIT", f"found {len(formatted)} APIs")
             return True, formatted, f"Found {len(formatted)} relevant APIs"
 
         except Exception as e:
             # Fall back to text search on any error
+            self._verbose_print("semantic_search_apis", "falling back to text search (exception)", str(e))
             print(f"⚠️  Hybrid search failed: {e}, falling back to text search", file=sys.stderr)
             return self.search_apis(query, top_k)
 
@@ -389,11 +481,14 @@ class ToolDiscovery:
         Returns:
             Tuple of (success, matching_apis, message)
         """
+        self._verbose_print("search_apis", "ENTER", f"query={query}, limit={limit}")
         success, apis, msg = self.fetch_apis()
         if not success:
+            self._verbose_print("search_apis", "EXIT", "fetch_apis failed")
             return False, [], msg
 
         # Extract keywords from query
+        self._verbose_print("search_apis", "performing text search")
         query_lower = query.lower()
         query_words = [w for w in query_lower.split() if len(w) > 2]  # Words longer than 2 chars
         
@@ -452,6 +547,7 @@ class ToolDiscovery:
             # Normalize to 0-100 scale (match_score typically 1-20)
             match["_similarity_score"] = min(match_score * 5, 100)
 
+        self._verbose_print("search_apis", "EXIT", f"found {len(matches)} matches")
         return True, matches, f"Found {len(matches)} matching APIs"
 
     # =========================================================================
@@ -475,28 +571,37 @@ class ToolDiscovery:
         Returns:
             Tuple of (success, matching_tools_with_scores, message)
         """
+        self._verbose_print("semantic_search_tools", "ENTER", f"query={query[:50]}..., top_k={top_k}")
         if not SEMANTIC_SEARCH_AVAILABLE:
             # Fall back to text search
+            self._verbose_print("semantic_search_tools", "falling back to text search (not available)")
             return self.search_tools(query, top_k)
 
         try:
+            self._verbose_print("semantic_search_tools", "creating ToolSearcher")
             searcher = ToolSearcher()
+            self._verbose_print("semantic_search_tools", "building index")
             if not searcher.build_index(self.bearer_token):
+                self._verbose_print("semantic_search_tools", "EXIT", "index build failed")
                 return False, [], "Failed to build search index"
 
             # Use hybrid search (semantic + fuzzy)
+            self._verbose_print("semantic_search_tools", "performing hybrid search")
             results = searcher.search(query, top_k=top_k, bearer_token=self.bearer_token, use_hybrid=True)
 
             # Format results with scores
+            self._verbose_print("semantic_search_tools", "formatting results")
             formatted = []
             for tool, score in results:
                 tool_with_score = dict(tool)
                 tool_with_score["_similarity_score"] = round(score * 100, 1)
                 formatted.append(tool_with_score)
 
+            self._verbose_print("semantic_search_tools", "EXIT", f"found {len(formatted)} tools")
             return True, formatted, f"Found {len(formatted)} relevant tools"
 
         except Exception as e:
+            self._verbose_print("semantic_search_tools", "EXIT", f"error: {e}")
             return False, [], f"Hybrid search error: {e}"
 
     def discover_tools_for_requirements(
@@ -515,13 +620,17 @@ class ToolDiscovery:
         Returns:
             Tuple of (success, combined_results_with_type, message)
         """
+        self._verbose_print("discover_tools_for_requirements", "ENTER", f"requirements_len={len(requirements)}, top_k={top_k}")
         # Search for tools using semantic search
+        self._verbose_print("discover_tools_for_requirements", "searching tools")
         tools_success, tools, tools_msg = self.semantic_search_tools(requirements, top_k)
         
         # Search for APIs using semantic search
+        self._verbose_print("discover_tools_for_requirements", "searching APIs")
         apis_success, apis, apis_msg = self.semantic_search_apis(requirements, top_k)
         
         # Combine results with type markers
+        self._verbose_print("discover_tools_for_requirements", "combining results")
         combined = []
         
         if tools_success and tools:
@@ -553,6 +662,7 @@ class ToolDiscovery:
         
         message = f"Found {', '.join(msg_parts)}" if msg_parts else "No results found"
         
+        self._verbose_print("discover_tools_for_requirements", "EXIT", message)
         return True, combined, message
 
     def export_search_results_json(
@@ -567,6 +677,7 @@ class ToolDiscovery:
         Returns:
             JSON string of results with separate tools and apis arrays
         """
+        self._verbose_print("export_search_results_json", "ENTER", f"results_count={len(results)}")
         tools = [t for t in results if t.get("_type") == "tool"]
         apis = [a for a in results if a.get("_type") == "api"]
         
@@ -594,6 +705,7 @@ class ToolDiscovery:
                 for a in apis
             ],
         }
+        self._verbose_print("export_search_results_json", "EXIT")
         return json.dumps(export, indent=2)
 
     # =========================================================================
@@ -610,10 +722,12 @@ class ToolDiscovery:
             tools: List of tools to display (uses cache if None)
             limit: Maximum tools to display
         """
+        self._verbose_print("display_tools", "ENTER", f"limit={limit}")
         if tools is None:
             success, tools, msg = self.fetch_tools()
             if not success:
                 print(f"❌ {msg}")
+                self._verbose_print("display_tools", "EXIT", "fetch failed")
                 return
 
         print("\n" + "=" * 80)
@@ -631,6 +745,7 @@ class ToolDiscovery:
             print(f"... and {len(tools) - limit} more")
 
         print("=" * 80)
+        self._verbose_print("display_tools", "EXIT")
 
     def display_apis(
         self, apis: Optional[List[Dict[str, Any]]] = None, limit: Optional[int] = None
@@ -642,10 +757,12 @@ class ToolDiscovery:
             apis: List of APIs to display (uses cache if None)
             limit: Maximum APIs to display (None for no limit, displays all)
         """
+        self._verbose_print("display_apis", "ENTER", f"limit={limit}")
         if apis is None:
             success, apis, msg = self.fetch_apis()
             if not success:
                 print(f"❌ {msg}")
+                self._verbose_print("display_apis", "EXIT", "fetch failed")
                 return
 
         print("\n" + "=" * 80)
@@ -670,6 +787,7 @@ class ToolDiscovery:
             print(f"... and {len(apis) - limit} more")
 
         print("=" * 80)
+        self._verbose_print("display_apis", "EXIT")
 
     # =========================================================================
     # Export for WDL Generation Context
@@ -681,8 +799,10 @@ class ToolDiscovery:
 
         Returns a markdown string with tool info for LLM/Cursor.
         """
+        self._verbose_print("get_tool_context", "ENTER", f"tool_id={tool_id}")
         success, tool, msg = self.get_tool_details(tool_id)
         if not success or not tool:
+            self._verbose_print("get_tool_context", "EXIT", "tool not found")
             return None
 
         lines = []
@@ -706,6 +826,7 @@ class ToolDiscovery:
             lines.append(json.dumps(params, indent=2))
             lines.append("```")
 
+        self._verbose_print("get_tool_context", "EXIT")
         return "\n".join(lines)
 
     def get_api_context(self, api_id: str) -> Optional[str]:
@@ -714,8 +835,10 @@ class ToolDiscovery:
 
         Returns a markdown string with API info for LLM/Cursor.
         """
+        self._verbose_print("get_api_context", "ENTER", f"api_id={api_id}")
         success, api, msg = self.get_api_details(api_id)
         if not success or not api:
+            self._verbose_print("get_api_context", "EXIT", "api not found")
             return None
 
         lines = []
@@ -746,5 +869,6 @@ class ToolDiscovery:
             if len(endpoints) > 10:
                 lines.append(f"- ... and {len(endpoints) - 10} more endpoints")
 
+        self._verbose_print("get_api_context", "EXIT")
         return "\n".join(lines)
 
