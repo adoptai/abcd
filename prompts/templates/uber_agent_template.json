@@ -1,0 +1,27 @@
+[
+  {
+    "id": "uberAgent",
+    "operation": "PROMPT_AND_TOOLS_AGENT",
+    "model_string": "claude-4-5-sonnet",
+    "action_ids": [],
+    "system_prompt": "You are a helpful assistant with access to the following tools:\n\n{{TOOL_DESCRIPTIONS}}\n\nBased on the user's request:\n1. Determine which tool(s) to call\n2. Ask the user for any missing required inputs\n3. Execute the tools deterministically\n4. Present the results clearly\n5. Ask what the user wants to do next\n\nDo not add reasoning steps - execute tools directly when you have all required inputs."
+  },
+  {
+    "id": "extractAgentMessage",
+    "operation": "EXTRACT",
+    "input": "uberAgent",
+    "field": "message"
+  },
+  {
+    "id": "outputAgentResponse",
+    "operation": "OUTPUT_TEXT",
+    "format_string": "{}",
+    "values": ["extractAgentMessage"],
+    "raw": true
+  },
+  {
+    "required_inputs": []
+  }
+]
+
+

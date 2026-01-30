@@ -1,0 +1,53 @@
+[
+  {
+    "metadata": {
+      "title": "{{WORKFLOW_TITLE}}",
+      "description": "{{WORKFLOW_DESCRIPTION}}",
+      "version": "1.0"
+    }
+  },
+  {
+    "id": "apiCall",
+    "operation": "REST",
+    "method": "{{METHOD}}",
+    "url": "{{API_URL}}",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": "{{REQUEST_BODY}}"
+  },
+  {
+    "id": "extractData",
+    "operation": "EXTRACT",
+    "input": "apiCall",
+    "field": "{{RESPONSE_FIELD}}"
+  },
+  {
+    "id": "smartFilter",
+    "operation": "INTELLIGENT_FILTER",
+    "inputs": ["extractData"],
+    "instructions": "Filter the data based on user's request. Retain all fields."
+  },
+  {
+    "id": "smartOutput",
+    "operation": "INTELLIGENT_OUTPUT",
+    "input": "smartFilter",
+    "preferred_llm": "claude-sonnet-4-5",
+    "context_map": {
+      "extractData": {
+        "description": "API response data",
+        "render_as": "table"
+      }
+    },
+    "header_max_lines": 3,
+    "table_rows_limit": 20,
+    "instructions": "Present the data clearly. Use table format for lists. Start with a friendly acknowledgment."
+  },
+  {
+    "required_inputs": [
+      "{\"{{INPUT_NAME}}\": {\"type\": \"{{INPUT_TYPE}}\", \"definition\": \"{{INPUT_DESCRIPTION}}\"}}"
+    ]
+  }
+]
+
+

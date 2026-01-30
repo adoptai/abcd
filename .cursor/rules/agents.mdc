@@ -1,701 +1,207 @@
-# ABCD - Agent CLI Instructions
+# ABCD - Agent CLI Quick Reference
 
-This document provides comprehensive guidance for AI agents (like Cursor) working with the ABCD repository.
+**This is the primary navigation document for AI agents working with ABCD.**
 
-## Transparent CLI Behavior (RECOMMENDED)
+For detailed information, load the appropriate prompt from `prompts/system/`:
+- **WORKSPACE_HIERARCHY_PROMPT.md** - Workspace structure, environments, profiles
+- **UBER_AGENT_PROMPT.md** - Creating Uber Agents with sub-actions
+- **TESTING_PROMPT.md** - Testing strategies, parallel tests, via-agent tests
+- **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** - WDL operations and workflow creation
 
-**Core Principle**: CLI commands auto-detect version, draft status, agent mode, and action_id from metadata. **Only use flags when automatic behavior doesn't work.**
+---
 
-### Primary Commands
+## Quick Command Reference
 
-| Command | Purpose |
-|---------|---------|
-| `test_wdl_action.py <id>` | Test (auto-detects version/draft) |
-| `save_wdl_draft.py --workflow-id <id>` | Save draft (auto-creates action) |
-| `publish_wdl_action.py --workflow-id <id>` | Publish (requires confirmation) |
-| `list_wdl_versions.py --workflow-id <id>` | List versions |
-| `checkout_wdl_version.py --workflow-id <id> -v N` | Checkout version |
-| `status.py <id>` | Show workspace status |
-| `validate.py <id>` | Validate WDL |
-| `reconnect.py <id> --search` | Reconnect workspace |
-
-### Quick Workflow
+### Workflow Development
 
 ```bash
-python cli/status.py my-workflow                    # Check status
-python cli/test_wdl_action.py my-workflow --local-only  # Validate
-python cli/test_wdl_action.py my-workflow           # Test remotely
-python cli/save_wdl_draft.py --workflow-id my-workflow  # Save draft
-python cli/publish_wdl_action.py --workflow-id my-workflow  # Publish
+# Check status
+python cli/status.py my-workflow
+
+# Validate locally
+python cli/test_wdl_action.py my-workflow --local-only
+
+# Test remotely
+python cli/test_wdl_action.py my-workflow
+
+# Save draft
+python cli/save_wdl_draft.py --workflow-id my-workflow
+
+# Publish
+python cli/publish_wdl_action.py --workflow-id my-workflow
 ```
 
-### When to Use Flags
-
-Only use explicit flags when auto-detection fails:
-```bash
---version N      # Force specific version
---allow-draft    # Force allow draft flag
---standalone     # Force standalone mode
---agent NAME     # Force specific agent
-```
-
----
-
-## Table of Contents
-
-- [Simplified CLI Commands](#simplified-cli-commands-recommended)
-- [Overview](#overview)
-- [Quick Decision Tree](#quick-decision-tree)
-- [Functionality Categories](#functionality-categories)
-- [PROMPT_AND_TOOLS_AGENT Requirements](#prompt_and_tools_agent-requirements)
-
----
-
-## Overview
-
-The Tool Builder repository provides a comprehensive CLI toolkit for managing tools and workflows on the AdoptAI platform. It supports two main types of operations:
-
-1. **Simple Tools**: Single-API wrapper tools (REST → OUTPUT pattern)
-2. **Complex Workflows**: Multi-step WDL workflows with multiple operations, AI integration, and data transformations
-
-### Key Files
-
-- **`tool_builder.py`**: Main interactive CLI menu (entry point)
-- **`cli/`**: All CLI scripts organized by functionality
-- **`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`**: Comprehensive guide for creating complex WDL workflows
-- **`README.md`**: User-facing documentation
-
----
-
-## Quick Decision Tree
-
-```
-User Request
-    │
-    ├─ "Create a simple API wrapper" → Use Simple Tools (create_tools.py)
-    │
-    ├─ "Create a complex workflow" → Use WDL Workflows (see CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)
-    │
-    ├─ "Search for existing tools" → Use search_tools.py
-    │
-    ├─ "Test a tool" → Use test_adopt_zaction.py (simple) or test_wdl_action.py (complex)
-    │
-    ├─ "Evaluate/benchmark a workflow" → Use eval_wdl_action.py (bulk evaluations with Maxim)
-    │
-    ├─ "Manage agents/workspaces" → Use tool_agents.py
-    │
-    └─ "Version management" → Use list_wdl_versions.py / checkout_wdl_version.py
-```
-
----
-
-## Functionality Categories
-
-### Agent Management
-
-**Purpose**: Organize tools and workflows into logical groups (agents/workspaces)
-
-**Tools**:
-- `tool_agents.py`: Create, delete, and select agents
-- Used by all other tools for workspace organization
-
-**When to Use**:
-- User wants to organize tools by project/team/feature
-- Need to group related tools and workflows together
-- Setting up a new project workspace
-
-**CLI Access**:
-- Interactive menu: Options 1-2 in `tool_builder.py`
-- Direct: `python tool_agents.py` (if standalone)
-
----
-
-### Simple Tools (API Wrappers)
-
-**Purpose**: Create single-API wrapper tools that follow REST → OUTPUT pattern
-
-**Characteristics**:
-- One REST API call
-- Simple data transformation (optional)
-- Single output operation
-- Fast to create and test
-
-**Tools**:
-
-#### 1. **Create Tools** (`create_tools.py`)
-- **Purpose**: Create new simple tools by associating them with APIs
-- **Usage**: Interactive CLI or programmatic
-- **Output**: Tool definition saved to agent workspace
-- **Menu Option**: 5
-
-#### 2. **List Tools** (`list_tools.py`)
-- **Purpose**: Browse all available tools in AdoptAI instance
-- **Features**: Paginated view, filtering, caching
-- **Menu Option**: 3
-
-#### 3. **Search Tools** (`search_tools.py`)
-- **Purpose**: Semantic search for tools using natural language
-- **Features**: FAISS indexing, sentence-transformers embeddings
-- **Menu Option**: 4
-
-#### 4. **Checkout Tools** (`checkout_tools.py`)
-- **Purpose**: Download tool definitions from AdoptAI to local workspace
-- **Usage**: Get existing tools for modification or reference
-- **Menu Option**: 6
-
-#### 5. **Test Tools** (`test_adopt_zaction.py` / `patch_wdls.py`)
-- **Purpose**: Test simple tools and generate WDL test structures
-- **Features**: Validates WDL structure, tests execution
-- **Menu Option**: 7
-
-#### 6. **Update Tools** (`update_adopt_zaction.py`)
-- **Purpose**: Update existing simple tools
-- **Usage**: Modify tool definitions, WDL, or metadata
-
-**When to Use Simple Tools**:
-- User needs a quick API wrapper
-- Single API endpoint call
-- Simple data transformation
-- No complex logic or multiple steps required
-
----
-
-### Complex Workflows (WDL)
-
-**Purpose**: Create multi-step workflows with complex operations, AI integration, and data transformations
-
-**Characteristics**:
-- Multiple operations (REST, JQ_FILTER, EXTRACT, PROJECT, PROMPT, etc.)
-- Complex data flow between steps
-- AI operations (LLM calls, agents)
-- Conditional logic
-- Pagination handling
-- Multiple outputs
-
-**⚠️ IMPORTANT**: For creating complex WDL workflows, refer to **[`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)** for comprehensive instructions.
-
-**Tools**:
-
-#### 1. **Manage WDL Workflow** (`cli/manage_wdl_action.py`)
-- **Purpose**: Create, update, and manage WDL workflow workspaces
-- **Features**:
-  - Tool/API discovery (`--search`, `--auto-discover`)
-  - Workspace creation with context (`--create`)
-  - Update existing workspaces (`--update`)
-  - Add APIs/tools to existing workflows independently
-  - Cursor instruction generation
-- **Menu Option**: 8
-- **Key Options**:
-  ```bash
-  # Discovery (works independently)
-  --list-tools          # List all available tools
-  --list-apis           # List all available APIs
-  --search "query"      # Semantic search for tools
-  --search-apis "query" # Semantic search for APIs
-  --auto-discover       # Auto-discover based on requirements
-  
-  # Create new workflow
-  --create              # Create new workflow workspace
-  --requirements, -r    # Path to requirements .md file
-  --title, -t           # Workflow title
-  --use-tool ID         # Include existing tool as building block
-  --use-api ID          # Include API specification
-  --standalone          # Create standalone workspace (no agent)
-  --agent NAME          # Create in agent workspace
-  
-  # Update existing workflow
-  --update              # Update existing workflow
-  --workflow-id, -w     # Workflow ID to update
-  
-  # Add APIs/tools independently (no --create/--update needed)
-  --workflow-id, -w     # Workflow ID
-  --use-api ID          # Add API to existing workflow
-  --use-tool ID         # Add tool to existing workflow
-  ```
-
-#### 2. **Test WDL Workflow** (`cli/test_wdl_action.py`)
-- **Purpose**: Test WDL workflows locally and remotely
-- **Features**:
-  - **Step 1**: JSON syntax validation (catches parsing errors)
-  - **Step 2**: Local WDL structure validation (`--local-only`)
-  - Remote execution with trace capture
-  - **Draft testing**: Automatically detects and tests draft versions
-  - **Test case management**: Run specific test case or all test cases
-  - **Output validation**: Validates outputs against `expected_output` in test cases
-  - Auto-save draft on success
-  - Fix instruction generation on failure
-- **Menu Option**: 9
-- **Key Options**:
-  ```bash
-  --local-only          # Validate JSON syntax and WDL structure only
-  --no-auto-save        # Don't auto-save draft on success
-  --test FILE           # Use specific test case (filename only, not path)
-                        # Examples: --test test_1.json, --test test_2.json
-                        # NOT: --test test_cases/test_1.json (wrong!)
-  --all                  # Run all test cases in test_cases/ directory
-  --agent NAME          # Specify agent name
-  ```
-- **Draft Testing**: Tests draft versions directly without requiring publication
-- **Test Cases**: JSON files in `test_cases/` directory with `prompt`, `workflow_params`, and `expected_output`
-  - Validation types: `similarity` (most common, LLM-judged), `exact` (code-based), `contains` (code-based)
-  - For `similarity`: Agent (LLM) reviews actual vs expected output and judges if they're similar enough with valid data
-
-#### 3. **Save WDL Draft** (`cli/save_wdl_draft.py`)
-- **Purpose**: Save workflow as draft without publishing
-- **Features**:
-  - **Automatically creates remote action** if it doesn't exist
-  - **Automatically publishes WDL** to remote if not already published
-  - Saves as draft (creates version)
-  - Does NOT approve - action stays in draft state
-  - **Version descriptions**: Supports `--description` parameter
-  - **Local WDL storage**: Automatically saves WDL to `versions/v{version_number}_widdle.json`
-  - Updates `metadata.json` with version info in versions map
-- **Usage**: Persist changes without making workflow live
-- **Menu Option**: 10
-- **Example**:
-  ```bash
-  python cli/save_wdl_draft.py --workflow-id {id} --description "Fixed bug" --standalone
-  ```
-- **Local Storage**: Each saved draft stores WDL in `versions/v{version_number}_widdle.json` for future checkout
-
-#### 4. **Publish WDL Workflow** (`cli/publish_wdl_action.py`)
-- **Purpose**: Approve and publish workflow (makes it live)
-- **Features**:
-  - **Version descriptions**: Supports `--description` parameter
-  - **Local WDL storage**: Saves WDL to `versions/v{version_number}_widdle.json` when publishing
-  - Updates version status to published in metadata.json
-  - Shows existing description when available
-- **⚠️ Requires explicit user confirmation**
-- **Menu Option**: 11
-- **Example**:
-  ```bash
-  python cli/publish_wdl_action.py {action_id} --version 10 --description "Production release"
-  ```
-- **Local Storage**: Tries to save WDL locally (from draft copy or workspace) for future checkout
-
-#### 5. **List WDL Versions** (`cli/list_wdl_versions.py`)
-- **Purpose**: View version history for a workflow
-- **Features**: 
-  - Shows all versions, status, timestamps
-  - **Displays descriptions prominently**
-  - **Syncs all versions from API to metadata.json**
-  - Shows which version is current and checked-out
-- **Menu Option**: 12
-- **Example**:
-  ```bash
-  python cli/list_wdl_versions.py {action_id} --workflow-id {workflow_id} --standalone
-  ```
-
-#### 6. **Checkout WDL Version** (`cli/checkout_wdl_version.py`)
-- **Purpose**: Checkout specific version for iteration
-- **Features**:
-  - **Local-first approach**: Checks `versions/v{version_number}_widdle.json` first (no API call if available)
-  - **Saves WDL locally**: Stores checked-out WDL to `versions/v{version_number}_widdle.json` for future use
-  - **Tracks publish status** (`is_published` flag)
-  - **Retrieves and stores version descriptions** from API
-  - Updates both `current_version.txt` and `metadata.json` versions map
-  - Displays version status and description in output
-- **Usage**: Work on historical versions, compare changes
-- **Menu Option**: 13
-- **Example**:
-  ```bash
-  python cli/checkout_wdl_version.py {action_id} --version 4 --workflow-id {workflow_id} --standalone
-  ```
-- **Local Storage**: All checked-out versions saved to `versions/` folder for easy comparison and reuse
-
-#### 7. **Bulk Evaluate WDL Workflow** (`cli/eval_wdl_action.py`)
-- **Purpose**: Run bulk evaluations on WDL workflows using Maxim platform
-- **Features**:
-  - **Maxim integration**: Uses Maxim evaluation platform for bias and semantic similarity
-  - **Multiple test sources**: Use workspace test_cases or custom CSV files
-  - **Field exclusion**: Filter response fields for cleaner evaluation
-  - **Version-aware**: Tests checked-out or current version
-  - **Result export**: Saves evaluation summaries to workspace
-- **Menu Option**: 14
-- **Requirements**: 
-  - `MAXIM_API_KEY` and `MAXIM_WORKSPACE_ID` environment variables
-  - AdoptXchange package (auto-installed as dependency)
-- **Key Options**:
-  ```bash
-  --csv-file, -c        # Custom CSV file with Input,Expected_output columns
-  --exclude-fields, -e  # Comma-separated fields to exclude from response
-  --use-workspace-tests # Use test_cases/ directory instead of CSV
-  --standalone, -s      # Force standalone mode
-  --agent NAME          # Specify agent name
-  ```
-- **Example**:
-  ```bash
-  # Evaluate using workspace test cases
-  python cli/eval_wdl_action.py workflow-id
-  
-  # Evaluate with custom CSV and field exclusion
-  python cli/eval_wdl_action.py workflow-id --csv-file tests.csv --exclude-fields header_message,footer_message
-  ```
-- **CSV Format**: Requires columns `Input` and `Expected_output`
-- **Output**: View results in Maxim dashboard, summary saved to `evals/` directory in workspace
-
-**When to Use WDL Workflows**:
-- User needs multi-step operations
-- Multiple API calls required
-- Complex data transformations
-- AI/LLM integration needed
-- Conditional logic or branching
-- User explicitly requests "complex workflow" or "multi-step"
-
-**👉 For detailed WDL workflow creation instructions, see: [`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
-
----
-
-## CLI Tools Reference
-
-### Main Entry Point
-
-**`tool_builder.py`**: Interactive menu-driven CLI
-```bash
-python tool_builder.py
-```
-
-**Menu Structure**:
-```
---- Agent Management ---
-1. Create agent
-2. Delete agent
-
---- Simple Tools (API Wrappers) ---
-3. List all tools
-4. Search tools
-5. Create tools
-6. Change APIs/tools of an agent
-7. Test tools (WDL structure)
-
---- Complex Workflows (WDL) ---
-8. Create WDL workflow
-9. Test WDL workflow
-10. Save WDL draft
-11. Publish WDL workflow
-12. List WDL versions
-13. Checkout WDL version
-14. Bulk evaluate WDL workflow (Maxim)
-
---- Other ---
-15. Publish agent to upstream
-16. Exit
-```
-
-### Direct CLI Scripts
-
-All scripts can be run directly without the menu:
-
-#### Agent Management
-```bash
-python tool_agents.py                    # Interactive agent management
-```
-
-#### Simple Tools
-```bash
-python list_tools.py                     # List all tools
-python search_tools.py                   # Search tools semantically
-python create_tools.py                   # Create new tools
-python checkout_tools.py                 # Checkout existing tools
-python cli/test_adopt_zaction.py        # Test simple tools
-python cli/update_adopt_zaction.py      # Update simple tools
-```
-
-#### Complex Workflows (WDL)
-```bash
-python cli/manage_wdl_action.py [OPTIONS]    # Create/update WDL workflow
-python cli/test_wdl_action.py [OPTIONS]       # Test WDL workflow
-python cli/save_wdl_draft.py [OPTIONS]        # Save draft
-python cli/publish_wdl_action.py [OPTIONS]    # Publish workflow
-python cli/list_wdl_versions.py [OPTIONS]    # List versions
-python cli/checkout_wdl_version.py [OPTIONS] # Checkout version
-python cli/eval_wdl_action.py [OPTIONS]      # Bulk evaluate workflow (Maxim)
-```
-
-**For help on any script**:
-```bash
-python cli/[script_name].py --help
-```
-
----
-
-## When to Use Each Tool
-
-### Scenario-Based Guide
-
-#### "I need to wrap a single API endpoint"
-→ **Use Simple Tools** (`create_tools.py`)
-- Quick setup
-- Single REST operation
-- Simple output
-
-#### "I need a complex workflow with multiple steps"
-→ **Use WDL Workflows** (`cli/manage_wdl_action.py`)
-- **👉 See [`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
-- Multiple operations
-- Complex data flow
-- AI integration
-
-#### "I want to find existing tools"
-→ **Use Search** (`search_tools.py` or `cli/manage_wdl_action.py --search`)
-- Semantic search
-- Natural language queries
-- Tool discovery
-
-#### "I need to test my workflow"
-→ **Use Test** (`cli/test_wdl_action.py`)
-- Local validation first (`--local-only`)
-- Remote execution
-- Trace capture
-- Run all test cases (`--all`) or specific test (`--test test_N.json`)
-  - **IMPORTANT**: Use filename only (e.g., `test_1.json`), not path (`test_cases/test_1.json`)
-- Output validation against `expected_output` in test cases
-
-#### "I want to iterate on a previous version"
-→ **Use Version Management** (`list_wdl_versions.py` + `checkout_wdl_version.py`)
-- View history with descriptions
-- Checkout specific version (tracks publish status)
-- Test draft versions directly
-- Iterate safely with version descriptions
-
-#### "I need to organize tools by project"
-→ **Use Agent Management** (`tool_agents.py`)
-- Create agents
-- Group related tools
-- Workspace organization
-
-#### "I want to run bulk evaluations on my workflow"
-→ **Use Bulk Evaluation** (`cli/eval_wdl_action.py`)
-- Maxim evaluation platform integration
-- Bias and semantic similarity scoring
-- CSV or workspace test case support
-- Automated result export
-
----
-
-## Integration Points
-
-### Shared Infrastructure
-
-All tools share common infrastructure:
-
-1. **Authentication** (`get_bearer.py`)
-   - Bearer token management
-   - Session caching
-   - Used by all API calls
-
-2. **API Client** (`cli/wdl_common/api_client.py`)
-   - Consolidated AdoptAI API client
-   - CRUD operations
-   - Testing and versioning
-   - Used by WDL workflow tools
-
-3. **Tool Discovery** (`cli/wdl_common/tool_discovery.py`)
-   - Wraps `search_tools.py`, `list_tools.py`, `create_tools.py`
-   - Semantic search integration
-   - Used by WDL workflow creation
-
-4. **Workspace Management** (`cli/wdl_common/workspace_manager.py`)
-   - Agent integration
-   - Standalone mode support
-   - Used by WDL workflow tools
-
-5. **WDL Documentation** (`cli/wdl_common/wdl_documentation.py`)
-   - Roaming RAG support
-   - Documentation path provider
-   - Used for WDL generation
-
-### Workspace Structure
-
-```
-tool_builder_agents/
-└── {agent_name}/
-    ├── tools/              # Simple tools
-    │   └── {tool_id}.json
-    ├── workflows/          # Complex workflows
-    │   └── {workflow_id}/
-    │       ├── widdle.json
-    │       ├── requirements.md
-    │       ├── apis/        # API specifications
-    │       │   ├── manifest.json
-    │       │   └── {api_id}.json
-    │       ├── tools/       # Tool definitions (for reference)
-    │       │   ├── manifest.json
-    │       │   └── {tool_id}.json
-    │       ├── tool_context.md  # Markdown-formatted tool WDLs
-    │       ├── test_cases/
-    │       └── traces/
-    └── agent.json          # Agent metadata
-```
-
----
-
-## Key Differences: Simple Tools vs WDL Workflows
-
-| Feature | Simple Tools | WDL Workflows |
-|---------|-------------|---------------|
-| **Complexity** | Single API call | Multiple operations |
-| **Operations** | REST → OUTPUT | REST, JQ_FILTER, EXTRACT, PROJECT, PROMPT, CONDITION, etc. |
-| **Data Flow** | Simple | Complex with transformations |
-| **AI Integration** | No | Yes (PROMPT, PROMPT_AND_TOOLS_AGENT) |
-| **Control Flow** | Linear | Conditional branching |
-| **Creation Time** | Minutes | Hours (with iteration) |
-| **Use Case** | API wrappers | Complex business logic |
-
----
-
-## Agent Workflow Recommendations
-
-### For Simple Tool Creation
-
-1. **Search** for existing tools/APIs (`search_tools.py`)
-2. **Create** tool (`create_tools.py`)
-3. **Test** tool (`test_adopt_zaction.py`)
-4. **Update** if needed (`update_adopt_zaction.py`)
-
-### For Complex WDL Workflow Creation
-
-1. **👉 Read [`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
-2. **Discover** tools/APIs (`cli/manage_wdl_action.py --auto-discover`)
-3. **Create** workspace (`cli/manage_wdl_action.py --create`)
-4. **Update** workspace with APIs/tools (`cli/manage_wdl_action.py --update --workflow-id <id>` or use `--workflow-id` with `--use-api`/`--use-tool`)
-5. **Generate** WDL (Cursor-led, following roaming instructions)
-6. **Generate 3 test cases** BEFORE testing:
-   - Create `test_1.json`, `test_2.json`, `test_3.json` in `test_cases/` directory
-   - Test 1: Basic/common use case
-   - Test 2: Different input scenario or parameter combination
-   - Test 3: Edge case or alternative scenario
-   - Each should include `prompt`, `workflow_params`, and `expected_output` with `similarity` validation
-7. **Test** locally (`cli/test_wdl_action.py workflow-id --local-only`)
-   - **Step 1**: JSON syntax validation (catches parsing errors early)
-   - **Step 2**: WDL structure validation (catches logical errors)
-8. **Test** remotely (`cli/test_wdl_action.py workflow-id --all`) - Runs all 3 test cases
-   - Or test specific case: `python cli/test_wdl_action.py workflow-id --test test_2.json`
-   - **Note**: Use filename only (e.g., `test_2.json`), not path (`test_cases/test_2.json`)
-9. **Iterate** based on test results
-10. **Save** draft (`cli/save_wdl_draft.py`) - Automatically creates remote action and publishes WDL if needed
-11. **Bulk evaluate** (optional) - Run comprehensive evaluations before publishing:
-    ```bash
-    python cli/eval_wdl_action.py workflow-id
-    ```
-    - Uses Maxim for bias and semantic similarity evaluation
-    - Supports CSV test data or workspace test cases
-    - Generates detailed evaluation reports
-12. **Publish** when user confirms (`cli/publish_wdl_action.py`)
-
----
-
-## Important Notes for Agents
-
-1. **Always ask for confirmation before publishing** - Publishing makes workflows live
-2. **Use local validation first** - Test with `--local-only` before remote execution
-   - **Step 1**: JSON syntax validation catches parsing errors (invalid JSON, malformed strings, etc.)
-   - **Step 2**: WDL structure validation catches logical errors (missing fields, invalid references, etc.)
-   - Fix JSON errors first before proceeding to structure validation
-3. **Auto-save drafts** - Tests passing auto-save drafts (safe)
-4. **Automatic remote action creation** - `save_wdl_draft.py` automatically creates remote action and publishes WDL if needed
-5. **Draft testing** - Draft actions can be tested directly without publishing
-6. **Version management** - Every draft creates a version with descriptions, users can checkout and test any version
-7. **Version descriptions** - All versions can have descriptions stored locally and synced from API
-5. **Roaming RAG** - For WDL generation, use SYSTEM.md as index, load specific docs as needed
-6. **Tool discovery** - Use semantic search to find relevant building blocks
-7. **Agent organization** - Use agents to group related tools/workflows
-
----
-
-## Quick Reference: Common Commands
+### Workspace Management
 
 ```bash
-# Simple tool creation
-python create_tools.py
+# Environment
+python cli/workspace.py env create --id staging --name "Staging" --use
+python cli/workspace.py env list
 
-# Search for tools
-python search_tools.py
-# OR
-python cli/manage_wdl_action.py --search "query"
+# Agent
+python cli/workspace.py agent create --id my-agent --name "My Agent"
+python cli/workspace.py agent checkout --remote-id abc123 --env staging --include-subactions
 
-# Create WDL workflow
-python cli/manage_wdl_action.py --create -r requirements.md -t "Title" --agent my-agent
-
-# Update existing workflow (add APIs/tools)
-python cli/manage_wdl_action.py --update --workflow-id abc123 --use-api api-1 --use-api api-2
-
-# Add APIs/tools independently (no --create/--update needed)
-python cli/manage_wdl_action.py --workflow-id abc123 --use-api api-1 --use-tool tool-1
-
-# Test WDL workflow
-python cli/test_wdl_action.py workflow-id --local-only  # Validate JSON syntax + structure
-python cli/test_wdl_action.py workflow-id               # Execute remotely (default test case)
-python cli/test_wdl_action.py workflow-id --all         # Run all test cases
-python cli/test_wdl_action.py workflow-id --test test_2.json  # Run specific test case (filename only!)
-# Note: Use --test test_2.json, NOT --test test_cases/test_2.json
-
-# Version management
-python cli/list_wdl_versions.py {action_id} --workflow-id workflow-id --standalone
-python cli/checkout_wdl_version.py {action_id} --version 3 --workflow-id workflow-id --standalone
-
-# Save draft with description (auto-creates remote action and publishes WDL if needed)
-python cli/save_wdl_draft.py --workflow-id workflow-id --description "Fixed bug" --standalone
-
-# Test draft version directly (no publish needed!)
-python cli/test_wdl_action.py workflow-id
-
-# Publish (requires confirmation)
-python cli/publish_wdl_action.py workflow-id
-
-# Bulk evaluation with Maxim (requires MAXIM_API_KEY and MAXIM_WORKSPACE_ID)
-python cli/eval_wdl_action.py workflow-id                    # Use workspace test cases
-python cli/eval_wdl_action.py workflow-id --csv-file tests.csv  # Use custom CSV
-python cli/eval_wdl_action.py workflow-id --exclude-fields header_message,footer_message  # Filter response fields
+# Action
+python cli/workspace.py action create --id my-action --title "My Action"
 ```
 
----
-
-## Getting Help
-
-- **User Documentation**: See `README.md`
-- **WDL Workflow Guide**: See [`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)
-- **CLI Help**: `python cli/[script_name].py --help`
-- **Interactive Menu**: `python tool_builder.py`
-
----
-
-## Summary
-
-- **Simple Tools**: Use for single-API wrappers → `create_tools.py`
-- **Complex Workflows**: Use for multi-step operations → **See [`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
-- **Discovery**: Use `search_tools.py` or `--search` / `--auto-discover` options
-- **Testing**: Always validate locally first, then test remotely
-- **Bulk Evaluation**: Use `cli/eval_wdl_action.py` for comprehensive Maxim evaluations
-- **Publishing**: Only when user explicitly confirms
-
-For detailed WDL workflow creation instructions, **always refer to [`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**.
-
----
-
-## PROMPT_AND_TOOLS_AGENT Requirements
-
-When using actions as sub-tools in `PROMPT_AND_TOOLS_AGENT`:
-
-1. **Must be PUBLISHED** - Draft actions cannot be used as sub-tools
-2. **Title format** - Pattern: `^[a-zA-Z0-9_-]{1,128}$`
-   - ✅ `odoo-get-orderpoints`, `inventory_check`
-   - ❌ `Odoo Get Orderpoints`, `Check (Inventory)`
-3. **required_inputs format** - Must be list of JSON strings, not dict
-
-### Validate for Orchestrator
+### Testing
 
 ```bash
-python cli/validate.py my-workflow --orchestrator --auto-fix
+# Single action
+python cli/test_wdl_action.py my-action
+
+# Parallel
+python cli/test_runner.py action1 action2 action3 --parallel 3
+
+# All in environment
+python cli/test_runner.py --workspace production-client-a
+
+# Via-agent (sub-action through agent)
+python cli/test_runner.py my-agent --via-agent --subaction get-data
+```
+
+### Tool Mode (for sub-actions)
+
+```bash
+python cli/deployment_rules.py my-action --enable-tool-mode
+python cli/deployment_rules.py my-action --show
 ```
 
 ---
 
-## Common Error Fixes
+## Command Categories
 
-| Error | Fix |
-|-------|-----|
-| `required_inputs should be list` | `python cli/validate.py workflow-id --auto-fix` |
-| `invalid tool name` | `python cli/validate.py workflow-id --orchestrator --auto-fix` |
-| `Action not found` | `python cli/reconnect.py workflow-id --search` |
+| Category | Commands |
+|----------|----------|
+| **Status/Info** | `status.py`, `validate.py`, `list_wdl_versions.py` |
+| **Testing** | `test_wdl_action.py`, `test_runner.py` |
+| **Save/Publish** | `save_wdl_draft.py`, `publish_wdl_action.py` |
+| **Versioning** | `checkout_wdl_version.py`, `list_wdl_versions.py` |
+| **Workspace** | `workspace.py env/agent/action/profile` |
+| **Tool Mode** | `deployment_rules.py` |
+| **Discovery** | `manage_wdl_action.py --search`, `search_tools.py` |
 
+---
+
+## Decision Tree
+
+```
+What do you need to do?
+│
+├─ Create new workflow?
+│   → Read: CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md
+│   → Run: python cli/manage_wdl_action.py --create -r requirements.md -t "Title"
+│
+├─ Create Uber Agent with sub-actions?
+│   → Read: UBER_AGENT_PROMPT.md
+│   → Run: python cli/workspace.py agent create ...
+│
+├─ Set up environments/workspaces?
+│   → Read: WORKSPACE_HIERARCHY_PROMPT.md
+│   → Run: python cli/workspace.py env create ...
+│
+├─ Test workflows?
+│   → Read: TESTING_PROMPT.md
+│   → Run: python cli/test_wdl_action.py ...
+│
+├─ Debug test failure?
+│   → Check traces/ folder
+│   → Read: DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md
+│
+└─ Find existing actions/APIs?
+    → Run: python cli/manage_wdl_action.py --search "query"
+```
+
+---
+
+## Workspace Structure
+
+```
+workspaces/
+├── .env                    # Root fallback
+├── adopt_profile.json      # Root credentials
+├── {environment}/          # Environment level
+│   ├── .env
+│   ├── adopt_profile.json
+│   ├── agents/{agent}/     # Uber Agents
+│   │   ├── widdle.json     # PROMPT_AND_TOOLS_AGENT
+│   │   └── actions/        # Sub-actions
+│   └── actions/            # Standalone actions
+└── standalone/             # No-env actions
+```
+
+**Config Inheritance**: Action → Agent → Environment → Root
+
+---
+
+## Uber Agent Requirements
+
+When creating sub-actions for Uber Agents:
+
+1. **Title format**: `^[a-zA-Z0-9_-]{1,128}$` (no spaces)
+2. **Must be published** (not draft)
+3. **Tool mode enabled**: `deployment_rules.py X --enable-tool-mode`
+4. **Added to agent**: `workspace.py agent add-subaction ...`
+
+---
+
+## Key Prompts to Load
+
+| Scenario | Load Prompt |
+|----------|-------------|
+| Creating WDL workflows | `CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md` |
+| Workspace/env setup | `WORKSPACE_HIERARCHY_PROMPT.md` |
+| Uber Agents | `UBER_AGENT_PROMPT.md` |
+| Testing strategies | `TESTING_PROMPT.md` |
+| Debugging failures | `DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md` |
+| WDL issue patterns | `guidelines/WDL_ISSUE_PATTERNS.md` |
+
+---
+
+## Automatic Behaviors
+
+CLI commands are **transparent by default**:
+
+- **Auto-version**: Detects which version from metadata
+- **Auto-draft**: Determines if allow_draft needed
+- **Auto-create**: Creates remote action if not linked
+- **Auto-recovery**: Searches by title if action_id lost
+- **Auto-agent**: Detects agent vs standalone from path
+
+**Only use flags when automatic behavior fails.**
+
+---
+
+## Templates
+
+| Template | Location |
+|----------|----------|
+| Uber Agent | `prompts/templates/uber_agent_template.json` |
+| Complex Workflow | `prompts/templates/complex_workflow_template.json` |
+| Simple Action | `prompts/templates/simple_tool_template.json` |
+
+---
+
+## For Detailed Information
+
+**Always load the appropriate prompt for complex tasks:**
+
+```
+prompts/system/
+├── CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md  # WDL creation guide
+├── WORKSPACE_HIERARCHY_PROMPT.md          # Workspace management
+├── UBER_AGENT_PROMPT.md                   # Multi-action agents
+├── TESTING_PROMPT.md                      # Testing strategies
+├── DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md      # Debugging
+└── adopt_agent_configuration.md           # Agent config
+
+prompts/guidelines/
+└── WDL_ISSUE_PATTERNS.md                  # Common errors
+
+prompts/templates/
+├── uber_agent_template.json
+├── complex_workflow_template.json
+└── simple_tool_template.json
+```

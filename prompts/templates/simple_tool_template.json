@@ -1,0 +1,37 @@
+[
+  {
+    "metadata": {
+      "title": "{{TOOL_TITLE}}",
+      "description": "{{TOOL_DESCRIPTION}}",
+      "version": "1.0"
+    }
+  },
+  {
+    "id": "apiCall",
+    "operation": "REST",
+    "method": "{{METHOD}}",
+    "url": "{{API_URL}}",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": ""
+  },
+  {
+    "id": "extractData",
+    "operation": "EXTRACT",
+    "input": "apiCall",
+    "field": "{{RESPONSE_FIELD}}"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TEXT",
+    "format_string": "{}",
+    "values": ["extractData"],
+    "raw": true
+  },
+  {
+    "required_inputs": []
+  }
+]
+
+

@@ -141,17 +141,17 @@ def save_wdl_draft(
     # If still no action_id, create new action
     if not action_id:
         print("\n🔧 Step 1: Creating remote action...")
-
+        
         # Get title from metadata
         title = meta_data.title
         if not title:
-            metadata_path = workspace / "metadata.json"
-            if metadata_path.exists():
-                metadata = json.loads(metadata_path.read_text())
-                title = metadata.get("title", "New WDL Workflow")
-            else:
-                title = "New WDL Workflow"
-
+        metadata_path = workspace / "metadata.json"
+        if metadata_path.exists():
+            metadata = json.loads(metadata_path.read_text())
+            title = metadata.get("title", "New WDL Workflow")
+        else:
+            title = "New WDL Workflow"
+        
         # Load requirements for description
         requirements_path = workspace / "requirements.md"
         if requirements_path.exists():
@@ -159,37 +159,37 @@ def save_wdl_draft(
             action_description = f"Generated from requirements: {requirements}..."
         else:
             action_description = f"WDL workflow: {title}"
-
+        
         # Load API IDs from manifest
         api_ids = []
         apis_manifest = workspace / "apis" / "manifest.json"
         if apis_manifest.exists():
             manifest = json.loads(apis_manifest.read_text())
             api_ids = manifest.get("api_ids", [])
-
+        
         print(f"   Title: {title}")
         print(f"   API IDs: {api_ids}")
-
+        
         success, data, msg = client.create_action(
             title=title,
             description=action_description,
             api_ids=api_ids if api_ids else None,
         )
-
+        
         if not success:
             print(f"❌ Failed to create action: {msg}")
             return False, ""
-
+        
         action_id = data.get("action_id") if data else None
         if not action_id:
             print("❌ No action_id in response")
             return False, ""
-
+        
         print(f"   ✅ Action created: {action_id}")
-
+        
         # Set deployment rules
         client.set_deployment_rules(action_id)
-
+        
         # Save action_id using MetadataManager (protected file + metadata)
         meta_manager.set_action_id(action_id)
         print("   ✅ Updated metadata with action_id")
@@ -215,9 +215,9 @@ def save_wdl_draft(
                         return False, ""
             else:
                 print("❌ Cannot recover - no title in metadata")
-                return False, ""
+            return False, ""
         else:
-            print("   ✅ Action exists on remote")
+        print("   ✅ Action exists on remote")
 
     print(f"\n🔑 Action ID: {action_id}")
 

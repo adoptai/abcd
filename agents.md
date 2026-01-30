@@ -1,21 +1,35 @@
 # ABCD - Agent CLI Instructions
 
-This document provides comprehensive guidance for AI agents (like Cursor) working with the ABCD repository. It explains all available functionalities, CLI tools, and when to use each.
+This document provides comprehensive guidance for AI agents (like Cursor) working with the ABCD repository.
+
+---
+
+## 📚 Detailed Prompts (Load as Needed)
+
+For in-depth information, load the appropriate prompt from `prompts/system/`:
+
+| Prompt | When to Load |
+|--------|--------------|
+| **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** | Creating WDL workflows, understanding operations |
+| **WORKSPACE_HIERARCHY_PROMPT.md** | Managing workspaces, environments, config inheritance |
+| **UBER_AGENT_PROMPT.md** | Creating Uber Agents with sub-actions |
+| **TESTING_PROMPT.md** | Testing strategies, parallel tests, via-agent tests |
+| **DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md** | Debugging failures, analyzing traces |
+
+Templates: `prompts/templates/` (uber_agent, complex_workflow, simple_tool)
+
+---
 
 ## Table of Contents
 
-- [Simplified CLI Commands (NEW)](#simplified-cli-commands-new)
+- [Transparent CLI Behavior](#transparent-cli-behavior)
+- [Quick Command Reference](#quick-command-reference)
+- [Workspace Management (NEW)](#workspace-management-new)
+- [Testing Commands](#testing-commands)
 - [Overview](#overview)
 - [Quick Decision Tree](#quick-decision-tree)
 - [Functionality Categories](#functionality-categories)
-  - [Agent Management](#agent-management)
-  - [Simple Tools (API Wrappers)](#simple-tools-api-wrappers)
-  - [Complex Workflows (WDL)](#complex-workflows-wdl)
-- [CLI Tools Reference](#cli-tools-reference)
-- [When to Use Each Tool](#when-to-use-each-tool)
-- [Integration Points](#integration-points)
 - [PROMPT_AND_TOOLS_AGENT Requirements](#prompt_and_tools_agent-requirements)
-- [Test-First Workflow](#test-first-workflow)
 
 ---
 
@@ -59,6 +73,99 @@ python cli/list_wdl_versions.py --workflow-id my-workflow
 
 # 7. Publish when ready
 python cli/publish_wdl_action.py --workflow-id my-workflow
+
+# 8. Enable tool mode (for sub-actions)
+python cli/deployment_rules.py my-workflow --enable-tool-mode
+```
+
+---
+
+## Workspace Management (NEW)
+
+**📖 Full details: `prompts/system/WORKSPACE_HIERARCHY_PROMPT.md`**
+
+ABCD now supports a hierarchical workspace structure:
+
+```
+workspaces/
+├── {environment}/              # Level 1: Environment
+│   ├── .env, adopt_profile.json
+│   ├── agents/{agent}/         # Level 2: Uber Agent
+│   │   └── actions/{action}/   # Level 3: Sub-action
+│   └── actions/{action}/       # Level 3: Standalone action
+└── standalone/                 # Global standalone actions
+```
+
+### Key Commands
+
+```bash
+# Environment
+python cli/workspace.py env create --id staging --name "Staging" --use
+python cli/workspace.py env list
+
+# Agent (Uber Agent)
+python cli/workspace.py agent create --id my-agent --name "My Agent"
+python cli/workspace.py agent checkout --remote-id abc123 --env staging --include-subactions
+python cli/workspace.py agent add-subaction --agent my-agent --action get-data --remote-id xyz789
+
+# Profile (config inheritance)
+python cli/workspace.py profile show --action my-action
+```
+
+### Config Inheritance
+
+```
+Action adopt_profile.json → Agent → Environment → Root
+```
+
+---
+
+## Testing Commands
+
+**📖 Full details: `prompts/system/TESTING_PROMPT.md`**
+
+### Single Action
+
+```bash
+python cli/test_wdl_action.py my-action
+python cli/test_wdl_action.py my-action --local-only    # Validate only
+python cli/test_wdl_action.py my-action --all           # All test cases
+```
+
+### Parallel Testing
+
+```bash
+python cli/test_runner.py action1 action2 action3 --parallel 3
+```
+
+### Batch Testing
+
+```bash
+# All actions in environment
+python cli/test_runner.py --workspace production-env
+
+# All sub-actions in agent
+python cli/test_runner.py --agent my-agent --all-subactions
+```
+
+### Via-Agent Testing
+
+Test sub-action through its parent agent:
+
+```bash
+python cli/test_runner.py my-agent --via-agent --subaction get-data
+```
+
+---
+
+## Tool Mode / Deployment Rules
+
+**Required for sub-actions used by Uber Agents.**
+
+```bash
+python cli/deployment_rules.py my-action --show              # Show status
+python cli/deployment_rules.py my-action --enable-tool-mode  # Enable
+python cli/deployment_rules.py my-action --disable-tool-mode # Disable
 ```
 
 ### Automatic Features
@@ -89,10 +196,11 @@ python cli/publish_wdl_action.py abc123-action-id --version 5
 
 ## Overview
 
-The Tool Builder repository provides a comprehensive CLI toolkit for managing tools and workflows on the AdoptAI platform. It supports two main types of operations:
+ABCD provides a comprehensive CLI toolkit for building and managing actions, agents, and automations on the AdoptAI platform. It supports three main types of operations:
 
-1. **Simple Tools**: Single-API wrapper tools (REST → OUTPUT pattern)
+1. **Simple Actions**: Single-API wrappers (REST → OUTPUT pattern)
 2. **Complex Workflows**: Multi-step WDL workflows with multiple operations, AI integration, and data transformations
+3. **Uber Agents**: Multi-action orchestrators using PROMPT_AND_TOOLS_AGENT
 
 ### Key Files
 
@@ -108,7 +216,7 @@ The Tool Builder repository provides a comprehensive CLI toolkit for managing to
 ```
 User Request
     │
-    ├─ "Create a simple API wrapper" → python cli/manage_wdl_action.py --create --template simple --use-api <id>
+    ├─ "Create a simple action" → python cli/manage_wdl_action.py --create --template simple --use-api <id>
     │
     ├─ "Create a complex workflow" → python cli/manage_wdl_action.py --create --template workflow -r requirements.md
     │
@@ -147,9 +255,9 @@ User Request
 
 ---
 
-### Simple Tools (API Wrappers)
+### Simple Actions (API Wrappers)
 
-**Purpose**: Create single-API wrapper tools that follow REST → OUTPUT pattern
+**Purpose**: Create single-API wrapper actions that follow REST → OUTPUT pattern
 
 **Characteristics**:
 - One REST API call
@@ -161,8 +269,8 @@ User Request
 
 **Tools**:
 
-#### 1. **Create Simple Tool** (unified CLI)
-- **Purpose**: Create new simple tools from a single API
+#### 1. **Create Simple Action** (unified CLI)
+- **Purpose**: Create new simple actions from a single API
 - **Usage**: `python cli/manage_wdl_action.py --create --template simple --use-api <api-id> -t "Title"`
 - **Features**:
   - Auto-discovers API details
@@ -186,16 +294,16 @@ User Request
 - **Usage**: Get existing tools for modification or reference
 - **Menu Option**: 6
 
-#### 5. **Test Tools** (`test_adopt_zaction.py` / `patch_wdls.py`)
-- **Purpose**: Test simple tools and generate WDL test structures
+#### 5. **Test Actions** (`test_adopt_zaction.py` / `patch_wdls.py`)
+- **Purpose**: Test simple actions and generate WDL test structures
 - **Features**: Validates WDL structure, tests execution
 - **Menu Option**: 7
 
-#### 6. **Update Tools** (`update_adopt_zaction.py`)
-- **Purpose**: Update existing simple tools
-- **Usage**: Modify tool definitions, WDL, or metadata
+#### 6. **Update Actions** (`update_adopt_zaction.py`)
+- **Purpose**: Update existing simple actions
+- **Usage**: Modify action definitions, WDL, or metadata
 
-**When to Use Simple Tools**:
+**When to Use Simple Actions**:
 - User needs a quick API wrapper
 - Single API endpoint call
 - Simple data transformation
@@ -346,52 +454,6 @@ User Request
   ```
 - **Local Storage**: All checked-out versions saved to `versions/` folder for easy comparison and reuse
 
-#### 7. **Evaluate WDL Workflow** (`cli/eval_wdl_action.py`)
-- **Purpose**: Run comprehensive bulk evaluation using AdoptXchange/Maxim platform
-- **Features**:
-  - Integrates with **Maxim** evaluation platform via AdoptXchange
-  - Uses **BulkEvaluator** for parallel test execution
-  - **Schema validation**: Verifies output structure matches expected
-  - **Tracing validation**: Compares execution steps (APIs, operations)
-  - **Semantic similarity**: Maxim's "Ragas Answer Semantic Similarity" evaluator
-  - **Bias detection**: Maxim's "Bias" evaluator
-  - Saves results to CSV and JSON summary
-- **Menu Option**: 14 (new)
-- **Key Options**:
-  ```bash
-  # Evaluate with workspace test cases
-  python cli/eval_wdl_action.py {workflow_id}
-  
-  # Evaluate with custom CSV test data
-  python cli/eval_wdl_action.py {workflow_id} --csv-file tests.csv
-  
-  # Evaluate with field exclusion
-  python cli/eval_wdl_action.py {workflow_id} --exclude-fields header_message
-  
-  # Evaluate in specific agent
-  python cli/eval_wdl_action.py {workflow_id} --agent my-agent
-  
-  # Use workspace test cases directory
-  python cli/eval_wdl_action.py {workflow_id} --use-workspace-tests
-  ```
-- **Requirements**:
-  ```bash
-  # In .env file
-  MAXIM_API_KEY=your-maxim-api-key
-  MAXIM_WORKSPACE_ID=your-maxim-workspace-id
-  ```
-- **Output Files**:
-  - `evals/eval_summary_{timestamp}.json` - Evaluation summary
-  - `evals/evaluation_results_{timestamp}.csv` - Detailed per-test results
-  - Maxim dashboard link for visual review
-
-**When to Use Evaluation**:
-- Before publishing a major version
-- When validating fixes across multiple test cases
-- For regression testing after WDL changes
-- For comprehensive quality assessment
-- When quick tests pass but need deeper validation
-
 **When to Use WDL Workflows**:
 - User needs multi-step operations
 - Multiple API calls required
@@ -419,8 +481,8 @@ python tool_builder.py
 1. Create agent
 2. Delete agent
 
---- Simple Tools (API Wrappers) ---
-3. List all tools
+--- Simple Actions (API Wrappers) ---
+3. List all actions
 4. Search tools
 5. Create tools
 6. Change APIs/tools of an agent
@@ -433,7 +495,6 @@ python tool_builder.py
 11. Publish WDL workflow
 12. List WDL versions
 13. Checkout WDL version
-14. Evaluate WDL workflow (AdoptXchange/Maxim)
 
 --- Diagnostics & Fixes ---
 15. Diagnose APIs & Tools (scan for issues)
@@ -455,14 +516,14 @@ All scripts can be run directly without the menu:
 python tool_agents.py                    # Interactive agent management
 ```
 
-#### Simple Tools
+#### Simple Actions
 ```bash
 python list_tools.py                     # List all tools
 python search_tools.py                   # Search tools semantically
 python create_tools.py                   # Create new tools
-python checkout_tools.py                 # Checkout existing tools
-python cli/test_adopt_zaction.py        # Test simple tools
-python cli/update_adopt_zaction.py      # Update simple tools
+python checkout_tools.py                 # Checkout existing actions
+python cli/test_adopt_zaction.py        # Test simple actions
+python cli/update_adopt_zaction.py      # Update simple actions
 ```
 
 #### Complex Workflows (WDL)
@@ -473,7 +534,6 @@ python cli/save_wdl_draft.py [OPTIONS]        # Save draft
 python cli/publish_wdl_action.py [OPTIONS]    # Publish workflow
 python cli/list_wdl_versions.py [OPTIONS]    # List versions
 python cli/checkout_wdl_version.py [OPTIONS] # Checkout version
-python cli/eval_wdl_action.py [OPTIONS]      # Bulk evaluation with Maxim
 ```
 
 #### Diagnostics & Fixes
@@ -593,7 +653,7 @@ See these files for AI agent guidance:
 ### Scenario-Based Guide
 
 #### "I need to wrap a single API endpoint"
-→ **Use Simple Tools** (`create_tools.py`)
+→ **Use Simple Actions** (`create_tools.py`)
 - Quick setup
 - Single REST operation
 - Simple output
@@ -620,16 +680,7 @@ See these files for AI agent guidance:
   - **IMPORTANT**: Use filename only (e.g., `test_1.json`), not path (`test_cases/test_1.json`)
 - Output validation against `expected_output` in test cases
 
-#### "I need comprehensive evaluation before publishing"
-→ **Use Evaluation** (`cli/eval_wdl_action.py`)
-- Bulk test execution with AdoptXchange/Maxim
-- Schema validation (output structure)
-- Tracing validation (API calls, operations)
-- Semantic similarity scoring
-- Bias detection
-- CSV results for detailed analysis
-
-**When to use Test vs Evaluation**:
+**When to use which Testing approach**:
 | Scenario | Use Test | Use Evaluation |
 |----------|----------|----------------|
 | Quick validation during dev | ✅ | |
@@ -691,8 +742,8 @@ All tools share common infrastructure:
 ```
 tool_builder_agents/
 └── {agent_name}/
-    ├── tools/              # Simple tools
-    │   └── {tool_id}.json
+    ├── actions/            # Simple actions
+    │   └── {action_id}.json
     ├── workflows/          # Complex workflows
     │   └── {workflow_id}/
     │       ├── widdle.json
@@ -711,9 +762,9 @@ tool_builder_agents/
 
 ---
 
-## Key Differences: Simple Tools vs WDL Workflows
+## Key Differences: Simple Actions vs WDL Workflows
 
-| Feature | Simple Tools | WDL Workflows |
+| Feature | Simple Actions | WDL Workflows |
 |---------|-------------|---------------|
 | **Complexity** | Single API call | Multiple operations |
 | **Operations** | REST → OUTPUT | REST, JQ_FILTER, EXTRACT, PROJECT, PROMPT, CONDITION, etc. |
@@ -721,13 +772,13 @@ tool_builder_agents/
 | **AI Integration** | No | Yes (PROMPT, PROMPT_AND_TOOLS_AGENT) |
 | **Control Flow** | Linear | Conditional branching |
 | **Creation Time** | Minutes | Hours (with iteration) |
-| **Use Case** | API wrappers | Complex business logic |
+| **Use Case** | API wrappers | Complex business logic, agents |
 
 ---
 
 ## Agent Workflow Recommendations
 
-### For Simple Tool Creation
+### For Simple Action Creation
 
 1. **Search** for existing tools/APIs (`search_tools.py`)
 2. **Create** tool (`create_tools.py`)
@@ -755,13 +806,7 @@ tool_builder_agents/
    - **Note**: Use filename only (e.g., `test_2.json`), not path (`test_cases/test_2.json`)
 9. **Iterate** based on test results
 10. **Save** draft (`cli/save_wdl_draft.py`) - Automatically creates remote action and publishes WDL if needed
-11. **Evaluate** comprehensively (`cli/eval_wdl_action.py workflow-id`) - Before publishing:
-    - Run bulk evaluation with AdoptXchange/Maxim
-    - Check schema validation results
-    - Check tracing validation results  
-    - Review semantic similarity and bias scores
-    - Fix any issues found before publishing
-12. **Publish** when user confirms (`cli/publish_wdl_action.py`)
+11. **Publish** when user confirms (`cli/publish_wdl_action.py`)
 
 ---
 
@@ -786,7 +831,7 @@ tool_builder_agents/
 ## Quick Reference: Common Commands
 
 ```bash
-# Simple tool creation
+# Simple action creation
 python create_tools.py
 
 # Search for tools
@@ -820,10 +865,6 @@ python cli/save_wdl_draft.py --workflow-id workflow-id --description "Fixed bug"
 # Test draft version directly (no publish needed!)
 python cli/test_wdl_action.py workflow-id
 
-# Run comprehensive evaluation (before publishing)
-python cli/eval_wdl_action.py workflow-id
-python cli/eval_wdl_action.py workflow-id --csv-file tests.csv   # With custom test data
-
 # Publish (requires confirmation)
 python cli/publish_wdl_action.py workflow-id
 ```
@@ -841,22 +882,19 @@ python cli/publish_wdl_action.py workflow-id
 
 ## Summary
 
-- **Simple Tools**: Use for single-API wrappers → `create_tools.py`
+- **Simple Actions**: Use for single-API wrappers → `create_tools.py`
 - **Complex Workflows**: Use for multi-step operations → **See [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
+- **Uber Agents**: Use for multi-action orchestrators → **See [`prompts/system/UBER_AGENT_PROMPT.md`](UBER_AGENT_PROMPT.md)**
 - **Discovery**: Use `search_tools.py` or `--search` / `--auto-discover` options
 - **Testing**: Always validate locally first (`--local-only`), then test remotely (`--all`)
-- **Evaluation**: Run comprehensive evaluation before publishing → `cli/eval_wdl_action.py`
-  - Schema validation, tracing validation, semantic similarity, bias detection
-  - Uses AdoptXchange/Maxim platform
-- **Publishing**: Only when user explicitly confirms, after evaluation passes
+- **Publishing**: Only when user explicitly confirms
 
 **Workflow Order**:
 1. Create/Generate WDL
 2. Local validation (`test_wdl_action.py --local-only`)
 3. Remote testing (`test_wdl_action.py --all`)
 4. Save draft (`save_wdl_draft.py`)
-5. **Comprehensive evaluation** (`eval_wdl_action.py`) ← Before publishing
-6. Publish (`publish_wdl_action.py`)
+5. Publish (`publish_wdl_action.py`)
 
 For detailed WDL workflow creation instructions, **always refer to [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**.
 

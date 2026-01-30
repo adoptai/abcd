@@ -144,6 +144,33 @@ def show_status(workflow_id: str, sync_remote: bool = True) -> bool:
     
     print("└" + "─" * 78 + "┘")
     
+    # Deployment rules section (if linked to remote)
+    if action_id and sync_remote:
+        print("\n" + "┌" + "─" * 78 + "┐")
+        print("│ DEPLOYMENT RULES" + " " * 61 + "│")
+        print("├" + "─" * 78 + "┤")
+
+        success, rules, _ = client.get_deployment_rules(action_id)
+        if success and rules:
+            is_tool_mode = rules.get("is_tool_mode", False)
+            is_visible = rules.get("is_visible_in_list", True)
+
+            tool_mode_text = "ENABLED ✓" if is_tool_mode else "Disabled"
+            visible_text = "Yes" if is_visible else "Hidden"
+
+            print(f"│ Tool Mode:        {tool_mode_text}" + " " * (59 - len(tool_mode_text)) + "│")
+            print(f"│ Visible in List:  {visible_text}" + " " * (59 - len(visible_text)) + "│")
+
+            targeting_rules = rules.get("rules", [])
+            if targeting_rules:
+                print(f"│ Targeting Rules:  {len(targeting_rules)} rules configured" + " " * 43 + "│")
+            else:
+                print("│ Targeting Rules:  None (available to all)" + " " * 35 + "│")
+        else:
+            print("│ Could not fetch deployment rules" + " " * 44 + "│")
+
+        print("└" + "─" * 78 + "┘")
+
     # Remote state section
     print("\n" + "┌" + "─" * 78 + "┐")
     print("│ REMOTE STATE" + " " * 65 + "│")

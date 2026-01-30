@@ -63,11 +63,11 @@ python cli/fix_api_path.py <api-id> --trailing-slash add
 # Test a tool after fixing
 python cli/fix_and_test.py <tool-id> --fix-file fix.json --test
 
-# Quick test
+# Test with specific prompt
 python cli/test_wdl_action.py <tool-id> --prompt "Test prompt"
 
-# Full evaluation
-python cli/eval_wdl_action.py <tool-id> --test-prompts tests.json
+# Test all test cases
+python cli/test_wdl_action.py <tool-id> --all
 ```
 
 ## ⚠️ CRITICAL RULE: Keep API and WDL in Sync

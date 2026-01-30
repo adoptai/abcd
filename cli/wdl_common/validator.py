@@ -537,3 +537,4 @@ def validate_wdl_file(
     validator = WDLValidator()
     return validator.validate_file(wdl_path, context, auto_fix)
 
+

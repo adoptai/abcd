@@ -160,16 +160,52 @@ class AdoptAPIClient:
         except requests.exceptions.RequestException as e:
             return False, f"Network error: {e}"
 
+    def get_deployment_rules(
+        self,
+        action_id: str,
+    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        Get deployment rules for action including tool mode status.
+
+        Returns:
+            Tuple of (success, deployment_rules_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/actions/{action_id}/deployment-rules"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Deployment rules fetched"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
     def set_deployment_rules(
         self,
         action_id: str,
-        is_tool_mode: bool = True,
-    ) -> Tuple[bool, str]:
-        """Set deployment rules for action."""
+        is_tool_mode: bool = False,
+        is_visible_in_list: bool = True,
+        rules: Optional[List[Dict[str, Any]]] = None,
+    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        Set deployment rules for action.
+
+        Args:
+            action_id: Action ID
+            is_tool_mode: Enable Tool Mode (bypass orchestrator)
+            is_visible_in_list: Show in action list
+            rules: Optional targeting rules (user properties, instance attributes)
+
+        Returns:
+            Tuple of (success, deployment_rules_data, message)
+        """
         url = f"{self.actions_endpoint}/v1/actions/{action_id}/deployment-rules"
         payload = {
-            "rules": [],
-            "is_visible_in_list": True,
+            "rules": rules or [],
+            "is_visible_in_list": is_visible_in_list,
             "is_tool_mode": is_tool_mode,
         }
 
@@ -179,12 +215,12 @@ class AdoptAPIClient:
             )
 
             if response.status_code not in (200, 201):
-                return False, f"Failed: {response.status_code} - {response.text}"
+                return False, None, f"Failed: {response.status_code} - {response.text}"
 
-            return True, "Deployment rules set"
+            return True, response.json(), "Deployment rules updated"
 
         except requests.exceptions.RequestException as e:
-            return False, f"Network error: {e}"
+            return False, None, f"Network error: {e}"
 
     def populate_instructions(self, action_id: str) -> Tuple[bool, str]:
         """Trigger instruction population for action."""

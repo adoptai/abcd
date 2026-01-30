@@ -54,8 +54,8 @@ Templates are located in `prompts/templates/`:
 # Complex workflow (default - no template flag needed)
 python cli/manage_wdl_action.py --create -r requirements.md -t "My Workflow"
 
-# Simple tool (single API wrapper)
-python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "My Tool"
+# Simple action (single API wrapper)
+python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "My Action"
 ```
 
 When using `--template simple`:
@@ -68,7 +68,7 @@ When using `--template simple`:
 
 **Choose your workflow based on complexity:**
 
-- **Simple Tool** (single API): Use `--template simple` - quick creation with REST → OUTPUT pattern
+- **Simple Action** (single API): Use `--template simple` - quick creation with REST → OUTPUT pattern
 - **Complex Workflow** (default): Full exploratory workflow with discovery, multiple APIs, data transformations
 
 When a user provides a requirements document for a **complex workflow**, follow this workflow:
@@ -280,41 +280,6 @@ python cli/test_wdl_action.py {workflow_id} --all
 4. Re-run tests: `python cli/test_wdl_action.py {workflow_id} --all`
 5. **Iterate until all test cases pass** with similar/valid outputs
 
-### Phase 5.5: Comprehensive Evaluation (Before Publishing)
-
-Once quick tests pass, run comprehensive evaluation:
-
-```bash
-# Run bulk evaluation with AdoptXchange/Maxim
-python cli/eval_wdl_action.py {workflow_id}
-
-# Or with specific test data
-python cli/eval_wdl_action.py {workflow_id} --csv-file tests.csv
-```
-
-**Evaluation Checklist** (before publishing):
-- [ ] All quick tests pass (`test_wdl_action.py --all`)
-- [ ] Schema validation passes (output structure matches expected)
-- [ ] Tracing validation passes (correct API calls and operations)
-- [ ] Semantic similarity score is acceptable (typically > 0.7)
-- [ ] Bias score is acceptable (typically > 0.9)
-
-**If evaluation fails**:
-1. Review the evaluation CSV (`evals/evaluation_results_*.csv`)
-2. Check schema errors - fix output structure
-3. Check tracing errors - fix API calls or operation flow
-4. Review low similarity scores - adjust output formatting
-5. Re-iterate on the WDL and re-evaluate
-
-**Key principle**: The workflow should produce outputs that are **similar** to expected outputs and contain **valid, non-hallucinated data**. Exact matches are not required - focus on correctness and structural similarity.
-
-**As the agent (LLM)**, when reviewing similarity validation:
-- Compare actual output to expected output description and sample
-- Check if key fields are present and contain valid data
-- Verify output structure matches expected format/type
-- Ensure no hallucinations or invalid data
-- Judge if output is "similar enough" - be reasonable, focus on correctness over exact matching
-
 #### Local Testing (Structure Validation)
 ```bash
 # Validate WDL structure only (no remote execution)
@@ -454,8 +419,8 @@ python cli/manage_wdl_action.py --create -r requirements.md -t "Title" --agent m
 # Creates workspace in tool-builder/actions/ (outside cli/)
 python cli/manage_wdl_action.py --create -r requirements.md -t "Title" --standalone
 
-# Create simple tool (single API wrapper)
-python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "My Tool"
+# Create simple action (single API wrapper)
+python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "My Action"
 
 # Create with tool/API context (complex workflow)
 python cli/manage_wdl_action.py --create -r requirements.md -t "Title" \
@@ -504,58 +469,6 @@ python cli/test_wdl_action.py {workflow_id} --agent my-agent
 - If `action_id` exists → Uses it for remote testing
 - If no `action_id` → Shows helpful error with instructions to create remote action
 - **No need to check workflow_id string** - detection is based on metadata
-
-### Bulk Evaluation Commands (AdoptXchange Integration)
-
-For comprehensive evaluation before publishing, use the bulk evaluation system which integrates with AdoptXchange's Maxim platform:
-
-```bash
-# Run bulk evaluation using workspace test cases
-python cli/eval_wdl_action.py {workflow_id}
-
-# Evaluate with custom CSV test data
-python cli/eval_wdl_action.py {workflow_id} --csv-file tests.csv
-
-# Evaluate with field exclusion
-python cli/eval_wdl_action.py {workflow_id} --exclude-fields header_message,footer_message
-
-# Evaluate workflow in specific agent
-python cli/eval_wdl_action.py {workflow_id} --agent my-agent
-
-# Use workspace test cases directory
-python cli/eval_wdl_action.py {workflow_id} --use-workspace-tests
-```
-
-**Requirements**:
-```bash
-# Required environment variables in .env
-MAXIM_API_KEY=your-maxim-api-key
-MAXIM_WORKSPACE_ID=your-maxim-workspace-id
-```
-
-**What Bulk Evaluation Provides**:
-- **Schema Validation**: Verifies output structure matches expected schema
-- **Tracing Validation**: Compares execution steps (APIs called, operations run)
-- **Semantic Similarity**: Maxim's "Ragas Answer Semantic Similarity" evaluator
-- **Bias Score**: Maxim's "Bias" evaluator for response quality
-
-**Output Files**:
-- `evals/eval_summary_{timestamp}.json` - Evaluation summary
-- `evals/evaluation_results_{timestamp}.csv` - Detailed results per test case
-- Maxim dashboard link for visual review
-
-**CSV Test Data Format**:
-```csv
-Input,Expected_output
-"show me all devices","{'ai_message': {'content': [{'data': [...]}]}}"
-"get user info","{'ai_message': {'content': [{'data': {...}}]}}"
-```
-
-**When to Use**:
-- Before publishing a major version
-- When validating fixes across multiple test cases
-- For regression testing after WDL changes
-- For comprehensive quality assessment
 
 ### Version Management
 
@@ -1007,7 +920,7 @@ When a user provides requirements, follow these steps:
      - **Auto-save is DISABLED** - save drafts separately with `save_wdl_draft.py`
      - Generates fix instructions on failure
 
-## Simple Tool Workflow (Template: `simple`)
+## Simple Action Workflow (Template: `simple`)
 
 For creating simple single-API wrapper tools, use the simplified workflow:
 
@@ -1017,14 +930,14 @@ For creating simple single-API wrapper tools, use the simplified workflow:
 - Simple REST → OUTPUT pattern
 - Quick tool creation without extensive discovery
 
-### Simple Tool Creation Flow
+### Simple Action Creation Flow
 
 ```bash
 # 1. Search for the API you want to wrap
 python cli/manage_wdl_action.py --search-apis "get users" --json
 
-# 2. Create simple tool with the API
-python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "Get Users Tool"
+# 2. Create simple action with the API
+python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "Get Users"
 ```
 
 **What this creates:**
@@ -1033,7 +946,7 @@ python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "
 - API specification in `apis/` directory
 - `cursor_roaming_instructions.md` with references
 
-### Your Role for Simple Tools
+### Your Role for Simple Actions
 
 1. **Read the template**: Check `simple_tool_template.md` for guidelines
 2. **Read the API spec**: Check `apis/{api_id}.json` for endpoint details
@@ -1043,7 +956,7 @@ python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "
    - Set appropriate OUTPUT operation
 4. **Test and iterate**: Same flow as complex workflows
 
-### Example Simple Tool WDL
+### Example Simple Action WDL
 
 ```json
 [
@@ -1079,4 +992,28 @@ python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "
 - Single API focus
 - Simpler WDL structure
 - Quick iteration cycle
+
+---
+
+## Related Prompts
+
+Load these prompts for additional context when needed:
+
+| Prompt | When to Load |
+|--------|--------------|
+| **WORKSPACE_HIERARCHY_PROMPT.md** | Managing environments, agents, config inheritance |
+| **UBER_AGENT_PROMPT.md** | Creating multi-action agents (PROMPT_AND_TOOLS_AGENT) |
+| **TESTING_PROMPT.md** | Testing strategies, parallel tests, via-agent tests |
+| **DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md** | Debugging test failures |
+| **guidelines/WDL_ISSUE_PATTERNS.md** | Common WDL errors and fixes |
+
+## Templates
+
+Located in `prompts/templates/`:
+
+| Template | Use Case |
+|----------|----------|
+| `uber_agent_template.json` | PROMPT_AND_TOOLS_AGENT with sub-actions |
+| `complex_workflow_template.json` | Multi-step workflow with INTELLIGENT_OUTPUT |
+| `simple_tool_template.json` | REST → OUTPUT pattern |
 
