@@ -14,7 +14,7 @@ from .wdl_documentation import WDLDocumentationProvider
 from .api_client import AdoptAPIClient
 from .trace_analyzer import TraceAnalyzer, TraceIssue
 from .cursor_prompt_builder import RoamingInstructionsBuilder
-from .tool_discovery import ToolDiscovery
+from .discovery import Discovery, DiscoveryCache, EmbeddingManager, get_discovery
 from .workspace_manager import WorkspaceManager
 from .workspace_manager import (
     HierarchicalWorkspaceManager,
@@ -53,7 +53,10 @@ __all__ = [
     "TraceAnalyzer",
     "TraceIssue",
     "RoamingInstructionsBuilder",
-    "ToolDiscovery",
+    "Discovery",
+    "DiscoveryCache",
+    "EmbeddingManager",
+    "get_discovery",
     "WorkspaceManager",
     "HierarchicalWorkspaceManager",
     "WorkspaceType",

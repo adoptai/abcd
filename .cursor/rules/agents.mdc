@@ -81,7 +81,7 @@ python cli/deployment_rules.py my-action --show
 | **Versioning** | `checkout_wdl_version.py`, `list_wdl_versions.py` |
 | **Workspace** | `workspace.py env/agent/action/profile` |
 | **Tool Mode** | `deployment_rules.py` |
-| **Discovery** | `manage_wdl_action.py --search`, `search_tools.py` |
+| **Discovery** | `discover.py --actions/--apis` |
 
 ---
 
@@ -111,7 +111,9 @@ What do you need to do?
 │   → Read: DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md
 │
 └─ Find existing actions/APIs?
-    → Run: python cli/manage_wdl_action.py --search "query"
+    → Run: python cli/discover.py --actions "query"
+    → Run: python cli/discover.py --apis "query"
+    → Run: python cli/discover.py --requirements requirements.md
 ```
 
 ---

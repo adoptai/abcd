@@ -220,8 +220,8 @@ User Request
     │
     ├─ "Create a complex workflow" → python cli/manage_wdl_action.py --create --template workflow -r requirements.md
     │
-    ├─ "Search for APIs/tools" → python cli/manage_wdl_action.py --search-apis "query"
-    │                          → python cli/manage_wdl_action.py --search "query"
+    ├─ "Search for APIs/actions" → python cli/discover.py --apis "query"
+    │                            → python cli/discover.py --actions "query"
     │
     ├─ "Test a tool" → python cli/test_wdl_action.py <workflow_id>
     │
@@ -236,22 +236,23 @@ User Request
 
 ## Functionality Categories
 
-### Agent Management
+### Agent/Workspace Management
 
-**Purpose**: Organize tools and workflows into logical groups (agents/workspaces)
+**Purpose**: Organize actions and workflows into hierarchical workspaces (environments, agents, actions)
 
 **Tools**:
-- `cli/agents.py`: Create, delete, and select agents
+- `cli/workspace.py`: Manage environments, agents, and actions
 - Used by all other tools for workspace organization
 
 **When to Use**:
-- User wants to organize tools by project/team/feature
-- Need to group related tools and workflows together
-- Setting up a new project workspace
+- User wants to organize actions by project/team/feature
+- Need to set up multi-environment workspaces (staging, production)
+- Creating Uber Agents with sub-actions
 
 **CLI Access**:
-- Interactive menu: Options 1-2 in `tool_builder.py`
-- Direct: `python cli/agents.py` (if standalone)
+- `python cli/workspace.py env list` - List environments
+- `python cli/workspace.py agent create --id my-agent` - Create agent
+- See `prompts/system/WORKSPACE_HIERARCHY_PROMPT.md` for full details
 
 ---
 
@@ -285,9 +286,18 @@ User Request
 ]
 ```
 
-**API Discovery**:
-- List APIs: `python cli/manage_wdl_action.py --list-apis`
-- Search APIs: `python cli/manage_wdl_action.py --search-apis "query"`
+**API Discovery** (use `cli/discover.py`):
+
+```bash
+# Semantic search (for requirements-based discovery)
+python cli/discover.py --apis "inventory management"
+
+# Fuzzy search (for specific names)
+python cli/discover.py --apis "orderpoints" --mode fuzzy
+
+# From requirements file
+python cli/discover.py --requirements requirements.md
+```
 
 **When to Use Simple Actions**:
 - User needs a quick API wrapper
@@ -313,24 +323,53 @@ User Request
 
 **Tools**:
 
-#### 1. **Manage WDL Workflow** (`cli/manage_wdl_action.py`)
-- **Purpose**: Create, update, and manage WDL workflow workspaces
+#### 1. **Discovery** (`cli/discover.py`)
+- **Purpose**: Find relevant actions and APIs for new workflows
 - **Features**:
-  - Tool/API discovery (`--search`, `--auto-discover`)
-  - Workspace creation with context (`--create`)
-  - Update existing workspaces (`--update`)
-  - Add APIs/tools to existing workflows independently
-  - Cursor instruction generation
-- **Menu Option**: 8
+  - FAISS semantic search (for requirements-based discovery)
+  - Fuzzy text matching (for specific name search)
+  - Hybrid mode (combines both)
+  - Smart caching at environment level
+  - Incremental cache updates (only embeds new items)
 - **Key Options**:
   ```bash
-  # Discovery (works independently)
-  --list-tools          # List all available tools
-  --list-apis           # List all available APIs
-  --search "query"      # Semantic search for tools
-  --search-apis "query" # Semantic search for APIs
-  --auto-discover       # Auto-discover based on requirements
+  # Semantic search (default for requirements discovery)
+  python cli/discover.py --actions "inventory management"
+  python cli/discover.py --apis "authentication endpoint"
   
+  # Fuzzy search (for specific names)
+  python cli/discover.py --actions "get-orderpoints" --mode fuzzy
+  
+  # Hybrid (both semantic + fuzzy)
+  python cli/discover.py --apis "orderpoints" --mode hybrid
+  
+  # From requirements file (uses semantic search)
+  python cli/discover.py --requirements requirements.md
+  
+  # Tools only (filter by execution_type=TOOL)
+  python cli/discover.py --actions "fetch" --tools-only
+  
+  # Specify environment for cache
+  python cli/discover.py --actions "query" --env staging
+  
+  # Full details and JSON output
+  python cli/discover.py --apis "user auth" --details --json
+  ```
+- **Cache Location**: `workspaces/{env}/.cache/actions_cache.json`, `apis_cache.json`
+- **Search Modes**:
+  - `semantic`: FAISS vector similarity (best for requirements)
+  - `fuzzy`: Text matching with ratio score (best for names)
+  - `hybrid`: Both combined (default)
+
+#### 2. **Manage WDL Workflow** (`cli/manage_wdl_action.py`)
+- **Purpose**: Create, update, and manage WDL workflow workspaces
+- **Features**:
+  - Workspace creation with context (`--create`)
+  - Update existing workspaces (`--update`)
+  - Add APIs/tools to existing workflows
+  - Cursor instruction generation
+- **Key Options**:
+  ```bash
   # Create new workflow
   --create              # Create new workflow workspace
   --requirements, -r    # Path to requirements .md file
@@ -344,7 +383,7 @@ User Request
   --update              # Update existing workflow
   --workflow-id, -w     # Workflow ID to update
   
-  # Add APIs/tools independently (no --create/--update needed)
+  # Add APIs/tools independently
   --workflow-id, -w     # Workflow ID
   --use-api ID          # Add API to existing workflow
   --use-tool ID         # Add tool to existing workflow
@@ -709,10 +748,11 @@ All tools share common infrastructure:
    - Testing and versioning
    - Used by WDL workflow tools
 
-3. **Tool Discovery** (`cli/wdl_common/tool_discovery.py`)
-   - API and action discovery
-   - Semantic search integration
-   - Used by WDL workflow creation
+3. **Discovery** (`cli/wdl_common/discovery.py` / `cli/discover.py`)
+   - Unified action and API discovery
+   - FAISS semantic search + fuzzy text matching
+   - Smart caching at environment workspace level
+   - Used for finding relevant actions/APIs for new workflows
 
 4. **Workspace Management** (`cli/wdl_common/workspace_manager.py`)
    - Agent integration

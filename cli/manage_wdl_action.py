@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.api_client import AdoptAPIClient
 from cli.wdl_common.cursor_prompt_builder import RoamingInstructionsBuilder
-from cli.wdl_common.tool_discovery import ToolDiscovery
+from cli.wdl_common.discovery import Discovery, get_discovery
 from cli.wdl_common.wdl_documentation import WDLDocumentationProvider
 from cli.wdl_common.workspace_manager import WorkspaceManager
 
@@ -117,7 +117,7 @@ def list_tools_command(json_output: bool = False) -> int:
     print("\n⏳ Fetching available tools...", file=sys.stderr)
 
     try:
-        discovery = ToolDiscovery()
+        discovery = Discovery()
         success, tools, msg = discovery.fetch_tools()
 
         if not success:
@@ -142,7 +142,7 @@ def list_apis_command(json_output: bool = False) -> int:
     print("\n⏳ Fetching available APIs...", file=sys.stderr)
 
     try:
-        discovery = ToolDiscovery()
+        discovery = Discovery()
         success, apis, msg = discovery.fetch_apis()
 
         if not success:
@@ -169,7 +169,7 @@ def search_tools_command(query: str, top_k: int = 5, json_output: bool = False) 
     print(f"\n🔍 Searching for tools: '{query}'...", file=sys.stderr)
 
     try:
-        discovery = ToolDiscovery()
+        discovery = Discovery()
         success, results, msg = discovery.semantic_search_tools(query, top_k)
 
         if not success:
@@ -201,7 +201,7 @@ def search_apis_command(query: str, top_k: int = 5, json_output: bool = False) -
     print(f"\n🔍 Searching for APIs: '{query}'...", file=sys.stderr)
 
     try:
-        discovery = ToolDiscovery()
+        discovery = Discovery()
         success, results, msg = discovery.semantic_search_apis(query, top_k)
 
         if not success:
@@ -240,7 +240,7 @@ def auto_discover_command(requirements_path: str, top_k: int = 5) -> int:
 
     try:
         requirements = Path(requirements_path).read_text()
-        discovery = ToolDiscovery()
+        discovery = Discovery()
         success, results, msg = discovery.discover_tools_for_requirements(requirements, top_k)
 
         if not success:
@@ -279,7 +279,7 @@ def auto_discover_command(requirements_path: str, top_k: int = 5) -> int:
 def update_workspace_context(
     workflow_id: str,
     workspace: Path,
-    discovery: ToolDiscovery,
+    discovery: Discovery,
     workspace_manager: WorkspaceManager,
     use_api_ids: Optional[List[str]] = None,
     use_tool_ids: Optional[List[str]] = None,
@@ -291,7 +291,7 @@ def update_workspace_context(
     Args:
         workflow_id: Workflow ID
         workspace: Workspace path
-        discovery: ToolDiscovery instance
+        discovery: Discovery instance
         workspace_manager: WorkspaceManager instance
         use_api_ids: List of API IDs to add
         use_tool_ids: List of tool IDs to add
@@ -594,7 +594,7 @@ def create_simple_tool(
     print("=" * 80)
     
     # Initialize components
-    discovery = ToolDiscovery()
+    discovery = Discovery()
     workspace_manager = WorkspaceManager(use_agents=not standalone)
     
     # Fetch API details
@@ -755,7 +755,7 @@ def create_wdl_action(
 
     # Initialize components
     workspace_manager = WorkspaceManager(use_agents=not standalone)
-    discovery = ToolDiscovery()
+    discovery = Discovery()
 
     # Select agent if using agents
     selected_agent: Optional[str] = None
@@ -989,7 +989,7 @@ def update_wdl_action(
 
     # Initialize components
     workspace_manager = WorkspaceManager(use_agents=not standalone)
-    discovery = ToolDiscovery()
+    discovery = Discovery()
 
     # Determine agent
     selected_agent: Optional[str] = None

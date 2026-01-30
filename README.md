@@ -62,9 +62,9 @@ User Request
     ├─ "Create a complex workflow"
     │   → python cli/manage_wdl_action.py --create --template workflow -r requirements.md
     │
-    ├─ "Search for APIs/tools"
-    │   → python cli/manage_wdl_action.py --search-apis "query"
-    │   → python cli/manage_wdl_action.py --search "query"
+    ├─ "Search for APIs/actions"
+    │   → python cli/discover.py --apis "query"
+    │   → python cli/discover.py --actions "query"
     │
     ├─ "Test a workflow"
     │   → python cli/test_wdl_action.py <workflow_id>
@@ -81,20 +81,26 @@ User Request
 ### Discovery Commands
 
 ```bash
-# List all available tools
-python cli/manage_wdl_action.py --list-tools [--json]
+# Search for actions (semantic + fuzzy hybrid)
+python cli/discover.py --actions "inventory management" [--json]
 
-# List all available APIs
-python cli/manage_wdl_action.py --list-apis [--json]
+# Search for APIs
+python cli/discover.py --apis "authentication endpoint" [--json]
 
-# Semantic search for tools
-python cli/manage_wdl_action.py --search "natural language query" [--json] [--top-k 10]
+# Semantic search only (FAISS embeddings)
+python cli/discover.py --actions "natural language query" --mode semantic
 
-# Semantic search for APIs
-python cli/manage_wdl_action.py --search-apis "natural language query" [--json] [--top-k 10]
+# Fuzzy search only (text matching)
+python cli/discover.py --actions "get-orderpoints" --mode fuzzy
 
-# Auto-discover tools AND APIs based on requirements
-python cli/manage_wdl_action.py --auto-discover -r requirements.md [--top-k 5]
+# Discover from requirements file
+python cli/discover.py --requirements requirements.md
+
+# Tools only (filter by execution_type=TOOL)
+python cli/discover.py --actions "fetch" --tools-only
+
+# Specify environment for cache location
+python cli/discover.py --actions "query" --env staging
 ```
 
 ### Workflow Creation Commands
@@ -192,21 +198,27 @@ python cli/rollback_changes.py --file diagnostics/rollback_xxx.json
 ```
 abcd/
 ├── cli/                          # All CLI scripts
-│   ├── agents.py                 # Agent/workspace management
 │   ├── auth.py                   # Authentication
+│   ├── discover.py               # Action/API discovery (FAISS + fuzzy)
+│   ├── workspace.py              # Hierarchical workspace management
 │   ├── manage_wdl_action.py      # Workflow creation & management
 │   ├── test_wdl_action.py        # Testing workflows
+│   ├── test_runner.py            # Parallel/batch testing
 │   ├── save_wdl_draft.py         # Save drafts
 │   ├── publish_wdl_action.py     # Publish workflows
 │   ├── list_wdl_versions.py      # Version listing
 │   ├── checkout_wdl_version.py   # Version checkout
+│   ├── deployment_rules.py       # Tool mode management
+│   ├── status.py                 # Workspace status
+│   ├── validate.py               # Local WDL validation
+│   ├── reconnect.py              # Reconnect workspace to action
 │   ├── diagnose_and_fix.py       # Diagnostics
-│   ├── search_tools.py           # Tool search
-│   ├── search_apis.py            # API search
 │   └── wdl_common/               # Shared utilities
 │       ├── api_client.py         # AdoptAI API client
-│       ├── workspace_manager.py  # Workspace management
-│       ├── tool_discovery.py     # Tool/API discovery
+│       ├── workspace_manager.py  # Hierarchical workspace management
+│       ├── discovery.py          # Action/API discovery with caching
+│       ├── metadata_manager.py   # Action metadata management
+│       ├── validator.py          # WDL validation
 │       ├── trace_analyzer.py     # Test trace analysis
 │       └── ...
 ├── prompts/                      # System prompts & templates
@@ -227,14 +239,15 @@ abcd/
 
 ## Agent Workflow
 
-### For Simple Tool Creation
+### For Simple Action Creation
 
-1. **Search** for existing APIs: `python cli/manage_wdl_action.py --search-apis "query"`
-2. **Create** tool: `python cli/manage_wdl_action.py --create --template simple --use-api <id>`
+1. **Discover** existing APIs: `python cli/discover.py --apis "inventory management"`
+2. **Create** action: `python cli/manage_wdl_action.py --create --template simple --use-api <id>`
 3. **Refine** WDL based on API specification
-4. **Test**: `python cli/test_wdl_action.py <id> --local-only`
-5. **Save draft**: `python cli/save_wdl_draft.py --workflow-id <id>`
-6. **Publish**: `python cli/publish_wdl_action.py <id>`
+4. **Validate**: `python cli/test_wdl_action.py <id> --local-only`
+5. **Test**: `python cli/test_wdl_action.py <id>`
+6. **Save draft**: `python cli/save_wdl_draft.py --workflow-id <id>`
+7. **Publish**: `python cli/publish_wdl_action.py <id>`
 
 ### For Complex WDL Workflow Creation
 
