@@ -19,7 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.api_client import AdoptAPIClient
-from cli.wdl_common.workspace_manager_v2 import get_workspace_manager
+from cli.wdl_common.workspace_manager import get_workspace_manager
 
 
 def get_action_id(workflow_id: str) -> str | None:

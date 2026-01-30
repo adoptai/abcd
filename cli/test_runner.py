@@ -37,7 +37,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.workspace_manager_v2 import get_workspace_manager, HierarchicalWorkspaceManager
+from cli.wdl_common.workspace_manager import get_workspace_manager, HierarchicalWorkspaceManager
 from cli.wdl_common.api_client import AdoptAPIClient
 
 
@@ -254,7 +254,7 @@ def run_via_agent_test(
             )
 
         # Load test case for sub-action (via-agent version)
-        from cli.wdl_common.workspace_manager_v2 import WORKSPACES_DIR
+        from cli.wdl_common.workspace_manager import WORKSPACES_DIR
         agent_path = WORKSPACES_DIR / env / "agents" / agent_id
         via_tests_dir = agent_path / "test_cases" / "subaction_tests"
 

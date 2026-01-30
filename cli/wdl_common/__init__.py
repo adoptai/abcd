@@ -16,7 +16,7 @@ from .trace_analyzer import TraceAnalyzer, TraceIssue
 from .cursor_prompt_builder import RoamingInstructionsBuilder
 from .tool_discovery import ToolDiscovery
 from .workspace_manager import WorkspaceManager
-from .workspace_manager_v2 import (
+from .workspace_manager import (
     HierarchicalWorkspaceManager,
     WorkspaceType,
     get_workspace_manager,

@@ -37,7 +37,7 @@ CLI_DIR = Path(__file__).parent
 PROJECT_ROOT = CLI_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from cli.wdl_common.workspace_manager_v2 import (
+from cli.wdl_common.workspace_manager import (
     HierarchicalWorkspaceManager,
     get_workspace_manager,
     WORKSPACES_DIR,
@@ -285,7 +285,7 @@ def cmd_agent_remove_subaction(args: argparse.Namespace) -> int:
 def cmd_agent_checkout(args: argparse.Namespace) -> int:
     """Checkout agent from remote with all sub-actions."""
     from cli.wdl_common.api_client import AdoptAPIClient
-    from cli.wdl_common.workspace_manager_v2 import WORKSPACES_DIR
+    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
     manager = get_workspace_manager()
     client = AdoptAPIClient()
@@ -489,7 +489,7 @@ def cmd_agent_sync(args: argparse.Namespace) -> int:
 
     if args.pull:
         # Download new sub-actions
-        from cli.wdl_common.workspace_manager_v2 import WORKSPACES_DIR
+        from cli.wdl_common.workspace_manager import WORKSPACES_DIR
         agent_path = WORKSPACES_DIR / env / "agents" / args.id
 
         for sub_id in new_subs:
@@ -640,7 +640,7 @@ def cmd_profile_update(args: argparse.Namespace) -> int:
     manager = get_workspace_manager()
 
     # Determine profile path
-    from cli.wdl_common.workspace_manager_v2 import WORKSPACES_DIR
+    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
     if args.action:
         action_info = manager.find_action(args.action)
