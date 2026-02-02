@@ -20,6 +20,75 @@ This ensures systematic progress and helps track complex multi-step tasks.
 
 ---
 
+## 🏢 CREATING A NEW CLIENT ENVIRONMENT
+
+When the user mentions a **new client** (e.g., "work on ClientX actions", "edit ClientY workflows") or asks to **create a new environment**:
+
+### Step 1: Gather Information from User
+
+Ask for:
+```
+I'll create a new environment for [CLIENT]. I need:
+
+1. **Target**: `staging` or `production`?
+2. **Client ID**: ADOPT_CLIENT_ID value
+3. **Client Secret**: ADOPT_CLIENT_SECRET value
+4. **Description** (optional): What this environment is for
+```
+
+### Step 2: Create Environment
+
+```bash
+python cli/workspace.py env create \
+  --id <client-name>-<staging|prod> \
+  --name "<Client Name> - <Target>" \
+  --description "<description>" \
+  --target <staging|production> \
+  --client <client-name> \
+  --use
+```
+
+### Step 3: Configure Credentials
+
+Edit `workspaces/<env-id>/.env`:
+```bash
+ADOPT_CLIENT_ID=<user-provided>
+ADOPT_CLIENT_SECRET=<user-provided>
+
+# Production endpoints:
+ADOPT_API_ENDPOINT=https://connect.adopt.ai
+ADOPT_ACTIONS_ENDPOINT=https://api.adopt.ai
+
+# Staging endpoints (if staging):
+# ADOPT_API_ENDPOINT=https://connect.staging.adopt.ai
+# ADOPT_ACTIONS_ENDPOINT=https://api.staging.adopt.ai
+```
+
+**📖 Full details: `prompts/system/REMOTE_ACTION_WORKFLOW_PROMPT.md`**
+
+---
+
+## 🔀 WORKFLOW DECISION: New Action vs Edit Existing
+
+### User wants to CREATE NEW action/workflow:
+→ Load **`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`**
+```bash
+python cli/discover.py --requirements requirements.md
+python cli/manage_wdl_action.py --create -r requirements.md -t "Title"
+```
+
+### User wants to EDIT EXISTING remote action:
+→ Load **`REMOTE_ACTION_WORKFLOW_PROMPT.md`**
+```bash
+python cli/discover.py --list-all
+python cli/checkout_wdl_version.py --workflow-id <action-id>
+# Edit, test, push
+python cli/save_wdl_draft.py --workflow-id <action-id>
+python cli/publish_wdl_action.py --workflow-id <action-id>
+```
+
+---
+
 ## 🔍 ENVIRONMENT VALIDATION (Required Before Creating Actions)
 
 **Before creating any action**, validate that the request matches the active environment:
@@ -70,7 +139,8 @@ For in-depth information, load the appropriate prompt from `prompts/system/`:
 
 | Prompt | When to Load |
 |--------|--------------|
-| **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** | Creating WDL workflows, understanding operations |
+| **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** | Creating NEW WDL workflows from scratch |
+| **REMOTE_ACTION_WORKFLOW_PROMPT.md** | Loading, editing, and pushing EXISTING remote actions |
 | **WORKSPACE_HIERARCHY_PROMPT.md** | Managing workspaces, environments, config inheritance |
 | **UBER_AGENT_PROMPT.md** | Creating Uber Agents with sub-actions |
 | **TESTING_PROMPT.md** | Testing strategies, parallel tests, via-agent tests |
@@ -288,20 +358,34 @@ ABCD provides a comprehensive CLI toolkit for building and managing actions, age
 ```
 User Request
     │
-    ├─ "Create a simple action" → python cli/manage_wdl_action.py --create --template simple --use-api <id>
+    ├─ "Create NEW action/workflow"
+    │   → Read: CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md
+    │   → python cli/manage_wdl_action.py --create -r requirements.md -t "Title"
     │
-    ├─ "Create a complex workflow" → python cli/manage_wdl_action.py --create --template workflow -r requirements.md
+    ├─ "Edit EXISTING remote action" / "Work on [client] actions"
+    │   → Read: REMOTE_ACTION_WORKFLOW_PROMPT.md
+    │   → python cli/discover.py --list-all
+    │   → python cli/checkout_wdl_version.py --workflow-id <id>
     │
-    ├─ "Search for APIs/actions" → python cli/discover.py --apis "query"
-    │                            → python cli/discover.py --actions "query"
+    ├─ "Create new environment" / "Work on [new client]"
+    │   → Read: REMOTE_ACTION_WORKFLOW_PROMPT.md (Environment section)
+    │   → python cli/workspace.py env create --id <client>-prod --target production --use
+    │   → Edit workspaces/<env>/.env with credentials
     │
-    ├─ "Test a tool" → python cli/test_wdl_action.py <workflow_id>
+    ├─ "Search for APIs/actions"
+    │   → python cli/discover.py --apis "query"
+    │   → python cli/discover.py --actions "query"
+    │   → python cli/discover.py --list-all
     │
-    ├─ "Diagnose and fix issues" → python cli/diagnose_and_fix.py
+    ├─ "Test a tool/action"
+    │   → python cli/test_wdl_action.py <workflow_id>
     │
-    ├─ "Manage agents/workspaces" → python tool_agents.py
+    ├─ "Diagnose and fix issues"
+    │   → Read: DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md
     │
-    └─ "Version management" → python cli/list_wdl_versions.py / checkout_wdl_version.py
+    └─ "Version management"
+        → python cli/list_wdl_versions.py --workflow-id <id>
+        → python cli/checkout_wdl_version.py --workflow-id <id>
 ```
 
 ---

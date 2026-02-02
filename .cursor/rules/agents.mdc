@@ -31,11 +31,37 @@ python cli/workspace.py env list  # Shows envs with descriptions
 
 ---
 
+## 🔀 WORKFLOW DECISION
+
+**CREATE NEW action/workflow:**
+→ Load `CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`
+```bash
+python cli/manage_wdl_action.py --create -r requirements.md -t "Title"
+```
+
+**EDIT EXISTING remote action:**
+→ Load `REMOTE_ACTION_WORKFLOW_PROMPT.md`
+```bash
+python cli/discover.py --list-all
+python cli/checkout_wdl_version.py --workflow-id <action-id>
+# Edit, test, then push
+python cli/save_wdl_draft.py --workflow-id <action-id>
+```
+
+**NEW CLIENT environment:**
+```bash
+python cli/workspace.py env create --id <client>-prod --name "<Client> Prod" --target production --use
+# Then edit workspaces/<env>/.env with credentials
+```
+
+---
+
 For detailed information, load the appropriate prompt from `prompts/system/`:
+- **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** - Creating NEW workflows from scratch
+- **REMOTE_ACTION_WORKFLOW_PROMPT.md** - Loading, editing, pushing EXISTING actions
 - **WORKSPACE_HIERARCHY_PROMPT.md** - Workspace structure, environments, profiles
 - **UBER_AGENT_PROMPT.md** - Creating Uber Agents with sub-actions
 - **TESTING_PROMPT.md** - Testing strategies, parallel tests, via-agent tests
-- **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** - WDL operations and workflow creation
 
 ---
 
@@ -58,6 +84,24 @@ python cli/save_wdl_draft.py --workflow-id my-workflow
 
 # Publish
 python cli/publish_wdl_action.py --workflow-id my-workflow
+```
+
+### Remote Action Editing
+
+```bash
+# List all remote actions
+python cli/discover.py --list-all
+
+# Download action to local workspace
+python cli/checkout_wdl_version.py --workflow-id <action-id>
+
+# Edit widdle.json, then test
+python cli/test_wdl_action.py <action-id> --local-only
+python cli/test_wdl_action.py <action-id> --all
+
+# Push new version
+python cli/save_wdl_draft.py --workflow-id <action-id>
+python cli/publish_wdl_action.py --workflow-id <action-id>
 ```
 
 ### Workspace Management
@@ -145,17 +189,23 @@ python cli/discover.py --actions "query" --json
 ```
 What do you need to do?
 │
-├─ Create new workflow?
+├─ Create NEW workflow from scratch?
 │   → Read: CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md
 │   → Run: python cli/manage_wdl_action.py --create -r requirements.md -t "Title"
+│
+├─ Edit EXISTING remote action?
+│   → Read: REMOTE_ACTION_WORKFLOW_PROMPT.md
+│   → Run: python cli/discover.py --list-all
+│   → Run: python cli/checkout_wdl_version.py --workflow-id <id>
+│
+├─ Create new CLIENT environment?
+│   → Read: REMOTE_ACTION_WORKFLOW_PROMPT.md (Environment section)
+│   → Run: python cli/workspace.py env create --id <client>-prod ...
+│   → Edit: workspaces/<env>/.env with credentials
 │
 ├─ Create Uber Agent with sub-actions?
 │   → Read: UBER_AGENT_PROMPT.md
 │   → Run: python cli/workspace.py agent create ...
-│
-├─ Set up environments/workspaces?
-│   → Read: WORKSPACE_HIERARCHY_PROMPT.md
-│   → Run: python cli/workspace.py env create ...
 │
 ├─ Test workflows?
 │   → Read: TESTING_PROMPT.md
@@ -167,8 +217,7 @@ What do you need to do?
 │
 └─ Find existing actions/APIs?
     → Run: python cli/discover.py --actions "query"
-    → Run: python cli/discover.py --apis "query"
-    → Run: python cli/discover.py --requirements requirements.md
+    → Run: python cli/discover.py --list-all
 ```
 
 ---
