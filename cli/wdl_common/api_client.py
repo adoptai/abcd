@@ -345,6 +345,7 @@ class AdoptAPIClient:
             action_id: Action to run
             user_input: Natural language input
             profile: Adopt profile with base_url, security_params, etc.
+                     Can optionally include profiles_map for per-API profiles.
             workflow_params: Optional workflow parameters
             version_number: Optional version number to test (if None, uses latest published)
             allow_draft: Whether to allow testing draft versions
@@ -373,6 +374,17 @@ class AdoptAPIClient:
             "workflow_params": combined_params,
             "security_params": profile.get("security_params", {}),
         }
+        
+        # Add profiles_map if present in profile (for per-API/application profiles)
+        # This allows different base_url and security_headers for different APIs
+        profiles_map = profile.get("profiles_map")
+        if profiles_map:
+            payload["profiles_map"] = profiles_map
+        
+        # Add mcp_profiles_map if present (for MCP integration profiles)
+        mcp_profiles_map = profile.get("mcp_profiles_map")
+        if mcp_profiles_map:
+            payload["mcp_profiles_map"] = mcp_profiles_map
         
         # Add version parameters if provided
         if version_number is not None:
