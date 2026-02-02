@@ -205,6 +205,12 @@ class Discovery:
 
         # Filter by type
         results = discovery.search_actions("inventory", tools_only=True)
+        
+        # List all actions (not just tools)
+        results = discovery.fetch_actions(execution_type="DEFAULT")
+        
+        # List workflows only
+        results = discovery.fetch_actions(execution_type="WORKFLOW")
     """
 
     def __init__(
@@ -213,6 +219,7 @@ class Discovery:
         env_path: Optional[Path] = None,
         api_endpoint: Optional[str] = None,
         actions_endpoint: Optional[str] = None,
+        verbose: bool = False,
     ):
         """
         Initialize discovery.
@@ -222,7 +229,11 @@ class Discovery:
             env_path: Environment workspace path for cache location.
             api_endpoint: Connect API endpoint (default from env).
             actions_endpoint: Actions API endpoint (default from env).
+            verbose: If True, print function entry/exit messages for debugging.
         """
+        self._verbose = verbose
+        self._verbose_print("__init__", "ENTER")
+        
         self._bearer_token = bearer_token
         self.env_path = env_path
         self.api_endpoint = api_endpoint or os.getenv(
@@ -240,13 +251,26 @@ class Discovery:
         self._apis: List[Dict[str, Any]] = []
         self._actions_index: Optional[Any] = None
         self._apis_index: Optional[Any] = None
+        
+        self._verbose_print("__init__", "EXIT")
+
+    def _verbose_print(self, func_name: str, stage: str, extra: str = "") -> None:
+        """Print verbose message if verbose mode is enabled."""
+        if self._verbose:
+            msg = f"[VERBOSE] Discovery.{func_name}: {stage}"
+            if extra:
+                msg += f" - {extra}"
+            print(msg, file=sys.stderr)
 
     @property
     def bearer_token(self) -> str:
         """Get bearer token, fetching if needed."""
+        self._verbose_print("bearer_token", "ENTER")
         if self._bearer_token is None:
+            self._verbose_print("bearer_token", "fetching token")
             from cli.auth import get_bearer_token
             self._bearer_token = get_bearer_token()
+        self._verbose_print("bearer_token", "EXIT")
         return self._bearer_token
 
     @property
@@ -264,47 +288,72 @@ class Discovery:
     def fetch_actions(
         self,
         tools_only: bool = False,
+        execution_type: Optional[str] = None,
         force_refresh: bool = False,
     ) -> Tuple[bool, List[Dict[str, Any]], str]:
         """
         Fetch actions from API, update cache with new items.
 
         Args:
-            tools_only: If True, only fetch actions with execution_type=TOOL
+            tools_only: If True, only fetch actions with execution_type=TOOL (legacy param)
+            execution_type: Type of actions to fetch. Options:
+                - None (default): All actions
+                - "TOOL": Regular tools only
+                - "DEFAULT": All actions with default execution mode
+                - "WORKFLOW": Workflow-type actions
             force_refresh: If True, re-embed all items
 
         Returns:
             Tuple of (success, actions, message)
         """
+        self._verbose_print("fetch_actions", "ENTER", f"tools_only={tools_only}, execution_type={execution_type}, force_refresh={force_refresh}")
+        
+        # Determine execution_type from parameters
+        effective_execution_type = execution_type
+        if tools_only and not execution_type:
+            effective_execution_type = "TOOL"
+        
+        # Use different cache files for different execution types
+        cache_suffix = (effective_execution_type or "all").lower().replace(" ", "_")
+        
         # Load existing cache
         cache_data = self.cache.load_cache("actions")
         cached_items = {self.cache.get_item_hash(item): item for item in cache_data.get("items", [])}
         cached_embeddings = cache_data.get("embeddings", {})
+        self._verbose_print("fetch_actions", "cache loaded", f"{len(cached_items)} cached items")
 
         # Fetch from API
         url = f"{self.api_endpoint}/v1/actions/list"
         params = {}
-        if tools_only:
-            params["execution_type"] = "TOOL"
+        if effective_execution_type:
+            params["execution_type"] = effective_execution_type
 
         try:
+            self._verbose_print("fetch_actions", "making HTTP request", f"url={url}, params={params}")
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            self._verbose_print("fetch_actions", "HTTP response received", f"status={response.status_code}")
 
             if response.status_code != 200:
                 # Fall back to cache
                 if cached_items:
                     self._actions = list(cached_items.values())
+                    self._verbose_print("fetch_actions", "EXIT", "using cache after API error")
                     return True, self._actions, f"Using cached {len(self._actions)} actions (API error)"
+                self._verbose_print("fetch_actions", "EXIT", "request failed")
                 return False, [], f"Failed: {response.status_code} - {response.text}"
 
+            self._verbose_print("fetch_actions", "parsing JSON response")
             data = response.json()
             actions = data.get("capabilities", [])
+            self._verbose_print("fetch_actions", "parsed actions", f"count={len(actions)}")
 
         except requests.exceptions.RequestException as e:
             # Fall back to cache
             if cached_items:
                 self._actions = list(cached_items.values())
+                self._verbose_print("fetch_actions", "EXIT", "using cache after network error")
                 return True, self._actions, f"Using cached {len(self._actions)} actions (network error)"
+            self._verbose_print("fetch_actions", "EXIT", f"network error: {e}")
             return False, [], f"Network error: {e}"
 
         # Identify new items that need embedding
@@ -315,6 +364,8 @@ class Discovery:
             item_hash = self.cache.get_item_hash(action)
             if item_hash not in cached_embeddings or force_refresh:
                 new_items.append((item_hash, action))
+
+        self._verbose_print("fetch_actions", "new items to embed", f"count={len(new_items)}")
 
         # Embed new items if we have the capability
         if new_items and self.embeddings.initialize():
@@ -328,6 +379,7 @@ class Discovery:
                 print(f"✅ Embedded {len(new_items)} new actions")
 
         # Update cache
+        self._verbose_print("fetch_actions", "saving cache")
         cache_data = {
             "items": actions,
             "embeddings": updated_embeddings,
@@ -337,7 +389,16 @@ class Discovery:
         self._actions = actions
         self._actions_index = None  # Reset index
 
-        return True, actions, f"Fetched {len(actions)} actions"
+        # Generate appropriate label
+        if effective_execution_type == "TOOL":
+            item_label = "tools"
+        elif effective_execution_type == "WORKFLOW":
+            item_label = "workflows"
+        else:
+            item_label = "actions"
+        
+        self._verbose_print("fetch_actions", "EXIT", f"fetched {len(actions)} {item_label}")
+        return True, actions, f"Fetched {len(actions)} {item_label}"
 
     def _build_action_text(self, action: Dict[str, Any]) -> str:
         """Build searchable text from action."""
@@ -480,10 +541,13 @@ class Discovery:
         Returns:
             Tuple of (success, apis, message)
         """
+        self._verbose_print("fetch_apis", "ENTER", f"page_size={page_size}, force_refresh={force_refresh}")
+        
         # Load existing cache
         cache_data = self.cache.load_cache("apis")
         cached_items = {self.cache.get_item_hash(item): item for item in cache_data.get("items", [])}
         cached_embeddings = cache_data.get("embeddings", {})
+        self._verbose_print("fetch_apis", "cache loaded", f"{len(cached_items)} cached items")
 
         # Fetch from API
         url = f"{self.api_endpoint}/v1/tools/apis"

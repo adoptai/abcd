@@ -276,7 +276,7 @@ abcd/
 ### For Complex WDL Workflow Creation
 
 1. **Read** `prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`
-2. **Discover** tools/APIs: `python cli/manage_wdl_action.py --auto-discover -r requirements.md`
+2. **Discover** tools/APIs: `python cli/discover.py --requirements requirements.md`
 3. **Create** workspace: `python cli/manage_wdl_action.py --create -r requirements.md -t "Title"`
 4. **Generate** WDL following roaming instructions
 5. **Create 3 test cases** in `test_cases/` directory

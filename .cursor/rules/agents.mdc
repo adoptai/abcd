@@ -98,6 +98,32 @@ python cli/deployment_rules.py my-action --enable-tool-mode
 python cli/deployment_rules.py my-action --show
 ```
 
+### Discovery (`cli/discover.py`)
+
+```bash
+# List by type
+python cli/discover.py --list-tools         # Tools only
+python cli/discover.py --list-all           # All actions
+python cli/discover.py --list-workflows     # Workflows only
+python cli/discover.py --list-apis          # Available APIs
+
+# Semantic search
+python cli/discover.py --actions "inventory"
+python cli/discover.py --apis "auth"
+
+# Fuzzy search (for specific names)
+python cli/discover.py --actions "get-orderpoints" --mode fuzzy
+
+# From requirements file
+python cli/discover.py --requirements requirements.md
+
+# Verbose debugging
+python cli/discover.py --list-tools --verbose
+
+# JSON output
+python cli/discover.py --actions "query" --json
+```
+
 ---
 
 ## Command Categories
@@ -110,7 +136,7 @@ python cli/deployment_rules.py my-action --show
 | **Versioning** | `checkout_wdl_version.py`, `list_wdl_versions.py` |
 | **Workspace** | `workspace.py env/agent/action/profile` |
 | **Tool Mode** | `deployment_rules.py` |
-| **Discovery** | `discover.py --actions/--apis` |
+| **Discovery** | `manage_wdl_action.py --list-*`, `discover.py` |
 
 ---
 

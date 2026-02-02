@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 """
-Discovery CLI - Search for actions and APIs.
+Discovery CLI - List and search for actions and APIs.
 
 Usage:
+    # List all (by type)
+    python cli/discover.py --list-tools            # Tools only (execution_type=TOOL)
+    python cli/discover.py --list-all              # All actions (execution_type=DEFAULT)
+    python cli/discover.py --list-workflows        # Workflows only (execution_type=WORKFLOW)
+    python cli/discover.py --list-apis             # All APIs
+
     # Semantic search (for requirements-based discovery)
     python cli/discover.py --actions "inventory management system"
     python cli/discover.py --apis "user authentication endpoint"
@@ -21,6 +27,9 @@ Usage:
 
     # Specify environment for cache
     python cli/discover.py --actions "query" --env staging
+
+    # Verbose debugging
+    python cli/discover.py --list-tools --verbose
 """
 
 import argparse
@@ -33,13 +42,36 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.discovery import Discovery, get_discovery
 
+# Global verbose flag
+_verbose = False
+
+
+def _verbose_print(func_name: str, stage: str, extra: str = "") -> None:
+    """Print verbose message if verbose mode is enabled."""
+    if _verbose:
+        msg = f"[VERBOSE] {func_name}: {stage}"
+        if extra:
+            msg += f" - {extra}"
+        print(msg, file=sys.stderr)
+
 
 def main():
+    global _verbose
+
     parser = argparse.ArgumentParser(
-        description="Search for actions and APIs",
+        description="List and search for actions and APIs",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  # List all tools
+  python cli/discover.py --list-tools
+  
+  # List all actions (includes non-tool actions)
+  python cli/discover.py --list-all
+  
+  # List workflows only
+  python cli/discover.py --list-workflows
+
   # Semantic search for actions matching a description
   python cli/discover.py --actions "inventory management"
 
@@ -54,23 +86,50 @@ Examples:
 
   # Tools only, hybrid mode
   python cli/discover.py --actions "fetch data" --tools-only --mode hybrid
+  
+  # Verbose mode for debugging
+  python cli/discover.py --list-tools --verbose
         """,
     )
 
+    # List commands (mutually exclusive with search)
+    list_group = parser.add_argument_group("List Commands")
+    list_group.add_argument(
+        "--list-tools",
+        action="store_true",
+        help="List all tools (execution_type=TOOL)",
+    )
+    list_group.add_argument(
+        "--list-all",
+        action="store_true",
+        help="List all actions (execution_type=DEFAULT)",
+    )
+    list_group.add_argument(
+        "--list-workflows",
+        action="store_true",
+        help="List all workflows (execution_type=WORKFLOW)",
+    )
+    list_group.add_argument(
+        "--list-apis",
+        action="store_true",
+        help="List all available APIs",
+    )
+
     # Search targets
-    parser.add_argument(
+    search_group = parser.add_argument_group("Search Commands")
+    search_group.add_argument(
         "--actions",
         type=str,
         metavar="QUERY",
         help="Search for actions matching query",
     )
-    parser.add_argument(
+    search_group.add_argument(
         "--apis",
         type=str,
         metavar="QUERY",
         help="Search for APIs matching query",
     )
-    parser.add_argument(
+    search_group.add_argument(
         "--requirements",
         "-r",
         type=str,
@@ -130,22 +189,82 @@ Examples:
         action="store_true",
         help="Force refresh cache and re-embed all items",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Enable verbose debugging output",
+    )
 
     args = parser.parse_args()
 
+    # Set verbose mode
+    if args.verbose:
+        _verbose = True
+        print("[VERBOSE] Verbose mode enabled", file=sys.stderr)
+
     # Validate arguments
-    if not any([args.actions, args.apis, args.requirements]):
+    has_list_cmd = any([args.list_tools, args.list_all, args.list_workflows, args.list_apis])
+    has_search_cmd = any([args.actions, args.apis, args.requirements])
+    
+    if not has_list_cmd and not has_search_cmd:
         parser.print_help()
-        print("\n❌ Error: Specify --actions, --apis, or --requirements")
+        print("\n❌ Error: Specify a list command (--list-tools, --list-all, --list-workflows, --list-apis)")
+        print("   or a search command (--actions, --apis, --requirements)")
         sys.exit(1)
 
+    _verbose_print("main", "ENTER")
+
     # Get discovery instance
+    _verbose_print("main", "getting discovery instance")
     discovery = get_discovery(args.env)
 
     results = {"actions": [], "apis": []}
 
-    # Handle requirements file
-    if args.requirements:
+    # Handle list commands
+    if has_list_cmd:
+        if args.list_tools:
+            _verbose_print("main", "listing tools (execution_type=TOOL)")
+            print("⏳ Fetching tools...", file=sys.stderr)
+            success, items, msg = discovery.fetch_actions(execution_type="TOOL", force_refresh=args.refresh)
+            if not success:
+                print(f"❌ {msg}")
+                sys.exit(1)
+            results["actions"] = items
+            _verbose_print("main", f"fetched {len(items)} tools")
+
+        elif args.list_all:
+            _verbose_print("main", "listing all actions (execution_type=DEFAULT)")
+            print("⏳ Fetching all actions...", file=sys.stderr)
+            success, items, msg = discovery.fetch_actions(execution_type="DEFAULT", force_refresh=args.refresh)
+            if not success:
+                print(f"❌ {msg}")
+                sys.exit(1)
+            results["actions"] = items
+            _verbose_print("main", f"fetched {len(items)} actions")
+
+        elif args.list_workflows:
+            _verbose_print("main", "listing workflows (execution_type=WORKFLOW)")
+            print("⏳ Fetching workflows...", file=sys.stderr)
+            success, items, msg = discovery.fetch_actions(execution_type="WORKFLOW", force_refresh=args.refresh)
+            if not success:
+                print(f"❌ {msg}")
+                sys.exit(1)
+            results["actions"] = items
+            _verbose_print("main", f"fetched {len(items)} workflows")
+
+        elif args.list_apis:
+            _verbose_print("main", "listing APIs")
+            print("⏳ Fetching APIs...", file=sys.stderr)
+            success, items, msg = discovery.fetch_apis(force_refresh=args.refresh)
+            if not success:
+                print(f"❌ {msg}")
+                sys.exit(1)
+            results["apis"] = items
+            _verbose_print("main", f"fetched {len(items)} APIs")
+
+    # Handle search commands
+    elif args.requirements:
         req_path = Path(args.requirements)
         if not req_path.exists():
             print(f"❌ Requirements file not found: {req_path}")

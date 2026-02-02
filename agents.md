@@ -434,12 +434,13 @@ python cli/discover.py --requirements requirements.md
   - `hybrid`: Both combined (default)
 
 #### 2. **Manage WDL Workflow** (`cli/manage_wdl_action.py`)
-- **Purpose**: Create, update, and manage WDL workflow workspaces
+- **Purpose**: Create and update WDL workflow workspaces
 - **Features**:
   - Workspace creation with context (`--create`)
   - Update existing workspaces (`--update`)
   - Add APIs/tools to existing workflows
   - Cursor instruction generation
+- **Note**: Discovery moved to `cli/discover.py`
 - **Key Options**:
   ```bash
   # Create new workflow
@@ -613,10 +614,33 @@ All scripts can be run directly without the menu:
 python tool_agents.py                    # Interactive agent management
 ```
 
+#### Discovery Commands (`cli/discover.py`)
+```bash
+# List all actions/tools/workflows
+python cli/discover.py --list-tools       # List tools (execution_type=TOOL)
+python cli/discover.py --list-all         # List all actions (execution_type=DEFAULT)
+python cli/discover.py --list-workflows   # List workflows (execution_type=WORKFLOW)
+python cli/discover.py --list-apis        # List available APIs
+
+# Semantic search
+python cli/discover.py --actions "inventory management"  # Search actions
+python cli/discover.py --apis "user auth"                # Search APIs
+
+# Fuzzy search (for specific names)
+python cli/discover.py --actions "get-orderpoints" --mode fuzzy
+
+# From requirements file
+python cli/discover.py --requirements requirements.md
+
+# Verbose debugging
+python cli/discover.py --list-tools --verbose
+
+# JSON output
+python cli/discover.py --list-tools --json
+```
+
 #### Simple Actions
 ```bash
-python cli/manage_wdl_action.py --list-apis    # List available APIs
-python cli/manage_wdl_action.py --search-apis  # Search APIs semantically
 python cli/manage_wdl_action.py --create --template simple -t "Title"  # Create action
 python cli/test_wdl_action.py my-action        # Test action
 python cli/save_wdl_draft.py --workflow-id my-action   # Save draft
@@ -764,7 +788,7 @@ See these files for AI agent guidance:
 - AI integration
 
 #### "I want to find existing actions/APIs"
-→ **Use Search** (`cli/manage_wdl_action.py --search` or `--search-apis`)
+→ **Use Discovery** (`cli/discover.py --actions` or `--apis`)
 - Semantic search
 - Natural language queries
 - Tool discovery
@@ -879,7 +903,7 @@ tool_builder_agents/
 
 ### For Simple Action Creation
 
-1. **Search** for existing APIs: `manage_wdl_action.py --search-apis`
+1. **Search** for existing APIs: `discover.py --apis "query"`
 2. **Create** action workspace: `manage_wdl_action.py --create --template simple`
 3. **Edit** `widdle.json` using simple template pattern
 4. **Test**: `test_wdl_action.py my-action`
@@ -888,7 +912,7 @@ tool_builder_agents/
 ### For Complex WDL Workflow Creation
 
 1. **👉 Read [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
-2. **Discover** tools/APIs (`cli/manage_wdl_action.py --auto-discover`)
+2. **Discover** tools/APIs (`cli/discover.py --requirements requirements.md`)
 3. **Create** workspace (`cli/manage_wdl_action.py --create`)
 4. **Update** workspace with APIs/tools (`cli/manage_wdl_action.py --update --workflow-id <id>` or use `--workflow-id` with `--use-api`/`--use-tool`)
 5. **Generate** WDL (Cursor-led, following roaming instructions)
@@ -934,10 +958,9 @@ tool_builder_agents/
 # Simple action creation (template-based)
 python cli/manage_wdl_action.py --create --template simple -t "My Action"
 
-# Search for APIs
-python cli/manage_wdl_action.py --search-apis "query"
-# OR
-python cli/manage_wdl_action.py --search "query"
+# Search for APIs/actions (use discover.py)
+python cli/discover.py --apis "query"
+python cli/discover.py --actions "query"
 
 # Create WDL workflow
 python cli/manage_wdl_action.py --create -r requirements.md -t "Title" --agent my-agent

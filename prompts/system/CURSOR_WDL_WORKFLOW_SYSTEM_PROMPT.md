@@ -80,16 +80,14 @@ When a user provides a requirements document for a **complex workflow**, follow 
 
 2. **Auto-discover tools AND APIs based on full requirements**:
    ```bash
-   python cli/manage_wdl_action.py --auto-discover -r requirements.md --top-k 5 --json
+   python cli/discover.py --requirements requirements.md --top 5 --json
    ```
-   This searches both tools and APIs using semantic search, returning the most relevant matches in JSON format.
-   **The command will automatically fetch detailed API information using `/v1/tools/apis-detailed/{api_id}` endpoint and output it to the console** so you can proceed with implementation immediately.
+   This searches both actions and APIs using semantic search, returning the most relevant matches in JSON format.
 
 3. **Review the discovery results**:
-   - Check the `tools` array for existing tools that could be building blocks
+   - Check the `actions` array for existing tools/actions that could be building blocks
    - Check the `apis` array for APIs that match your requirements
    - Note the IDs and similarity scores
-   - **Review the detailed API information output to console** - this contains full API specifications
 
 4. **Review WDL documentation** by fetching the index from:
    ```
@@ -389,25 +387,59 @@ python cli/publish_wdl_action.py {workflow_id}
 
 ## CLI Reference
 
-### Discovery Commands
+### Discovery Commands (`cli/discover.py`)
+
+**Listing by Type:**
 ```bash
-# List all available tools
-python cli/manage_wdl_action.py --list-tools [--json]
+# List tools (execution_type=TOOL)
+python cli/discover.py --list-tools [--json]
+
+# List ALL actions (execution_type=DEFAULT) - includes non-tool actions
+python cli/discover.py --list-all [--json]
+
+# List workflows only (execution_type=WORKFLOW)
+python cli/discover.py --list-workflows [--json]
 
 # List all available APIs
-python cli/manage_wdl_action.py --list-apis [--json]
+python cli/discover.py --list-apis [--json]
+```
 
-# Semantic search for tools
-python cli/manage_wdl_action.py --search "natural language query" [--json] [--top-k 10]
+**Semantic Search:**
+```bash
+# Search for actions (semantic search by default)
+python cli/discover.py --actions "inventory management" [--json] [--top 10]
 
-# Semantic search for APIs
-python cli/manage_wdl_action.py --search-apis "natural language query" [--json] [--top-k 10]
+# Search for APIs
+python cli/discover.py --apis "user authentication" [--json] [--top 10]
 
-# Auto-discover tools AND APIs based on requirements
-python cli/manage_wdl_action.py --auto-discover -r requirements.md [--top-k 5]
-# Returns JSON with both "tools" and "apis" arrays
-# Automatically fetches detailed API information using /v1/tools/apis-detailed/{api_id}
-# and outputs full API specifications to console for immediate use
+# Fuzzy search (for specific names)
+python cli/discover.py --actions "get-orderpoints" --mode fuzzy
+
+# Hybrid search (semantic + fuzzy combined)
+python cli/discover.py --actions "orderpoints" --mode hybrid
+
+# From requirements file
+python cli/discover.py --requirements requirements.md
+# Returns both actions and APIs that match requirements
+```
+
+**Verbose Debugging:**
+```bash
+# Enable verbose mode for debugging discovery issues
+python cli/discover.py --list-tools --verbose
+python cli/discover.py --actions "query" --verbose
+```
+
+**Output Options:**
+```bash
+# JSON output for machine parsing
+python cli/discover.py --list-tools --json
+
+# Force refresh cache
+python cli/discover.py --list-tools --refresh
+
+# Fetch full details for each result
+python cli/discover.py --actions "query" --details
 ```
 
 ### Creation Commands
@@ -857,12 +889,12 @@ When a user provides requirements, follow these steps:
 
 2. **Auto-discover** - Run discovery command:
    ```bash
-   python cli/manage_wdl_action.py --auto-discover -r requirements.md --top-k 5 --json
+   python cli/discover.py --requirements requirements.md --top 5 --json
    ```
 
 3. **Analyze results** - Review the JSON output:
-   - Look for APIs with high similarity scores (>60%)
-   - Look for tools that could be reused or referenced
+   - Look for actions/APIs with high similarity scores (>60%)
+   - Look for actions that could be reused or referenced
    - Identify which resources are most relevant
 
 4. **Create workspace with context** - Include discovered resources:
@@ -934,7 +966,7 @@ For creating simple single-API wrapper tools, use the simplified workflow:
 
 ```bash
 # 1. Search for the API you want to wrap
-python cli/manage_wdl_action.py --search-apis "get users" --json
+python cli/discover.py --apis "get users" --json
 
 # 2. Create simple action with the API
 python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "Get Users"
