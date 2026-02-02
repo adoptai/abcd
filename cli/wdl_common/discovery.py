@@ -523,6 +523,98 @@ class Discovery:
         return True, final_results, f"Found {len(final_results)} matching actions"
 
     # =========================================================================
+    # Uber Agent Discovery
+    # =========================================================================
+
+    def fetch_uber_agents(
+        self,
+        force_refresh: bool = False,
+    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+        """
+        Fetch Uber Agents (actions containing PROMPT_AND_TOOLS_AGENT operation).
+
+        This fetches workflows first, then checks each one for PROMPT_AND_TOOLS_AGENT
+        in their WDL. Results are cached at the environment level.
+
+        Args:
+            force_refresh: If True, re-fetch and re-check all workflows
+
+        Returns:
+            Tuple of (success, uber_agents, message)
+        """
+        self._verbose_print("fetch_uber_agents", "ENTER", f"force_refresh={force_refresh}")
+
+        # Check cache first
+        cache_data = self.cache.load_cache("actions")
+        cached_uber_agents = cache_data.get("uber_agents", [])
+
+        if cached_uber_agents and not force_refresh:
+            self._verbose_print("fetch_uber_agents", "using cache", f"{len(cached_uber_agents)} cached uber agents")
+            return True, cached_uber_agents, f"Found {len(cached_uber_agents)} Uber Agents (cached)"
+
+        # Fetch workflows first
+        success, workflows, msg = self.fetch_actions(execution_type="WORKFLOW", force_refresh=force_refresh)
+        if not success:
+            return False, [], msg
+
+        self._verbose_print("fetch_uber_agents", "fetched workflows", f"{len(workflows)} workflows")
+
+        # Check each workflow for PROMPT_AND_TOOLS_AGENT
+        uber_agents: List[Dict[str, Any]] = []
+        
+        for workflow in workflows:
+            action_id = workflow.get("id")
+            if not action_id:
+                continue
+
+            self._verbose_print("fetch_uber_agents", "checking", action_id)
+
+            try:
+                # Fetch full action details to get WDL
+                url = f"{self.actions_endpoint}/v1/actions/{action_id}/current/"
+                response = requests.get(url, headers=self.headers, timeout=30)
+
+                if response.status_code != 200:
+                    continue
+
+                action_data = response.json()
+                wdl = action_data.get("wdl", [])
+                
+                if isinstance(wdl, str):
+                    import json
+                    wdl = json.loads(wdl)
+
+                # Check for PROMPT_AND_TOOLS_AGENT operation
+                sub_action_ids = []
+                for step in wdl:
+                    if isinstance(step, dict) and step.get("operation") == "PROMPT_AND_TOOLS_AGENT":
+                        sub_action_ids = step.get("action_ids", [])
+                        break
+
+                if sub_action_ids:
+                    uber_agent = {
+                        "id": action_id,
+                        "title": action_data.get("title", workflow.get("title")),
+                        "description": action_data.get("action_description", workflow.get("description")),
+                        "sub_action_ids": sub_action_ids,
+                        "sub_action_count": len(sub_action_ids),
+                        "is_uber_agent": True,
+                    }
+                    uber_agents.append(uber_agent)
+                    self._verbose_print("fetch_uber_agents", "found uber agent", uber_agent["title"])
+
+            except Exception as e:
+                self._verbose_print("fetch_uber_agents", "error checking", f"{action_id}: {e}")
+                continue
+
+        # Cache the results
+        cache_data["uber_agents"] = uber_agents
+        self.cache.save_cache("actions", cache_data)
+
+        self._verbose_print("fetch_uber_agents", "EXIT", f"found {len(uber_agents)} uber agents")
+        return True, uber_agents, f"Found {len(uber_agents)} Uber Agents"
+
+    # =========================================================================
     # API Discovery
     # =========================================================================
 
@@ -912,12 +1004,16 @@ class Discovery:
 
 
 # Convenience function for CLI usage
-def get_discovery(env_name: Optional[str] = None) -> Discovery:
+def get_discovery(env_name: Optional[str] = None, verbose: bool = False) -> Discovery:
     """
     Get Discovery instance for an environment.
 
+    This function loads the environment's .env file to ensure the correct
+    API credentials are used for that environment.
+
     Args:
         env_name: Environment name. If None, uses active environment.
+        verbose: Enable verbose debugging output.
 
     Returns:
         Configured Discovery instance
@@ -925,6 +1021,7 @@ def get_discovery(env_name: Optional[str] = None) -> Discovery:
     Raises:
         ValueError: If no environment is available
     """
+    from dotenv import load_dotenv
     from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_workspace_manager, DEFAULT_ENV
 
     manager = get_workspace_manager()
@@ -939,5 +1036,27 @@ def get_discovery(env_name: Optional[str] = None) -> Discovery:
             f"Create one with: python cli/workspace.py env create --id {env}"
         )
 
-    return Discovery(env_path=env_path)
+    # Load environment-specific .env file to override root .env credentials
+    env_dotenv = env_path / ".env"
+    if env_dotenv.exists():
+        if verbose:
+            print(f"[VERBOSE] Loading credentials from: {env_dotenv}", file=sys.stderr)
+        load_dotenv(env_dotenv, override=True)
+        
+        # Check if credentials are properly configured (not placeholders)
+        client_id = os.getenv("ADOPT_CLIENT_ID", "")
+        client_secret = os.getenv("ADOPT_CLIENT_SECRET", "")
+        
+        if "your-" in client_id.lower() or not client_id:
+            print(f"⚠️  Warning: ADOPT_CLIENT_ID is not configured in environment: {env}", file=sys.stderr)
+            print(f"   Edit: {env_dotenv}", file=sys.stderr)
+        if "your-" in client_secret.lower() or not client_secret:
+            print(f"⚠️  Warning: ADOPT_CLIENT_SECRET is not configured in environment: {env}", file=sys.stderr)
+            print(f"   Edit: {env_dotenv}", file=sys.stderr)
+    else:
+        print(f"⚠️  Warning: No .env file found in environment: {env}", file=sys.stderr)
+        print(f"   Expected: {env_dotenv}", file=sys.stderr)
+        print(f"   Using credentials from root .env or environment variables.", file=sys.stderr)
+
+    return Discovery(env_path=env_path, verbose=verbose)
 

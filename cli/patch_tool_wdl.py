@@ -29,7 +29,7 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token
+from cli.auth import get_bearer_token_for_env
 
 from wdl_common.api_client import AdoptAPIClient
 from wdl_common.diff_utils import display_diff, generate_wdl_diff, summarize_changes
@@ -361,7 +361,7 @@ Examples:
     print("=" * 70)
     
     try:
-        bearer_token = get_bearer_token()
+        bearer_token = get_bearer_token_for_env()  # Uses active environment
         
         rollback_manager = RollbackManager()
         rollback_manager.start_session()

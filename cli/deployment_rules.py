@@ -18,7 +18,7 @@ from pathlib import Path
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 from cli.wdl_common.workspace_manager import get_workspace_manager
 
 
@@ -62,7 +62,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         print("   The action may not be published yet.")
         return 1
 
-    client = AdoptAPIClient()
+    client = get_api_client_for_env()  # Uses active environment
     success, rules, message = client.get_deployment_rules(action_id)
 
     if not success:
@@ -98,7 +98,7 @@ def cmd_enable_tool_mode(args: argparse.Namespace) -> int:
         print(f"❌ No remote action ID found for: {args.action}")
         return 1
 
-    client = AdoptAPIClient()
+    client = get_api_client_for_env()  # Uses active environment
 
     # Get current rules first
     success, current_rules, _ = client.get_deployment_rules(action_id)
@@ -133,7 +133,7 @@ def cmd_disable_tool_mode(args: argparse.Namespace) -> int:
         print(f"❌ No remote action ID found for: {args.action}")
         return 1
 
-    client = AdoptAPIClient()
+    client = get_api_client_for_env()  # Uses active environment
 
     # Get current rules first
     success, current_rules, _ = client.get_deployment_rules(action_id)
@@ -168,7 +168,7 @@ def cmd_set_visible(args: argparse.Namespace) -> int:
         print(f"❌ No remote action ID found for: {args.action}")
         return 1
 
-    client = AdoptAPIClient()
+    client = get_api_client_for_env()  # Uses active environment
 
     # Get current rules first
     success, current_rules, _ = client.get_deployment_rules(action_id)

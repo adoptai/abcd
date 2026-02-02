@@ -144,6 +144,7 @@ python cli/discover.py --list-all --json
 # Or list by type
 python cli/discover.py --list-tools
 python cli/discover.py --list-workflows
+python cli/discover.py --list-uber-agents  # List Uber Agents (PROMPT_AND_TOOLS_AGENT)
 
 # Search for specific action
 python cli/discover.py --actions "action name or description" --mode fuzzy
@@ -181,6 +182,72 @@ python cli/status.py <action-id>
 # or
 # workspaces/<env-id>/agents/<agent-id>/actions/<action-id>/
 ```
+
+---
+
+## 🤖 LOADING UBER AGENTS
+
+Uber Agents are actions that contain `PROMPT_AND_TOOLS_AGENT` operations with sub-actions.
+
+### Identify Uber Agents
+
+```bash
+# List all Uber Agents in the environment
+python cli/discover.py --list-uber-agents
+```
+
+### Checkout an Uber Agent with Sub-Actions
+
+```bash
+# Checkout agent with all its sub-actions
+python cli/workspace.py agent checkout \
+  --remote-id <uber-agent-id> \
+  --env <env-id> \
+  --include-subactions
+```
+
+This creates the agent workspace with all sub-actions:
+```
+workspaces/<env>/agents/<agent-name>/
+├── widdle.json           # Agent WDL (contains PROMPT_AND_TOOLS_AGENT)
+├── agent.json            # Agent metadata
+├── actions/              # Sub-actions
+│   ├── sub-action-1/
+│   │   ├── widdle.json
+│   │   └── metadata.json
+│   ├── sub-action-2/
+│   │   └── ...
+│   └── ...
+└── test_cases/
+```
+
+---
+
+## 📦 BULK CHECKOUT: Load ALL Actions from Client
+
+If the user requests to load **all actions** from a client:
+
+```bash
+# Checkout all actions from remote
+python cli/workspace.py action checkout-all --env <env-id>
+
+# Limit to first N actions
+python cli/workspace.py action checkout-all --env <env-id> --limit 10
+
+# Checkout only Uber Agents with their sub-actions
+python cli/workspace.py action checkout-all --env <env-id> --uber-agents-only --include-subactions
+
+# Force overwrite existing local actions
+python cli/workspace.py action checkout-all --env <env-id> --force
+```
+
+**Options:**
+- `--limit N`: Only checkout first N actions
+- `--force`: Overwrite existing local workspaces
+- `--tools-only`: Only checkout tool-type actions
+- `--workflows-only`: Only checkout workflow-type actions
+- `--uber-agents-only`: Only checkout Uber Agents
+- `--include-subactions`: Download sub-actions for Uber Agents
 
 ---
 

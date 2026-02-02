@@ -5,7 +5,7 @@ Discovery CLI - List and search for actions and APIs.
 Usage:
     # List all (by type)
     python cli/discover.py --list-tools            # Tools only (execution_type=TOOL)
-    python cli/discover.py --list-all              # All actions (execution_type=DEFAULT)
+    python cli/discover.py --list-all              # All actions (no filter)
     python cli/discover.py --list-workflows        # Workflows only (execution_type=WORKFLOW)
     python cli/discover.py --list-apis             # All APIs
 
@@ -102,7 +102,7 @@ Examples:
     list_group.add_argument(
         "--list-all",
         action="store_true",
-        help="List all actions (execution_type=DEFAULT)",
+        help="List all actions (no type filter, includes hidden)",
     )
     list_group.add_argument(
         "--list-workflows",
@@ -113,6 +113,11 @@ Examples:
         "--list-apis",
         action="store_true",
         help="List all available APIs",
+    )
+    list_group.add_argument(
+        "--list-uber-agents",
+        action="store_true",
+        help="List Uber Agents (actions with PROMPT_AND_TOOLS_AGENT)",
     )
 
     # Search targets
@@ -204,12 +209,12 @@ Examples:
         print("[VERBOSE] Verbose mode enabled", file=sys.stderr)
 
     # Validate arguments
-    has_list_cmd = any([args.list_tools, args.list_all, args.list_workflows, args.list_apis])
+    has_list_cmd = any([args.list_tools, args.list_all, args.list_workflows, args.list_apis, args.list_uber_agents])
     has_search_cmd = any([args.actions, args.apis, args.requirements])
     
     if not has_list_cmd and not has_search_cmd:
         parser.print_help()
-        print("\n❌ Error: Specify a list command (--list-tools, --list-all, --list-workflows, --list-apis)")
+        print("\n❌ Error: Specify a list command (--list-tools, --list-all, --list-workflows, --list-apis, --list-uber-agents)")
         print("   or a search command (--actions, --apis, --requirements)")
         sys.exit(1)
 
@@ -217,7 +222,7 @@ Examples:
 
     # Get discovery instance
     _verbose_print("main", "getting discovery instance")
-    discovery = get_discovery(args.env)
+    discovery = get_discovery(args.env, verbose=_verbose)
 
     results = {"actions": [], "apis": []}
 
@@ -234,9 +239,9 @@ Examples:
             _verbose_print("main", f"fetched {len(items)} tools")
 
         elif args.list_all:
-            _verbose_print("main", "listing all actions (execution_type=DEFAULT)")
+            _verbose_print("main", "listing all actions (no execution_type filter)")
             print("⏳ Fetching all actions...", file=sys.stderr)
-            success, items, msg = discovery.fetch_actions(execution_type="DEFAULT", force_refresh=args.refresh)
+            success, items, msg = discovery.fetch_actions(execution_type=None, force_refresh=args.refresh)
             if not success:
                 print(f"❌ {msg}")
                 sys.exit(1)
@@ -262,6 +267,16 @@ Examples:
                 sys.exit(1)
             results["apis"] = items
             _verbose_print("main", f"fetched {len(items)} APIs")
+
+        elif args.list_uber_agents:
+            _verbose_print("main", "listing Uber Agents (PROMPT_AND_TOOLS_AGENT)")
+            print("⏳ Fetching Uber Agents (this may take a moment)...", file=sys.stderr)
+            success, items, msg = discovery.fetch_uber_agents(force_refresh=args.refresh)
+            if not success:
+                print(f"❌ {msg}")
+                sys.exit(1)
+            results["actions"] = items
+            _verbose_print("main", f"fetched {len(items)} uber agents")
 
     # Handle search commands
     elif args.requirements:

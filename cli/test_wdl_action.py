@@ -40,9 +40,9 @@ from typing import Any, Dict, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 from cli.wdl_common.cursor_prompt_builder import RoamingInstructionsBuilder
-from cli.wdl_common.workspace_manager import WorkspaceManager
+from cli.wdl_common.workspace_manager import WorkspaceManager, get_workspace_manager
 from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.validator import validate_wdl_file, WDLValidator
 from cli.wdl_common.error_patterns import enhance_error_message
@@ -456,7 +456,7 @@ def run_test(
             title = meta_data.title or metadata.get("title")
             if title:
                 print(f"🔍 No action_id found. Searching for action by title: {title}")
-                client = AdoptAPIClient()
+                client = get_api_client_for_env()  # Uses active environment
                 success_list, tools, msg_list = client.list_tools()
                 if success_list and tools:
                     for tool in tools:
@@ -478,7 +478,8 @@ def run_test(
             continue
 
         print(f"🔑 Action ID: {action_id}")
-        client = AdoptAPIClient()
+        # Load API client with environment credentials
+        client = get_api_client_for_env()
 
         # Determine which version to test using MetadataManager (TRANSPARENT)
         # This auto-detects the correct version and draft status

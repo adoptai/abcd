@@ -789,3 +789,60 @@ class AdoptAPIClient:
 
         except requests.exceptions.RequestException as e:
             return False, None, f"Network error: {e}"
+
+
+def get_api_client_for_env(env_name: Optional[str] = None, verbose: bool = False) -> AdoptAPIClient:
+    """
+    Get an API client with credentials loaded from the specified environment.
+
+    This is the recommended way to get an API client in CLI scripts. It ensures
+    that the correct environment credentials are loaded before creating the client.
+
+    Args:
+        env_name: Environment name. If None, uses active environment.
+        verbose: Print verbose info about credential loading.
+
+    Returns:
+        AdoptAPIClient configured with environment credentials.
+
+    Raises:
+        ValueError: If no environment is available or .env is not configured.
+    """
+    from dotenv import load_dotenv
+    from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_workspace_manager, DEFAULT_ENV
+
+    manager = get_workspace_manager()
+
+    # Determine environment
+    env = env_name or manager.active_env or DEFAULT_ENV
+    env_path = WORKSPACES_DIR / env
+
+    if not env_path.exists():
+        raise ValueError(
+            f"Environment not found: {env}. "
+            f"Create one with: python cli/workspace.py env create --id {env}"
+        )
+
+    # Load environment-specific .env file
+    env_dotenv = env_path / ".env"
+    if env_dotenv.exists():
+        if verbose:
+            print(f"[VERBOSE] Loading credentials from: {env_dotenv}", file=sys.stderr)
+        load_dotenv(env_dotenv, override=True)
+
+        # Check if credentials are configured (not placeholders)
+        client_id = os.getenv("ADOPT_CLIENT_ID", "")
+        client_secret = os.getenv("ADOPT_CLIENT_SECRET", "")
+
+        if "your-" in client_id.lower() or not client_id:
+            print(f"⚠️  Warning: ADOPT_CLIENT_ID is not configured in environment: {env}", file=sys.stderr)
+            print(f"   Edit: {env_dotenv}", file=sys.stderr)
+        if "your-" in client_secret.lower() or not client_secret:
+            print(f"⚠️  Warning: ADOPT_CLIENT_SECRET is not configured in environment: {env}", file=sys.stderr)
+            print(f"   Edit: {env_dotenv}", file=sys.stderr)
+    else:
+        print(f"⚠️  Warning: No .env file found in environment: {env}", file=sys.stderr)
+        print(f"   Expected: {env_dotenv}", file=sys.stderr)
+        print(f"   Using credentials from root .env or environment variables.", file=sys.stderr)
+
+    return AdoptAPIClient()

@@ -147,9 +147,10 @@ python cli/deployment_rules.py my-action --show
 ```bash
 # List by type
 python cli/discover.py --list-tools         # Tools only
-python cli/discover.py --list-all           # All actions
+python cli/discover.py --list-all           # All actions (no filter)
 python cli/discover.py --list-workflows     # Workflows only
 python cli/discover.py --list-apis          # Available APIs
+python cli/discover.py --list-uber-agents   # Uber Agents (PROMPT_AND_TOOLS_AGENT)
 
 # Semantic search
 python cli/discover.py --actions "inventory"
@@ -168,6 +169,22 @@ python cli/discover.py --list-tools --verbose
 python cli/discover.py --actions "query" --json
 ```
 
+### Bulk Checkout (`cli/workspace.py action checkout-all`)
+
+```bash
+# Checkout all actions
+python cli/workspace.py action checkout-all --env <env-id>
+
+# Limit to N actions
+python cli/workspace.py action checkout-all --env <env-id> --limit 10
+
+# Uber Agents with sub-actions
+python cli/workspace.py action checkout-all --env <env-id> --uber-agents-only --include-subactions
+
+# Force overwrite
+python cli/workspace.py action checkout-all --env <env-id> --force
+```
+
 ---
 
 ## Command Categories
@@ -179,8 +196,9 @@ python cli/discover.py --actions "query" --json
 | **Save/Publish** | `save_wdl_draft.py`, `publish_wdl_action.py` |
 | **Versioning** | `checkout_wdl_version.py`, `list_wdl_versions.py` |
 | **Workspace** | `workspace.py env/agent/action/profile` |
+| **Bulk Operations** | `workspace.py action checkout-all` |
 | **Tool Mode** | `deployment_rules.py` |
-| **Discovery** | `manage_wdl_action.py --list-*`, `discover.py` |
+| **Discovery** | `discover.py --list-*`, `discover.py --actions/--apis` |
 
 ---
 

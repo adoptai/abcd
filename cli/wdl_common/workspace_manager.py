@@ -217,8 +217,20 @@ class HierarchicalWorkspaceManager:
             }
             (env_path / "adopt_profile.json").write_text(json.dumps(profile, indent=2))
 
-            # Create default .env
-            (env_path / ".env").write_text(f"# Environment: {name}\n# Target: {target}\n")
+            # Create default .env with required variables
+            env_content = f"""# Environment: {name}
+# Target: {target}
+
+# Required: AdoptAI API Authentication
+# Configure these before using discovery or API features
+ADOPT_CLIENT_ID=your-client-id-here
+ADOPT_CLIENT_SECRET=your-client-secret-here
+
+# API Endpoints (defaults to production, uncomment to override)
+# ADOPT_API_ENDPOINT=https://connect.adopt.ai
+# ADOPT_ACTIONS_ENDPOINT=https://api.adopt.ai
+"""
+            (env_path / ".env").write_text(env_content)
 
             return True, env_path, f"Environment created: {env_id}"
 

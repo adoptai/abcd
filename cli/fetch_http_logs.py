@@ -39,7 +39,7 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token
+from cli.auth import get_bearer_token_for_env
 
 from wdl_common.data_cache import DataCache
 from wdl_common.log_parser import get_logs_stats, load_network_logs, save_logs_to_file
@@ -369,7 +369,7 @@ Examples:
         print("=" * 60)
         
         try:
-            bearer_token = get_bearer_token()
+            bearer_token = get_bearer_token_for_env()  # Uses active environment
             
             logs = fetch_network_logs_from_api(
                 bearer_token=bearer_token,

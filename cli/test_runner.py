@@ -38,7 +38,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.workspace_manager import get_workspace_manager, HierarchicalWorkspaceManager
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 
 
 @dataclass
@@ -169,7 +169,7 @@ def run_single_test(
         )
 
         # Run test
-        client = AdoptAPIClient()
+        client = get_api_client_for_env()  # Uses active environment
         success, response, msg = client.run_action(
             action_id=remote_action_id,
             user_input=prompt,
@@ -291,7 +291,7 @@ def run_via_agent_test(
         )
 
         # Run agent with prompt designed to trigger sub-action
-        client = AdoptAPIClient()
+        client = get_api_client_for_env()  # Uses active environment
         success, response, msg = client.run_action(
             action_id=remote_agent_id,
             user_input=prompt,

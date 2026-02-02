@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.workspace_manager import WorkspaceManager
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 
 
 def find_workspace(workflow_id: str) -> tuple[Path, dict]:
@@ -98,7 +98,7 @@ def show_status(workflow_id: str, sync_remote: bool = True) -> bool:
     # Sync with remote if action exists
     if action_id and sync_remote:
         print("\n⏳ Syncing with remote...")
-        client = AdoptAPIClient()
+        client = get_api_client_for_env()  # Uses active environment
         success, versions, msg = client.list_versions(action_id)
         if success and versions:
             meta_manager.sync_versions_from_api(versions)

@@ -293,11 +293,11 @@ def cmd_agent_remove_subaction(args: argparse.Namespace) -> int:
 
 def cmd_agent_checkout(args: argparse.Namespace) -> int:
     """Checkout agent from remote with all sub-actions."""
+    from dotenv import load_dotenv
     from cli.wdl_common.api_client import AdoptAPIClient
     from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
     manager = get_workspace_manager()
-    client = AdoptAPIClient()
 
     env = args.env or manager.active_env
     if not env:
@@ -307,6 +307,16 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
     if not manager.env_exists(env):
         print(f"❌ Environment not found: {env}")
         return 1
+
+    # Load environment-specific credentials BEFORE creating API client
+    env_path = WORKSPACES_DIR / env
+    env_dotenv = env_path / ".env"
+    if env_dotenv.exists():
+        load_dotenv(env_dotenv, override=True)
+    else:
+        print(f"⚠️  Warning: No .env file found in environment: {env}")
+
+    client = AdoptAPIClient()
 
     print(f"\n⏳ Fetching agent from remote: {args.remote_id}")
 
@@ -434,12 +444,22 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
 
 def cmd_agent_sync(args: argparse.Namespace) -> int:
     """Sync agent with remote."""
+    from dotenv import load_dotenv
     from cli.wdl_common.api_client import AdoptAPIClient
+    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
     manager = get_workspace_manager()
-    client = AdoptAPIClient()
 
     env = args.env or manager.active_env
+    
+    # Load environment-specific credentials BEFORE creating API client
+    if env:
+        env_path = WORKSPACES_DIR / env
+        env_dotenv = env_path / ".env"
+        if env_dotenv.exists():
+            load_dotenv(env_dotenv, override=True)
+    
+    client = AdoptAPIClient()
     agent = manager.get_agent(args.id, env)
 
     if not agent:
@@ -613,6 +633,257 @@ def cmd_action_list(args: argparse.Namespace) -> int:
 
     print("=" * 80)
     return 0
+
+
+def cmd_action_checkout_all(args: argparse.Namespace) -> int:
+    """
+    Checkout all actions from remote to local workspace.
+
+    Downloads actions from the remote API and creates local workspaces for each.
+    Uber Agents are automatically detected and placed in the agents/ directory.
+    """
+    import json
+    import shutil
+    from dotenv import load_dotenv
+    from cli.wdl_common.api_client import get_api_client_for_env
+    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
+
+    manager = get_workspace_manager()
+
+    env = args.env or manager.active_env
+    if not env:
+        print("❌ No environment specified. Use --env or set active environment first.")
+        return 1
+
+    if not manager.env_exists(env):
+        print(f"❌ Environment not found: {env}")
+        return 1
+
+    # Load environment credentials
+    env_path = WORKSPACES_DIR / env
+    env_dotenv = env_path / ".env"
+    if env_dotenv.exists():
+        load_dotenv(env_dotenv, override=True)
+    else:
+        print(f"⚠️  Warning: No .env file found in environment: {env}")
+
+    print(f"\n{'='*80}")
+    print(f"📥 BULK ACTION CHECKOUT")
+    print(f"{'='*80}")
+    print(f"Environment: {env}")
+
+    # Use discovery module for fetching actions (uses correct API)
+    from cli.wdl_common.discovery import get_discovery
+    discovery = get_discovery(env)
+
+    # Fetch all actions
+    print(f"\n⏳ Fetching actions from remote...")
+    if args.uber_agents_only:
+        success, actions, msg = discovery.fetch_uber_agents(force_refresh=True)
+        action_type = "Uber Agents"
+    elif args.tools_only:
+        success, actions, msg = discovery.fetch_actions(execution_type="TOOL", force_refresh=True)
+        action_type = "tools"
+    elif args.workflows_only:
+        success, actions, msg = discovery.fetch_actions(execution_type="WORKFLOW", force_refresh=True)
+        action_type = "workflows"
+    else:
+        success, actions, msg = discovery.fetch_actions(execution_type=None, force_refresh=True)
+        action_type = "all actions"
+    
+    # Get API client for action fetching (after discovery loaded credentials)
+    client = get_api_client_for_env(env)
+
+    if not success:
+        print(f"❌ Failed to fetch actions: {msg}")
+        return 1
+
+    print(f"   Found {len(actions)} {action_type}")
+
+    # Apply limit
+    if args.limit and args.limit < len(actions):
+        actions = actions[:args.limit]
+        print(f"   Limited to first {args.limit} actions")
+
+    if not actions:
+        print("⚠️  No actions to checkout")
+        return 0
+
+    # Checkout each action
+    success_count = 0
+    skip_count = 0
+    error_count = 0
+    uber_agent_count = 0
+
+    for i, action in enumerate(actions, 1):
+        action_id = action.get("id") or action.get("action_id")
+        title = action.get("title", action_id)
+
+        print(f"\n[{i}/{len(actions)}] {title}")
+        print(f"   ID: {action_id}")
+
+        if not action_id:
+            print("   ⚠️  Skipped: No action ID")
+            skip_count += 1
+            continue
+
+        try:
+            # Fetch full action details
+            fetch_success, action_data, fetch_msg = client.get_action(action_id)
+            if not fetch_success:
+                print(f"   ⚠️  Failed to fetch: {fetch_msg}")
+                error_count += 1
+                continue
+
+            # Check if uber agent
+            wdl = action_data.get("wdl", [])
+            if isinstance(wdl, str):
+                import json
+                wdl = json.loads(wdl)
+
+            is_uber_agent = False
+            sub_action_ids = []
+            for step in wdl:
+                if isinstance(step, dict) and step.get("operation") == "PROMPT_AND_TOOLS_AGENT":
+                    is_uber_agent = True
+                    sub_action_ids = step.get("action_ids", [])
+                    break
+
+            if is_uber_agent:
+                uber_agent_count += 1
+                print(f"   🤖 Uber Agent with {len(sub_action_ids)} sub-actions")
+
+                # Create agent workspace
+                agent_id = title.lower().replace(" ", "-")[:50] if title else action_id[:50]
+                agent_path = WORKSPACES_DIR / env / "agents" / agent_id
+
+                if agent_path.exists() and not args.force:
+                    print(f"   ⏭️  Skipped: Already exists (use --force to overwrite)")
+                    skip_count += 1
+                    continue
+
+                if agent_path.exists() and args.force:
+                    import shutil
+                    shutil.rmtree(agent_path)
+
+                # Create agent structure
+                agent_success, agent_path, agent_msg = manager.create_agent(
+                    agent_id=agent_id,
+                    name=title,
+                    description=action_data.get("action_description", ""),
+                    env_name=env,
+                )
+
+                if not agent_success and "already exists" not in agent_msg:
+                    print(f"   ⚠️  Failed: {agent_msg}")
+                    error_count += 1
+                    continue
+
+                # Save WDL
+                (agent_path / "widdle.json").write_text(json.dumps(wdl, indent=2))
+
+                # Save metadata
+                agent_json = agent_path / "agent.json"
+                agent_data = json.loads(agent_json.read_text())
+                agent_data["remote_action_id"] = action_id
+                agent_json.write_text(json.dumps(agent_data, indent=2))
+
+                # Download sub-actions if requested
+                if args.include_subactions and sub_action_ids:
+                    print(f"   ⏳ Downloading {len(sub_action_ids)} sub-actions...")
+                    for sub_id in sub_action_ids:
+                        sub_success, sub_data, sub_msg = client.get_action(sub_id)
+                        if not sub_success:
+                            print(f"      ⚠️  {sub_id}: {sub_msg}")
+                            continue
+
+                        sub_title = sub_data.get("title", sub_id)
+                        sub_action_id = sub_title.lower().replace(" ", "-")[:50] if sub_title else sub_id[:50]
+
+                        sub_path = agent_path / "actions" / sub_action_id
+                        sub_path.mkdir(parents=True, exist_ok=True)
+                        (sub_path / "test_cases").mkdir(exist_ok=True)
+
+                        sub_wdl = sub_data.get("wdl", [])
+                        if isinstance(sub_wdl, str):
+                            sub_wdl = json.loads(sub_wdl)
+                        (sub_path / "widdle.json").write_text(json.dumps(sub_wdl, indent=2))
+
+                        sub_meta = {
+                            "workflow_id": sub_action_id,
+                            "title": sub_title,
+                            "action_id": sub_id,
+                            "remote_action_id": sub_id,
+                            "agent_name": agent_id,
+                            "env_name": env,
+                        }
+                        (sub_path / "metadata.json").write_text(json.dumps(sub_meta, indent=2))
+
+                        print(f"      ✅ {sub_title}")
+
+                print(f"   ✅ Created agent: {agent_path}")
+                success_count += 1
+
+            else:
+                # Regular action - create in actions/ directory
+                action_local_id = title.lower().replace(" ", "-")[:50] if title else action_id[:50]
+                action_path = WORKSPACES_DIR / env / "actions" / action_local_id
+
+                if action_path.exists() and not args.force:
+                    print(f"   ⏭️  Skipped: Already exists (use --force to overwrite)")
+                    skip_count += 1
+                    continue
+
+                if action_path.exists() and args.force:
+                    import shutil
+                    shutil.rmtree(action_path)
+
+                # Create action workspace
+                action_success, action_path, action_msg = manager.create_action(
+                    action_id=action_local_id,
+                    title=title,
+                    description=action_data.get("action_description", ""),
+                    env_name=env,
+                )
+
+                if not action_success and "already exists" not in action_msg:
+                    print(f"   ⚠️  Failed: {action_msg}")
+                    error_count += 1
+                    continue
+
+                # Save WDL
+                (action_path / "widdle.json").write_text(json.dumps(wdl, indent=2))
+
+                # Update metadata
+                meta_path = action_path / "metadata.json"
+                if meta_path.exists():
+                    meta = json.loads(meta_path.read_text())
+                else:
+                    meta = {}
+                meta["action_id"] = action_id
+                meta["remote_action_id"] = action_id
+                meta_path.write_text(json.dumps(meta, indent=2))
+
+                print(f"   ✅ Created action: {action_path}")
+                success_count += 1
+
+        except Exception as e:
+            print(f"   ❌ Error: {e}")
+            error_count += 1
+            continue
+
+    # Summary
+    print(f"\n{'='*80}")
+    print(f"📊 CHECKOUT SUMMARY")
+    print(f"{'='*80}")
+    print(f"   ✅ Success: {success_count}")
+    print(f"   ⏭️  Skipped: {skip_count}")
+    print(f"   ❌ Errors: {error_count}")
+    if uber_agent_count:
+        print(f"   🤖 Uber Agents: {uber_agent_count}")
+    print(f"{'='*80}")
+
+    return 0 if error_count == 0 else 1
 
 
 def cmd_profile_show(args: argparse.Namespace) -> int:
@@ -830,6 +1101,35 @@ def main() -> int:
     action_list.add_argument("--agent", help="Agent")
     action_list.add_argument("--standalone-only", action="store_true", help="Exclude sub-actions")
     action_list.set_defaults(func=cmd_action_list)
+
+    # action checkout-all
+    action_checkout_all = action_subparsers.add_parser(
+        "checkout-all",
+        help="Bulk checkout actions from remote",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Checkout all actions
+  python cli/workspace.py action checkout-all --env 6sense-prod
+
+  # Checkout first 10 actions
+  python cli/workspace.py action checkout-all --env 6sense-prod --limit 10
+
+  # Checkout only Uber Agents with sub-actions
+  python cli/workspace.py action checkout-all --env 6sense-prod --uber-agents-only --include-subactions
+
+  # Force overwrite existing
+  python cli/workspace.py action checkout-all --env 6sense-prod --force
+        """,
+    )
+    action_checkout_all.add_argument("--env", help="Environment (uses active if not specified)")
+    action_checkout_all.add_argument("--limit", type=int, help="Limit number of actions to checkout")
+    action_checkout_all.add_argument("--force", action="store_true", help="Overwrite existing local actions")
+    action_checkout_all.add_argument("--tools-only", action="store_true", help="Only checkout tool-type actions")
+    action_checkout_all.add_argument("--workflows-only", action="store_true", help="Only checkout workflow-type actions")
+    action_checkout_all.add_argument("--uber-agents-only", action="store_true", help="Only checkout Uber Agents")
+    action_checkout_all.add_argument("--include-subactions", action="store_true", help="Also download sub-actions for Uber Agents")
+    action_checkout_all.set_defaults(func=cmd_action_checkout_all)
 
     # =========================================================================
     # PROFILE commands

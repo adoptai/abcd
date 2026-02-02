@@ -20,14 +20,14 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.version_tracker import (
     update_current_version,
     update_metadata_version,
     set_checked_out_version,
 )
-from cli.wdl_common.workspace_manager import WorkspaceManager
+from cli.wdl_common.workspace_manager import WorkspaceManager, get_workspace_manager
 
 
 def checkout_wdl_version(
@@ -85,7 +85,7 @@ def checkout_wdl_version(
             title = meta_data.title
             if title:
                 print(f"🔍 No action_id found. Searching by title: {title}")
-                client = AdoptAPIClient()
+                client = get_api_client_for_env()  # Uses active environment
                 success_list, tools, msg_list = client.list_tools()
                 if success_list and tools:
                     for tool in tools:
@@ -117,7 +117,8 @@ def checkout_wdl_version(
         (workspace / "traces").mkdir(exist_ok=True)
         (workspace / "versions").mkdir(exist_ok=True)
 
-    client = AdoptAPIClient()
+    # Load API client with environment credentials
+    client = get_api_client_for_env()
 
     # Get versions list to check if this version is current
     print("\n📋 Checking version status...")
@@ -203,6 +204,22 @@ def checkout_wdl_version(
     if not wdl:
         print("❌ No WDL found in version")
         return False
+
+    # Check if this is an Uber Agent (contains PROMPT_AND_TOOLS_AGENT operation)
+    is_uber_agent = False
+    sub_action_ids = []
+    for step in wdl:
+        if isinstance(step, dict) and step.get("operation") == "PROMPT_AND_TOOLS_AGENT":
+            is_uber_agent = True
+            sub_action_ids = step.get("action_ids", [])
+            break
+
+    if is_uber_agent and not standalone:
+        print(f"\n🤖 UBER AGENT DETECTED!")
+        print(f"   This action contains PROMPT_AND_TOOLS_AGENT with {len(sub_action_ids)} sub-actions.")
+        print(f"   💡 Consider using agent checkout instead:")
+        print(f"      python cli/workspace.py agent checkout --remote-id {action_id} --env <env> --include-subactions")
+        print(f"\n   Continuing with standard checkout (sub-actions will NOT be downloaded)...")
 
     # Backup current WDL if exists
     wdl_path = workspace / "widdle.json"

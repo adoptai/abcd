@@ -139,3 +139,5 @@ Thumbs.db
 # Local testing
 *.har
 *.log
+
+workspaces/*

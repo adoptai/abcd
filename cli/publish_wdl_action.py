@@ -28,7 +28,7 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.version_tracker import (
     update_current_version,
@@ -99,7 +99,7 @@ def publish_wdl_action(
             title = meta_data.title
             if title:
                 print(f"🔍 No action_id found. Searching by title: {title}")
-                client = AdoptAPIClient()
+                client = get_api_client_for_env()  # Uses active environment
                 success_list, tools, msg_list = client.list_tools()
                 if success_list and tools:
                     for tool in tools:
@@ -119,7 +119,8 @@ def publish_wdl_action(
 
     print(f"Action ID: {action_id}")
 
-    client = AdoptAPIClient()
+    # Load API client with environment credentials
+    client = get_api_client_for_env()
 
     # Get existing version description if available (for reference)
     existing_description = None

@@ -26,7 +26,7 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token
+from cli.auth import get_bearer_token_for_env
 
 from wdl_common.api_client import AdoptAPIClient
 from wdl_common.interactive import print_error, print_success, print_warning, prompt_confirmation
@@ -274,7 +274,7 @@ Examples:
         return 0
     
     try:
-        bearer_token = get_bearer_token()
+        bearer_token = get_bearer_token_for_env()  # Uses active environment
         
         results = rollback_from_file(
             bearer_token=bearer_token,

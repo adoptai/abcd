@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.workspace_manager import WorkspaceManager
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 
 
 def find_workspace(workflow_id: str) -> Path:
@@ -51,7 +51,7 @@ def search_action_by_title(title: str) -> Optional[dict]:
     Returns:
         Action dict if found, None otherwise
     """
-    client = AdoptAPIClient()
+    client = get_api_client_for_env()  # Uses active environment
     success, tools, msg = client.list_tools()
     
     if not success or not tools:
@@ -155,7 +155,7 @@ def reconnect_workspace(
     
     # Verify action exists on remote
     print(f"\n🔍 Verifying action: {action_id}")
-    client = AdoptAPIClient()
+    client = get_api_client_for_env()  # Uses active environment
     success, action_data, msg = client.get_action(action_id)
     
     if not success:

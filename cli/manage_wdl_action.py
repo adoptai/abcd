@@ -35,7 +35,7 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 from cli.wdl_common.cursor_prompt_builder import RoamingInstructionsBuilder
 from cli.wdl_common.discovery import Discovery, get_discovery
 from cli.wdl_common.wdl_documentation import WDLDocumentationProvider
@@ -80,7 +80,7 @@ def _save_draft_for_workspace(
     
     _verbose_print("_save_draft_for_workspace", "loading WDL")
     wdl = json.loads(wdl_path.read_text())
-    client = AdoptAPIClient()
+    client = get_api_client_for_env()  # Uses active environment
     
     # Get current state
     _verbose_print("_save_draft_for_workspace", "getting current action state")
@@ -600,7 +600,7 @@ def create_simple_tool(
     action_id: Optional[str] = None
     if create_remote:
         print("\n🌐 Creating remote action...")
-        client = AdoptAPIClient()
+        client = get_api_client_for_env()  # Uses active environment
         
         description = api_details.get("description", f"Tool for {api_title}")[:300]
         
@@ -778,7 +778,7 @@ def create_wdl_action(
     if create_remote:
         _verbose_print("create_wdl_action", "creating remote action")
         print("\n🔧 Creating action on Adopt...")
-        client = AdoptAPIClient()
+        client = get_api_client_for_env()  # Uses active environment
         
         # Extract API IDs from api_specs
         api_ids = [spec.get("id") for spec in api_specs if spec.get("id")]

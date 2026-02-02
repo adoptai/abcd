@@ -14,7 +14,7 @@ is auto-created and activated. Use `workspace.py env` commands to manage environ
 """
 
 from .wdl_documentation import WDLDocumentationProvider
-from .api_client import AdoptAPIClient
+from .api_client import AdoptAPIClient, get_api_client_for_env
 from .trace_analyzer import TraceAnalyzer, TraceIssue
 from .cursor_prompt_builder import RoamingInstructionsBuilder
 from .discovery import Discovery, DiscoveryCache, EmbeddingManager, get_discovery
@@ -54,6 +54,7 @@ from .error_patterns import (
 __all__ = [
     "WDLDocumentationProvider",
     "AdoptAPIClient",
+    "get_api_client_for_env",
     "TraceAnalyzer",
     "TraceIssue",
     "RoamingInstructionsBuilder",

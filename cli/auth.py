@@ -77,3 +77,40 @@ def get_bearer_token(
     except requests.exceptions.RequestException as e:
         raise ValueError(f"Network error during authentication: {e}")
 
+
+def get_bearer_token_for_env(env_name: Optional[str] = None) -> str:
+    """
+    Get bearer token for the specified (or active) environment.
+
+    This function loads credentials from the environment's .env file
+    before fetching the token. It's the recommended way to get auth
+    tokens in CLI scripts.
+
+    Args:
+        env_name: Environment name. If None, uses active environment.
+
+    Returns:
+        The bearer token as a string
+
+    Raises:
+        ValueError: If credentials are not configured or authentication fails.
+    """
+    from pathlib import Path
+    
+    # Import here to avoid circular imports
+    try:
+        from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_workspace_manager, DEFAULT_ENV
+    except ImportError:
+        # Fallback if workspace_manager not available - just use get_bearer_token
+        return get_bearer_token()
+
+    manager = get_workspace_manager()
+    env = env_name or manager.active_env or DEFAULT_ENV
+    env_path = WORKSPACES_DIR / env
+
+    if env_path.exists():
+        env_dotenv = env_path / ".env"
+        if env_dotenv.exists():
+            load_dotenv(env_dotenv, override=True)
+
+    return get_bearer_token()

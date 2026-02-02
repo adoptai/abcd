@@ -30,8 +30,8 @@ from typing import Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient
-from cli.wdl_common.workspace_manager import WorkspaceManager
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
+from cli.wdl_common.workspace_manager import WorkspaceManager, get_workspace_manager
 from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.validator import validate_wdl_file
 from cli.wdl_common.version_tracker import (
@@ -117,7 +117,8 @@ def save_wdl_draft(
     wdl = json.loads(wdl_path.read_text())
     print(f"📝 Loaded WDL: {len(wdl)} operations")
 
-    client = AdoptAPIClient()
+    # Load API client with environment credentials
+    client = get_api_client_for_env()
 
     # Step 1: Get action_id with recovery
     # Use MetadataManager's protected action_id mechanism

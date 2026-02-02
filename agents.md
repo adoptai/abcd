@@ -702,9 +702,10 @@ python tool_agents.py                    # Interactive agent management
 ```bash
 # List all actions/tools/workflows
 python cli/discover.py --list-tools       # List tools (execution_type=TOOL)
-python cli/discover.py --list-all         # List all actions (execution_type=DEFAULT)
+python cli/discover.py --list-all         # List all actions (no filter, includes hidden)
 python cli/discover.py --list-workflows   # List workflows (execution_type=WORKFLOW)
 python cli/discover.py --list-apis        # List available APIs
+python cli/discover.py --list-uber-agents # List Uber Agents (PROMPT_AND_TOOLS_AGENT)
 
 # Semantic search
 python cli/discover.py --actions "inventory management"  # Search actions
@@ -721,6 +722,21 @@ python cli/discover.py --list-tools --verbose
 
 # JSON output
 python cli/discover.py --list-tools --json
+```
+
+#### Bulk Checkout Commands (`cli/workspace.py action checkout-all`)
+```bash
+# Checkout all actions from remote
+python cli/workspace.py action checkout-all --env 6sense-prod
+
+# Limit to first N actions
+python cli/workspace.py action checkout-all --env 6sense-prod --limit 10
+
+# Checkout only Uber Agents with sub-actions
+python cli/workspace.py action checkout-all --env 6sense-prod --uber-agents-only --include-subactions
+
+# Force overwrite existing
+python cli/workspace.py action checkout-all --env 6sense-prod --force
 ```
 
 #### Simple Actions
