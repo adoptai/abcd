@@ -146,12 +146,12 @@ def save_wdl_draft(
         # Get title from metadata
         title = meta_data.title
         if not title:
-        metadata_path = workspace / "metadata.json"
-        if metadata_path.exists():
-            metadata = json.loads(metadata_path.read_text())
-            title = metadata.get("title", "New WDL Workflow")
-        else:
-            title = "New WDL Workflow"
+            metadata_path = workspace / "metadata.json"
+            if metadata_path.exists():
+                metadata = json.loads(metadata_path.read_text())
+                title = metadata.get("title", "New WDL Workflow")
+            else:
+                title = "New WDL Workflow"
         
         # Load requirements for description
         requirements_path = workspace / "requirements.md"
@@ -218,7 +218,7 @@ def save_wdl_draft(
                 print("❌ Cannot recover - no title in metadata")
             return False, ""
         else:
-        print("   ✅ Action exists on remote")
+            print("   ✅ Action exists on remote")
 
     print(f"\n🔑 Action ID: {action_id}")
 
