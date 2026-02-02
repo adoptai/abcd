@@ -39,16 +39,40 @@ cp dev.env .env
 
 ## Environment Setup
 
-Edit `.env` with your AdoptAI credentials:
+**All operations require an environment.** The repo ships with a `default` environment that is automatically activated.
+
+### 1. Configure the Default Environment
+
+Edit `workspaces/default/.env` with your AdoptAI credentials:
 
 ```bash
 # Required
-ADOPT_CLIENT_ID=your_client_id_here
-ADOPT_CLIENT_SECRET=your_client_secret_here
+ADOPT_API_KEY=your-api-key-here
 
 # Optional (defaults shown)
 ADOPT_API_ENDPOINT=https://connect.adopt.ai
 ADOPT_ACTIONS_ENDPOINT=https://api.adopt.ai
+```
+
+### 2. Create Additional Environments (Optional)
+
+For staging/production separation or multiple clients:
+
+```bash
+# Create production environment
+python cli/workspace.py env create --id production --name "Production" --target production
+
+# Switch to production
+python cli/workspace.py env use production
+
+# Configure production credentials
+# Edit workspaces/production/.env
+```
+
+### 3. Check Active Environment
+
+```bash
+python cli/workspace.py env list
 ```
 
 ## Quick Decision Tree

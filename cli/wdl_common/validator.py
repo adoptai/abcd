@@ -538,3 +538,4 @@ def validate_wdl_file(
     return validator.validate_file(wdl_path, context, auto_fix)
 
 
+

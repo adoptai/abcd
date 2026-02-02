@@ -53,11 +53,14 @@ def cmd_env_create(args: argparse.Namespace) -> int:
         description=args.description or "",
         target=args.target or "staging",
         client=args.client or "",
+        domain=getattr(args, "domain", None) or "",
     )
 
     if success:
         print(f"✅ {message}")
         print(f"   Path: {path}")
+        if args.description:
+            print(f"   Description: {args.description}")
         if args.use:
             manager.active_env = args.id
             print(f"   Set as active environment")
@@ -68,7 +71,7 @@ def cmd_env_create(args: argparse.Namespace) -> int:
 
 
 def cmd_env_list(args: argparse.Namespace) -> int:
-    """List all environments."""
+    """List all environments with descriptions."""
     manager = get_workspace_manager()
     envs = manager.list_envs()
 
@@ -76,20 +79,26 @@ def cmd_env_list(args: argparse.Namespace) -> int:
         print("No environments found. Create one with: workspace.py env create")
         return 0
 
-    print("\n" + "=" * 70)
+    print("\n" + "=" * 90)
     print("📁 ENVIRONMENTS")
-    print("=" * 70)
-    print(f"{'ID':<25} {'Name':<25} {'Target':<12} {'Active'}")
-    print("-" * 70)
+    print("=" * 90)
 
     for env in envs:
-        env_id = env.get("env_id", "?")[:23]
-        name = env.get("name", "Untitled")[:23]
-        target = env.get("target", "?")[:10]
-        active = "✓" if env.get("is_active") else ""
-        print(f"{env_id:<25} {name:<25} {target:<12} {active}")
+        env_id = env.get("env_id", "?")
+        name = env.get("name", "Untitled")
+        target = env.get("target", "?")
+        description = env.get("description", "")[:60]
+        domain = env.get("domain", "")
+        active = " ✓ ACTIVE" if env.get("is_active") else ""
+        
+        print(f"\n  {env_id}{active}")
+        print(f"    Name: {name} | Target: {target}" + (f" | Domain: {domain}" if domain else ""))
+        if description:
+            print(f"    Description: {description}{'...' if len(env.get('description', '')) > 60 else ''}")
 
-    print("=" * 70)
+    print("\n" + "=" * 90)
+    print("💡 To switch: python cli/workspace.py env use <env-id>")
+    print("=" * 90)
     return 0
 
 
@@ -711,11 +720,12 @@ def main() -> int:
 
     # env create
     env_create = env_subparsers.add_parser("create", help="Create environment")
-    env_create.add_argument("--id", required=True, help="Environment ID")
-    env_create.add_argument("--name", required=True, help="Environment name")
-    env_create.add_argument("--description", help="Description")
-    env_create.add_argument("--target", choices=["staging", "production"], default="staging")
+    env_create.add_argument("--id", required=True, help="Environment ID (e.g., 'clientx-marketing')")
+    env_create.add_argument("--name", required=True, help="Human-readable name")
+    env_create.add_argument("--description", help="Description of what this env is for (helps agents validate requests)")
+    env_create.add_argument("--target", choices=["development", "staging", "production"], default="staging")
     env_create.add_argument("--client", help="Client identifier")
+    env_create.add_argument("--domain", help="Primary business domain (e.g., 'marketing', 'inventory')")
     env_create.add_argument("--use", action="store_true", help="Set as active")
     env_create.set_defaults(func=cmd_env_create)
 

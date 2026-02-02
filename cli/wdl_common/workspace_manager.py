@@ -2,16 +2,19 @@
 """
 Workspace Manager - Hierarchical Workspace Management.
 
+**IMPORTANT**: All operations require an environment. The repo ships with a
+'default' environment that is active by default. Create additional environments
+for different targets (staging, production) or clients.
+
 Supports three-level hierarchy:
-1. Environment (Env) Level - Top-level workspace with shared config
+1. Environment (Env) Level - Top-level workspace with shared config (REQUIRED)
 2. Agent Level - Uber Agent containing sub-actions
 3. Action Level - Individual action workspace
 
 Directory Structure:
     workspaces/
-    ├── .env                     # Root fallback .env
-    ├── adopt_profile.json       # Root fallback profile
-    ├── {env_name}/              # Environment workspace
+    ├── .active_env              # Currently active environment
+    ├── default/                 # Default environment (ships with repo)
     │   ├── .env
     │   ├── adopt_profile.json
     │   ├── env.json
@@ -24,8 +27,8 @@ Directory Structure:
     │   │           └── {action_id}/
     │   └── actions/             # Standalone actions in env
     │       └── {action_id}/
-    └── standalone/              # Global standalone actions
-        └── {action_id}/
+    └── {other_env}/             # Additional environments
+        └── ...
 """
 
 import json
@@ -41,8 +44,6 @@ from dotenv import load_dotenv
 # Base directories
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 WORKSPACES_DIR = PROJECT_ROOT / "workspaces"
-LEGACY_ACTIONS_DIR = PROJECT_ROOT / "actions"
-LEGACY_AGENTS_DIR = PROJECT_ROOT / "tool_builder_agents"
 
 
 class WorkspaceType(Enum):
@@ -50,18 +51,23 @@ class WorkspaceType(Enum):
     ENVIRONMENT = "environment"
     AGENT = "agent"
     ACTION = "action"
-    STANDALONE = "standalone"
+
+# Default environment name
+DEFAULT_ENV = "default"
 
 
 class HierarchicalWorkspaceManager:
     """
     Manages hierarchical workspaces with configuration inheritance.
 
+    **IMPORTANT**: All operations require an environment. Use 'default' env
+    or create additional environments for different targets/clients.
+
     Supports:
-    - Environment-level workspaces with shared .env and adopt_profile.json
+    - Environment-level workspaces with shared .env and adopt_profile.json (REQUIRED)
     - Agent-level workspaces (Uber Agents) with sub-actions
-    - Action-level workspaces (standalone or within agents)
-    - Configuration inheritance (action -> agent -> env -> root)
+    - Action-level workspaces within environments or agents
+    - Configuration inheritance (action -> agent -> env)
     """
 
     def __init__(self) -> None:
@@ -69,25 +75,25 @@ class HierarchicalWorkspaceManager:
         self._ensure_base_structure()
         self._active_env: str | None = None
         self._load_active_env()
+        
+        # Auto-activate default env if no active env
+        if not self._active_env and self.env_exists(DEFAULT_ENV):
+            self._active_env = DEFAULT_ENV
+            self._save_active_env()
 
     def _ensure_base_structure(self) -> None:
-        """Ensure base workspace structure exists."""
+        """Ensure base workspace structure exists with default environment."""
         WORKSPACES_DIR.mkdir(parents=True, exist_ok=True)
-        (WORKSPACES_DIR / "standalone").mkdir(exist_ok=True)
 
-        # Create root fallback files if they don't exist
-        root_profile = WORKSPACES_DIR / "adopt_profile.json"
-        if not root_profile.exists():
-            root_profile.write_text(json.dumps({
-                "base_url": "",
-                "application_base_url": "",
-                "workflow_params": {},
-                "security_params": {},
-            }, indent=2))
-
-        root_env = WORKSPACES_DIR / ".env"
-        if not root_env.exists():
-            root_env.write_text("# Root environment variables\n")
+        # Ensure default environment exists
+        default_env_path = WORKSPACES_DIR / DEFAULT_ENV
+        if not default_env_path.exists():
+            self.create_env(
+                env_id=DEFAULT_ENV,
+                name="Default Environment",
+                description="Default development environment for ABCD",
+                target="development",
+            )
 
     def _load_active_env(self) -> None:
         """Load active environment from config."""
@@ -116,6 +122,30 @@ class HierarchicalWorkspaceManager:
         self._active_env = env_name
         self._save_active_env()
 
+    def get_active_env_info(self) -> dict[str, Any] | None:
+        """
+        Get full info about the active environment.
+        
+        Returns:
+            Dict with env_id, name, description, domain, allowed_domains, etc.
+            Returns None if no active environment.
+        """
+        if not self._active_env:
+            return None
+        return self.get_env(self._active_env)
+
+    def get_active_env_description(self) -> str:
+        """
+        Get the description of the active environment.
+        
+        Useful for agents to validate if a request matches the environment's purpose.
+        
+        Returns:
+            Environment description string, or empty string if no active env.
+        """
+        info = self.get_active_env_info()
+        return info.get("description", "") if info else ""
+
     # =========================================================================
     # Environment Management
     # =========================================================================
@@ -132,6 +162,8 @@ class HierarchicalWorkspaceManager:
         description: str = "",
         target: str = "staging",
         client: str = "",
+        domain: str = "",
+        allowed_domains: list[str] | None = None,
     ) -> tuple[bool, Path, str]:
         """
         Create a new environment workspace.
@@ -139,9 +171,12 @@ class HierarchicalWorkspaceManager:
         Args:
             env_id: Unique environment identifier
             name: Human-readable name
-            description: Environment description
-            target: Target type (staging, production)
+            description: Environment description (IMPORTANT: describes what kind of 
+                        actions this env is for - helps agents validate requests)
+            target: Target type (staging, production, development)
             client: Optional client identifier
+            domain: Primary business domain (e.g., "inventory", "marketing", "ecommerce")
+            allowed_domains: List of allowed business domains for this environment
 
         Returns:
             Tuple of (success, path, message)
@@ -164,10 +199,12 @@ class HierarchicalWorkspaceManager:
                 "description": description,
                 "target": target,
                 "client": client,
+                "domain": domain,
+                "allowed_domains": allowed_domains or [],
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
                 "agents": [],
-                "standalone_actions": [],
+                "actions": [],
             }
             (env_path / "env.json").write_text(json.dumps(env_meta, indent=2))
 
@@ -566,26 +603,28 @@ class HierarchicalWorkspaceManager:
             title: Action title
             description: Action description
             requirements: Requirements content
-            env_name: Environment (None for standalone)
+            env_name: Environment (uses active env if None)
             agent_name: Agent to create under (None for standalone in env)
             template: Template to use
 
         Returns:
             Tuple of (success, path, message)
         """
+        # Require an environment
+        env = env_name or self._active_env
+        if not env:
+            return False, Path(), "No environment specified. Use --env or set active environment with 'workspace.py env use'"
+        
+        if not self.env_exists(env):
+            return False, Path(), f"Environment not found: {env}"
+        
         # Determine action path
         if agent_name:
-            env = env_name or self._active_env
-            if not env:
-                return False, Path(), "No environment specified for agent action"
             if not self.agent_exists(agent_name, env):
                 return False, Path(), f"Agent not found: {agent_name}"
             action_path = WORKSPACES_DIR / env / "agents" / agent_name / "actions" / action_id
-        elif env_name or self._active_env:
-            env = env_name or self._active_env
-            action_path = WORKSPACES_DIR / env / "actions" / action_id
         else:
-            action_path = WORKSPACES_DIR / "standalone" / action_id
+            action_path = WORKSPACES_DIR / env / "actions" / action_id
 
         if action_path.exists():
             return False, action_path, f"Action already exists: {action_id}"
@@ -671,43 +710,51 @@ class HierarchicalWorkspaceManager:
                 {"required_inputs": []},
             ]
 
-    def find_action(self, action_id: str) -> dict[str, Any] | None:
+    def find_action(self, action_id: str, env_name: str | None = None) -> dict[str, Any] | None:
         """
-        Find an action by ID across all workspaces.
+        Find an action by ID within environments.
+
+        Args:
+            action_id: Action identifier to find
+            env_name: Specific environment to search (None = search all)
 
         Returns dict with path, env_name, agent_name, and metadata.
         """
-        # Check standalone first
-        standalone_path = WORKSPACES_DIR / "standalone" / action_id
-        if standalone_path.exists():
-            return self._load_action_info(standalone_path, None, None)
-
-        # Check legacy actions directory
-        legacy_path = LEGACY_ACTIONS_DIR / action_id
-        if legacy_path.exists():
-            return self._load_action_info(legacy_path, None, None)
-
-        # Check all environments
-        for env_item in WORKSPACES_DIR.iterdir():
-            if not env_item.is_dir() or env_item.name in ("standalone", ".git"):
-                continue
-            if not (env_item / "env.json").exists():
+        envs_to_search = []
+        
+        if env_name:
+            envs_to_search = [WORKSPACES_DIR / env_name]
+        else:
+            # Search all environments, prioritizing active env
+            if self._active_env:
+                active_path = WORKSPACES_DIR / self._active_env
+                if active_path.exists():
+                    envs_to_search.append(active_path)
+            
+            for env_item in WORKSPACES_DIR.iterdir():
+                if env_item.is_dir() and (env_item / "env.json").exists():
+                    if env_item not in envs_to_search:
+                        envs_to_search.append(env_item)
+        
+        # Search environments
+        for env_path in envs_to_search:
+            if not env_path.exists() or not (env_path / "env.json").exists():
                 continue
 
             # Check env-level actions
-            env_actions = env_item / "actions" / action_id
+            env_actions = env_path / "actions" / action_id
             if env_actions.exists():
-                return self._load_action_info(env_actions, env_item.name, None)
+                return self._load_action_info(env_actions, env_path.name, None)
 
             # Check agents
-            agents_dir = env_item / "agents"
+            agents_dir = env_path / "agents"
             if agents_dir.exists():
                 for agent_item in agents_dir.iterdir():
                     if not agent_item.is_dir():
                         continue
                     agent_action = agent_item / "actions" / action_id
                     if agent_action.exists():
-                        return self._load_action_info(agent_action, env_item.name, agent_item.name)
+                        return self._load_action_info(agent_action, env_path.name, agent_item.name)
 
         return None
 
@@ -749,22 +796,34 @@ class HierarchicalWorkspaceManager:
         agent_name: str | None = None,
         include_subactions: bool = True,
     ) -> list[dict[str, Any]]:
-        """List actions based on scope."""
+        """
+        List actions within an environment.
+        
+        Args:
+            env_name: Environment to list from (uses active env if None)
+            agent_name: Specific agent to list from
+            include_subactions: Include sub-actions from agents
+        
+        Returns:
+            List of action info dicts
+        """
         actions = []
+        env = env_name or self._active_env
+        
+        if not env:
+            # No environment - return empty list
+            return actions
 
         if agent_name:
             # List actions in specific agent
-            env = env_name or self._active_env
-            if env:
-                agent_actions_dir = WORKSPACES_DIR / env / "agents" / agent_name / "actions"
-                if agent_actions_dir.exists():
-                    for item in agent_actions_dir.iterdir():
-                        if item.is_dir() and (item / "widdle.json").exists():
-                            info = self._load_action_info(item, env, agent_name)
-                            actions.append(info)
-        elif env_name or self._active_env:
+            agent_actions_dir = WORKSPACES_DIR / env / "agents" / agent_name / "actions"
+            if agent_actions_dir.exists():
+                for item in agent_actions_dir.iterdir():
+                    if item.is_dir() and (item / "widdle.json").exists():
+                        info = self._load_action_info(item, env, agent_name)
+                        actions.append(info)
+        else:
             # List actions in environment
-            env = env_name or self._active_env
             env_actions_dir = WORKSPACES_DIR / env / "actions"
             if env_actions_dir.exists():
                 for item in env_actions_dir.iterdir():
@@ -784,14 +843,6 @@ class HierarchicalWorkspaceManager:
                                     if item.is_dir() and (item / "widdle.json").exists():
                                         info = self._load_action_info(item, env, agent_item.name)
                                         actions.append(info)
-        else:
-            # List standalone actions
-            standalone_dir = WORKSPACES_DIR / "standalone"
-            if standalone_dir.exists():
-                for item in standalone_dir.iterdir():
-                    if item.is_dir() and (item / "widdle.json").exists():
-                        info = self._load_action_info(item, None, None)
-                        actions.append(info)
 
         return actions
 
@@ -808,7 +859,7 @@ class HierarchicalWorkspaceManager:
         """
         Resolve adopt_profile.json with inheritance.
 
-        Priority: action -> agent -> env -> root
+        Priority: action -> agent -> env
         """
         profiles_to_check: list[Path] = []
 
@@ -823,16 +874,11 @@ class HierarchicalWorkspaceManager:
             if agent_profile.exists():
                 profiles_to_check.append(agent_profile)
 
-        # Environment level
+        # Environment level (required - this is where config lives)
         if env:
             env_profile = WORKSPACES_DIR / env / "adopt_profile.json"
             if env_profile.exists():
                 profiles_to_check.append(env_profile)
-
-        # Root level
-        root_profile = WORKSPACES_DIR / "adopt_profile.json"
-        if root_profile.exists():
-            profiles_to_check.append(root_profile)
 
         # Merge profiles (later ones provide defaults for missing keys)
         merged: dict[str, Any] = {}
@@ -894,9 +940,6 @@ class HierarchicalWorkspaceManager:
         elif (path / "agent.json").exists():
             return WorkspaceType.AGENT
         elif (path / "widdle.json").exists():
-            # Check if it's under standalone
-            if "standalone" in path.parts:
-                return WorkspaceType.STANDALONE
             return WorkspaceType.ACTION
         return None
 
@@ -944,9 +987,7 @@ def get_workspace_manager() -> HierarchicalWorkspaceManager:
     return _manager
 
 
-# Legacy aliases for backwards compatibility
+# Alias for convenience
 WorkspaceManager = HierarchicalWorkspaceManager
-STANDALONE_ACTIONS_DIR = WORKSPACES_DIR / "standalone"
-AGENTS_BASE_DIR = LEGACY_AGENTS_DIR
 
 

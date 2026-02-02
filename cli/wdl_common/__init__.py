@@ -3,11 +3,14 @@ WDL Common Utilities Package.
 
 Shared utilities for WDL action CLI tools:
 - API client for Adopt
-- Tool/API discovery from platform
-- Workspace management (integrates with tool_builder_agents/)
+- Action/API discovery from platform (FAISS + fuzzy search)
+- Hierarchical workspace management (Environment required)
 - Documentation path provider for Roaming RAG
 - Trace analyzer for test failures
 - Roaming instructions builder for Cursor
+
+**IMPORTANT**: All operations require an environment. The 'default' environment
+is auto-created and activated. Use `workspace.py env` commands to manage environments.
 """
 
 from .wdl_documentation import WDLDocumentationProvider
@@ -21,6 +24,7 @@ from .workspace_manager import (
     WorkspaceType,
     get_workspace_manager,
     WORKSPACES_DIR,
+    DEFAULT_ENV,
 )
 from .metadata_manager import (
     MetadataManager,
@@ -62,6 +66,7 @@ __all__ = [
     "WorkspaceType",
     "get_workspace_manager",
     "WORKSPACES_DIR",
+    "DEFAULT_ENV",
     "MetadataManager",
     "WorkspaceMetadata",
     "RemoteState",

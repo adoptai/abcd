@@ -2,6 +2,35 @@
 
 **This is the primary navigation document for AI agents working with ABCD.**
 
+---
+
+## 🚨 MANDATORY FIRST STEPS (Before Building Actions)
+
+### 1. CREATE A TODO LIST
+
+Before building any action, **always create a TODO list** with:
+- [ ] Environment validation
+- [ ] Requirements analysis
+- [ ] API/action discovery
+- [ ] WDL creation
+- [ ] Testing
+- [ ] Publication
+
+### 2. VALIDATE ENVIRONMENT
+
+Check if user's request matches the active environment:
+
+```bash
+python cli/workspace.py env list  # Shows envs with descriptions
+```
+
+**If mismatch** (e.g., "inventory action" in "marketing-only" env):
+1. Tell user the current active env and its description
+2. Ask if they want to proceed, switch, or create new env
+3. To switch: `python cli/workspace.py env use <env-id>`
+
+---
+
 For detailed information, load the appropriate prompt from `prompts/system/`:
 - **WORKSPACE_HIERARCHY_PROMPT.md** - Workspace structure, environments, profiles
 - **UBER_AGENT_PROMPT.md** - Creating Uber Agents with sub-actions
@@ -120,21 +149,23 @@ What do you need to do?
 
 ## Workspace Structure
 
+**IMPORTANT**: All operations require an environment. Use `default` or create additional ones.
+
 ```
 workspaces/
-├── .env                    # Root fallback
-├── adopt_profile.json      # Root credentials
-├── {environment}/          # Environment level
-│   ├── .env
-│   ├── adopt_profile.json
+├── .active_env             # Active environment pointer
+├── default/                # Default environment (auto-created)
+│   ├── .env                # API credentials
+│   ├── adopt_profile.json  # Base URL, params
+│   ├── env.json            # Environment metadata
 │   ├── agents/{agent}/     # Uber Agents
 │   │   ├── widdle.json     # PROMPT_AND_TOOLS_AGENT
 │   │   └── actions/        # Sub-actions
-│   └── actions/            # Standalone actions
-└── standalone/             # No-env actions
+│   └── actions/            # Actions in environment
+└── {other_env}/            # Additional environments
 ```
 
-**Config Inheritance**: Action → Agent → Environment → Root
+**Config Inheritance**: Action → Agent → Environment
 
 ---
 

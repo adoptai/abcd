@@ -4,6 +4,66 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 
 ---
 
+## 🚨 FIRST STEP: Create a TODO List
+
+**Before building any action or workflow, ALWAYS create a TODO list first.**
+
+When the user requests an action/workflow, immediately create todos with:
+1. Environment validation (check if request matches active env)
+2. Requirements analysis
+3. API/action discovery
+4. WDL creation
+5. Testing
+6. Publication (if requested)
+
+This ensures systematic progress and helps track complex multi-step tasks.
+
+---
+
+## 🔍 ENVIRONMENT VALIDATION (Required Before Creating Actions)
+
+**Before creating any action**, validate that the request matches the active environment:
+
+### Step 1: Check Active Environment
+
+```bash
+python cli/workspace.py env list
+```
+
+This shows all environments with their descriptions. The active one is marked with ✓.
+
+### Step 2: Compare Request vs Environment Description
+
+Read the active environment's `env.json` description and compare against the user's request:
+- **Match**: Proceed with action creation
+- **Mismatch**: Politely ask user to confirm or suggest switching environments
+
+### Example Mismatch Scenarios
+
+| User Request | Active Env Description | Action |
+|--------------|------------------------|--------|
+| "Create inventory control action" | "Marketing automation for Client X" | ⚠️ Ask user to confirm or switch env |
+| "Build email campaign workflow" | "Marketing automation for Client X" | ✅ Proceed |
+| "Create data sync action" | "General-purpose development" | ✅ Proceed (default env allows anything) |
+
+### How to Respond to Mismatch
+
+```
+I notice you want to create an [inventory control] action, but the active 
+environment is configured for [Marketing automation for Client X].
+
+Current environment: **marketing-clientx** - "Marketing automation for Client X"
+
+Would you like me to:
+1. **Proceed anyway** in the current environment
+2. **Switch to a different environment** (list available with `python cli/workspace.py env list`)
+3. **Create a new environment** for this domain
+
+To switch environments: `python cli/workspace.py env use <env-id>`
+```
+
+---
+
 ## 📚 Detailed Prompts (Load as Needed)
 
 For in-depth information, load the appropriate prompt from `prompts/system/`:
@@ -80,33 +140,45 @@ python cli/deployment_rules.py my-workflow --enable-tool-mode
 
 ---
 
-## Workspace Management (NEW)
+## Workspace Management
 
 **📖 Full details: `prompts/system/WORKSPACE_HIERARCHY_PROMPT.md`**
 
-ABCD now supports a hierarchical workspace structure:
+**IMPORTANT**: All operations require an environment. The repo ships with a `default` environment that is auto-activated. Create additional environments for staging/production or different clients.
+
+### Workspace Structure
 
 ```
 workspaces/
-├── {environment}/              # Level 1: Environment
-│   ├── .env, adopt_profile.json
-│   ├── agents/{agent}/         # Level 2: Uber Agent
-│   │   └── actions/{action}/   # Level 3: Sub-action
-│   └── actions/{action}/       # Level 3: Standalone action
-└── standalone/                 # Global standalone actions
+├── .active_env                 # Points to active environment
+├── default/                    # Default environment (auto-created)
+│   ├── .env                    # API credentials
+│   ├── adopt_profile.json      # Base URL, workflow params
+│   ├── env.json                # Environment metadata
+│   ├── agents/{agent}/         # Uber Agents
+│   │   └── actions/{action}/   # Sub-actions
+│   └── actions/{action}/       # Standalone actions
+└── {other_env}/                # Additional environments
+    └── ...
 ```
 
 ### Key Commands
 
 ```bash
-# Environment
-python cli/workspace.py env create --id staging --name "Staging" --use
+# Check active environment
 python cli/workspace.py env list
 
-# Agent (Uber Agent)
+# Create additional environment
+python cli/workspace.py env create --id production --name "Production" --target production
+
+# Switch environment
+python cli/workspace.py env use production
+
+# Create agent in active environment
 python cli/workspace.py agent create --id my-agent --name "My Agent"
-python cli/workspace.py agent checkout --remote-id abc123 --env staging --include-subactions
-python cli/workspace.py agent add-subaction --agent my-agent --action get-data --remote-id xyz789
+
+# Create action in active environment
+python cli/workspace.py action create --id my-action --title "My Action"
 
 # Profile (config inheritance)
 python cli/workspace.py profile show --action my-action
@@ -115,7 +187,7 @@ python cli/workspace.py profile show --action my-action
 ### Config Inheritance
 
 ```
-Action adopt_profile.json → Agent → Environment → Root
+Action adopt_profile.json → Agent → Environment
 ```
 
 ---

@@ -853,18 +853,27 @@ def get_discovery(env_name: Optional[str] = None) -> Discovery:
     Get Discovery instance for an environment.
 
     Args:
-        env_name: Environment name. If None, uses active env or fallback.
+        env_name: Environment name. If None, uses active environment.
 
     Returns:
         Configured Discovery instance
+    
+    Raises:
+        ValueError: If no environment is available
     """
-    env_path = None
+    from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_workspace_manager, DEFAULT_ENV
 
-    if env_name:
-        from cli.wdl_common.workspace_manager import WORKSPACES_DIR
-        env_path = WORKSPACES_DIR / env_name
-        if not env_path.exists():
-            env_path = None
+    manager = get_workspace_manager()
+    
+    # Determine environment
+    env = env_name or manager.active_env or DEFAULT_ENV
+    env_path = WORKSPACES_DIR / env
+
+    if not env_path.exists():
+        raise ValueError(
+            f"Environment not found: {env}. "
+            f"Create one with: python cli/workspace.py env create --id {env}"
+        )
 
     return Discovery(env_path=env_path)
 

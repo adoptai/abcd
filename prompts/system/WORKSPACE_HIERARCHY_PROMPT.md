@@ -6,19 +6,27 @@
 
 ---
 
+## ⚠️ IMPORTANT: Environment Required
+
+**All operations require an environment.** The repo ships with a `default` environment that is automatically created and activated.
+
+- **Default Environment**: `workspaces/default/` - use for development
+- **Additional Environments**: Create for staging, production, or different clients
+- **No standalone actions outside environments** - all actions must be within an environment
+
+---
+
 ## Workspace Hierarchy
 
-ABCD supports a **three-level workspace hierarchy**:
+ABCD uses a **three-level workspace hierarchy**:
 
 ```
 workspaces/
-├── .env                              # Root fallback
-├── adopt_profile.json                # Root fallback profile
 ├── .active_env                       # Tracks active environment
 │
-├── {environment}/                    # LEVEL 1: Environment
-│   ├── .env                          # Env-specific config
-│   ├── adopt_profile.json            # Shared credentials
+├── default/                          # Default environment (auto-created)
+│   ├── .env                          # API credentials
+│   ├── adopt_profile.json            # Base URL, workflow params
 │   ├── env.json                      # Environment metadata
 │   │
 │   ├── agents/                       # LEVEL 2: Uber Agents
@@ -32,11 +40,11 @@ workspaces/
 │   │       └── actions/              # Sub-actions
 │   │           └── {action}/         # LEVEL 3: Sub-action
 │   │
-│   └── actions/                      # Standalone actions in env
-│       └── {action}/                 # LEVEL 3: Standalone action
+│   └── actions/                      # Actions in environment
+│       └── {action}/                 # LEVEL 3: Action
 │
-└── standalone/                       # Global standalone (no env)
-    └── {action}/
+└── {other_environment}/              # Additional environments
+    └── ...                           # Same structure as default
 ```
 
 ---
@@ -48,15 +56,55 @@ Config files resolve in priority order (first found wins):
 ```
 1. Action adopt_profile.json       ← Most specific
 2. Agent adopt_profile.json
-3. Environment adopt_profile.json
-4. Root adopt_profile.json         ← Fallback
+3. Environment adopt_profile.json  ← Required base
 ```
 
 **Example**: An action in `workspaces/prod/agents/my-agent/actions/get-data/` will check:
 1. `workspaces/prod/agents/my-agent/actions/get-data/adopt_profile.json`
 2. `workspaces/prod/agents/my-agent/adopt_profile.json`
-3. `workspaces/prod/adopt_profile.json`
-4. `workspaces/adopt_profile.json`
+3. `workspaces/prod/adopt_profile.json` ← Provides defaults
+
+---
+
+## Environment Validation (Before Creating Actions)
+
+**IMPORTANT**: Before creating any action, validate that the user's request matches the active environment's purpose.
+
+### env.json Schema
+
+```json
+{
+  "env_id": "clientx-marketing",
+  "name": "Client X Marketing",
+  "description": "Marketing automation actions for Client X. Email campaigns, social media, analytics.",
+  "target": "production",
+  "client": "clientx",
+  "domain": "marketing",
+  "allowed_domains": ["marketing", "analytics", "email"],
+  "agents": [],
+  "actions": []
+}
+```
+
+### Validation Process
+
+1. **Read the active environment's description**
+2. **Compare against user's request**
+3. **If mismatch**, ask user to confirm:
+
+```
+I notice you want to create an [inventory control] action, but the active 
+environment "clientx-marketing" is configured for: "Marketing automation 
+actions for Client X. Email campaigns, social media, analytics."
+
+Would you like me to:
+1. Proceed anyway in the current environment
+2. Switch to a different environment
+3. Create a new environment for inventory
+
+To switch: python cli/workspace.py env use <env-id>
+To list available: python cli/workspace.py env list
+```
 
 ---
 
@@ -65,17 +113,22 @@ Config files resolve in priority order (first found wins):
 ### Environment Commands
 
 ```bash
-# Create environment
-python cli/workspace.py env create --id staging --name "Staging" --target staging --use
+# Create environment with description
+python cli/workspace.py env create \
+  --id clientx-inventory \
+  --name "Client X Inventory" \
+  --description "Inventory and warehouse management for Client X" \
+  --target production \
+  --use
 
-# List environments
+# List environments (shows descriptions)
 python cli/workspace.py env list
 
-# Show details
-python cli/workspace.py env show staging
+# Show details including description
+python cli/workspace.py env show clientx-inventory
 
-# Set active (used as default for other commands)
-python cli/workspace.py env use staging
+# SWITCH active environment
+python cli/workspace.py env use clientx-inventory
 
 # Delete
 python cli/workspace.py env delete old-env --force
