@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+
+Search for a local venv and activate it before running any commands.
+
+If no venvs are available run commands using 'poetry run'.
