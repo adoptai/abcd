@@ -22,12 +22,43 @@ import sys
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-import faiss
-import numpy as np
 import requests
-from sentence_transformers import SentenceTransformer
+
+# Lazy imports for heavy ML libraries (only load when actually needed)
+# This speeds up CLI commands that don't use semantic search
+_faiss = None
+_np = None
+_SentenceTransformer = None
+
+
+def _get_faiss():
+    """Lazy load faiss."""
+    global _faiss
+    if _faiss is None:
+        import faiss
+        _faiss = faiss
+    return _faiss
+
+
+def _get_numpy():
+    """Lazy load numpy."""
+    global _np
+    if _np is None:
+        import numpy as np
+        _np = np
+    return _np
+
+
+def _get_sentence_transformer():
+    """Lazy load SentenceTransformer."""
+    global _SentenceTransformer
+    if _SentenceTransformer is None:
+        from sentence_transformers import SentenceTransformer
+        _SentenceTransformer = SentenceTransformer
+    return _SentenceTransformer
+
 
 # Constants
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
@@ -110,7 +141,7 @@ class EmbeddingManager:
     """Manages embeddings and FAISS index."""
 
     def __init__(self):
-        self.model: Optional[SentenceTransformer] = None
+        self.model = None  # Lazy loaded SentenceTransformer
         self.dimension = EMBEDDING_DIMENSION
         self._initialized = False
 
@@ -121,6 +152,7 @@ class EmbeddingManager:
 
         try:
             print("⏳ Loading embedding model (first time may take a moment)...")
+            SentenceTransformer = _get_sentence_transformer()
             self.model = SentenceTransformer(EMBEDDING_MODEL)
             self.dimension = self.model.get_sentence_embedding_dimension()
             self._initialized = True
@@ -152,12 +184,14 @@ class EmbeddingManager:
         except Exception:
             return None
 
-    def build_faiss_index(self, embeddings: List[List[float]]) -> Optional[faiss.IndexFlatIP]:
+    def build_faiss_index(self, embeddings: List[List[float]]) -> Optional[Any]:
         """Build FAISS index from embeddings."""
         if not embeddings:
             return None
 
         try:
+            np = _get_numpy()
+            faiss = _get_faiss()
             embeddings_array = np.array(embeddings, dtype=np.float32)
             index = faiss.IndexFlatIP(self.dimension)  # Inner product for cosine similarity
             faiss.normalize_L2(embeddings_array)
@@ -167,7 +201,7 @@ class EmbeddingManager:
             return None
 
     def search_index(
-        self, index: faiss.IndexFlatIP, query_embedding: List[float], top_k: int = 10
+        self, index: Any, query_embedding: List[float], top_k: int = 10
     ) -> List[Tuple[int, float]]:
         """
         Search FAISS index.
@@ -179,6 +213,8 @@ class EmbeddingManager:
             return []
 
         try:
+            np = _get_numpy()
+            faiss = _get_faiss()
             query_array = np.array([query_embedding], dtype=np.float32)
             faiss.normalize_L2(query_array)
             scores, indices = index.search(query_array, top_k)

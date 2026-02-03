@@ -337,6 +337,9 @@ def save_single_draft(
         updated_at=datetime.now().isoformat(),
     )
     
+    # Mark WDL as saved (update remote_wdl_hash to match local)
+    meta_manager.update_wdl_hashes(is_saved=True)
+    
     return DraftResult(
         workflow_id=workflow_id,
         success=True,

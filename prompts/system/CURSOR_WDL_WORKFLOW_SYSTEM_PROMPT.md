@@ -746,6 +746,8 @@ When your action needs to call multiple APIs with different base URLs or authent
 - If `profiles_map` doesn't contain the application, falls back to root `base_url` and `security_params`
 - If no `application` property is set, uses the root profile directly
 
+> ⚠️ **IMPORTANT**: The root `base_url` is **always required** even when using `profiles_map`. The backend validates that a base_url exists before execution. Set the root `base_url` to your primary/default API endpoint - `profiles_map` entries will override it at runtime for matching applications.
+
 ## WDL Best Practices
 
 1. **Unique IDs**: Every operation needs a unique `id`

@@ -134,6 +134,8 @@ When your action calls multiple APIs with different base URLs or authentication,
 | Root `base_url` + `security_params` | Single API actions |
 | `profiles_map` | Actions calling multiple APIs with different endpoints/auth |
 
+> ⚠️ **IMPORTANT**: The root `base_url` is **still required** even when using `profiles_map`. The backend validates that a base_url exists before execution. The `profiles_map` entries override the root values at runtime, but the root serves as a required fallback. Set the root `base_url` to your primary/default API endpoint.
+
 ### MCP Integration: mcp_profiles_map
 
 For MCP (Model Context Protocol) integrations:
