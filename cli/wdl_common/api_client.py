@@ -376,15 +376,31 @@ class AdoptAPIClient:
         }
         
         # Add profiles_map if present in profile (for per-API/application profiles)
-        # This allows different base_url and security_headers for different APIs
+        # This allows different base_url and security_params for different APIs
+        # Note: We map security_params -> security_headers for ProjectA3 compatibility
         profiles_map = profile.get("profiles_map")
         if profiles_map:
-            payload["profiles_map"] = profiles_map
+            # Convert security_params to security_headers in each profile entry
+            # This allows users to use consistent naming (security_params) in adopt_profile.json
+            converted_profiles_map = {}
+            for key, entry in profiles_map.items():
+                converted_entry = entry.copy() if isinstance(entry, dict) else entry
+                if isinstance(converted_entry, dict) and "security_params" in converted_entry:
+                    converted_entry["security_headers"] = converted_entry.pop("security_params")
+                converted_profiles_map[key] = converted_entry
+            payload["profiles_map"] = converted_profiles_map
         
         # Add mcp_profiles_map if present (for MCP integration profiles)
+        # Same conversion: security_params -> security_headers
         mcp_profiles_map = profile.get("mcp_profiles_map")
         if mcp_profiles_map:
-            payload["mcp_profiles_map"] = mcp_profiles_map
+            converted_mcp_profiles_map = {}
+            for key, entry in mcp_profiles_map.items():
+                converted_entry = entry.copy() if isinstance(entry, dict) else entry
+                if isinstance(converted_entry, dict) and "security_params" in converted_entry:
+                    converted_entry["security_headers"] = converted_entry.pop("security_params")
+                converted_mcp_profiles_map[key] = converted_entry
+            payload["mcp_profiles_map"] = converted_mcp_profiles_map
         
         # Add version parameters if provided
         if version_number is not None:
