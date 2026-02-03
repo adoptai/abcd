@@ -1,27 +1,40 @@
 #!/usr/bin/env python3
 """
-Move Actions and Agents Between Environments
+Move Actions and Agents Between Local Workspace Environments
 
-This script moves actions or agents (with all sub-actions) between environments.
+This script moves actions or agents (with all sub-actions) between LOCAL workspace
+environments (e.g., 6sense-staging → 6sense-prod, or blackstone-staging → solo-brands-prod).
+
+Both source and destination environments MUST exist as local workspaces in the
+workspaces/ directory before running this script.
+
 It requires EXPLICIT user confirmation and cannot be run automatically by agents.
 
 Usage:
-    # Move a single action
-    python cli/move_action.py <action-id> --from <source-env> --to <dest-env>
+    # Move a single action between workspace environments
+    python cli/move_action.py <action-id> --from <source-workspace> --to <dest-workspace>
     
     # Move an entire agent with all sub-actions
-    python cli/move_action.py <agent-id> --agent --from <source-env> --to <dest-env>
+    python cli/move_action.py <agent-id> --agent --from <source-workspace> --to <dest-workspace>
     
-    # List actions/agents
-    python cli/move_action.py --list-actions --env staging
-    python cli/move_action.py --list-agents --env staging
+    # List available workspace environments
+    python cli/move_action.py --list-envs
+    
+    # List actions/agents in a workspace
+    python cli/move_action.py --list-actions --env 6sense-staging
+    python cli/move_action.py --list-agents --env blackstone-prod
 
 Features:
-    - Move single actions between environments
-    - Move entire agents with all sub-actions
-    - Clears remote action_ids (sub-actions need new IDs in new environment)
+    - Move actions/agents between LOCAL workspace environments
+    - Works across different clients (e.g., 6sense → blackstone)
+    - Clears remote action_ids (sub-actions need re-registration in new environment)
     - Updates agent WDL action_ids placeholder for re-registration
     - Requires explicit user confirmation (cannot be auto-run)
+
+IMPORTANT:
+    - Environment names are LOCAL workspace directory names (e.g., 6sense-prod, blackstone-staging)
+    - Both source and destination workspaces must already exist locally
+    - Use 'python cli/workspace.py env create' to create new workspaces first
 """
 
 import argparse
@@ -690,35 +703,46 @@ def main():
         description="Move or copy actions/agents between environments",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-    # Move single action from staging to production
-    python cli/move_action.py get-orderpoints --from staging --to production
+WORKSPACE ENVIRONMENTS:
+    Environments are LOCAL workspace directories in workspaces/ folder.
+    Examples: 6sense-prod, 6sense-staging, blackstone-prod, solo-brands-prod
     
-    # Copy action (keep original)
-    python cli/move_action.py get-orderpoints --from staging --to production --copy
+    Use --list-envs to see all available local workspaces.
+
+Examples:
+    # List available local workspace environments
+    python cli/move_action.py --list-envs
+    
+    # Move action within same client (staging → prod)
+    python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod
+    
+    # Move action between different clients
+    python cli/move_action.py get-orderpoints --from 6sense-prod --to blackstone-prod
+    
+    # Copy action (keep original in source workspace)
+    python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod --copy
     
     # Move entire agent with all sub-actions
-    python cli/move_action.py inventory-agent --agent --from staging --to production
+    python cli/move_action.py maersk-product-offer-agent --agent --from blackstone-staging --to blackstone-prod
     
-    # Move action to a specific agent in destination
-    python cli/move_action.py get-orderpoints --from staging --to production --dest-agent inventory-agent
+    # Move action into an agent in destination workspace
+    python cli/move_action.py get-orderpoints --from 6sense-staging --to blackstone-prod --dest-agent inventory-agent
     
-    # List actions/agents in an environment
-    python cli/move_action.py --list-actions --env staging
-    python cli/move_action.py --list-agents --env staging
-    
-    # List available environments
-    python cli/move_action.py --list-envs
+    # List actions/agents in a workspace
+    python cli/move_action.py --list-actions --env blackstone-prod
+    python cli/move_action.py --list-agents --env 6sense-staging
 
-⚠️  IMPORTANT: This script requires explicit user confirmation.
-    AI agents cannot automatically approve the move operation.
+⚠️  IMPORTANT: 
+    - This script requires explicit user confirmation (type the full ID to confirm)
+    - AI agents cannot automatically approve the move operation
+    - Both source and destination workspaces must exist locally
 
 📝 AGENT MOVE WORKFLOW:
     When moving an agent, all remote action_ids are cleared because 
     sub-actions need to be re-registered in the new environment.
     
     After moving an agent, follow these steps:
-    1. Switch to dest env: python cli/workspace.py env use <dest-env>
+    1. Switch to dest env: python cli/workspace.py env use <dest-workspace>
     2. For each sub-action:
        a. Save draft: python cli/save_wdl_draft.py --workflow-id <action-id>
        b. Publish: python cli/publish_wdl_action.py --workflow-id <action-id>
@@ -742,12 +766,12 @@ Examples:
     parser.add_argument(
         "--from", "-f",
         dest="source_env",
-        help="Source environment"
+        help="Source workspace environment (e.g., 6sense-staging, blackstone-prod)"
     )
     parser.add_argument(
         "--to", "-t",
         dest="dest_env",
-        help="Destination environment"
+        help="Destination workspace environment (e.g., 6sense-prod, solo-brands-prod)"
     )
     parser.add_argument(
         "--source-agent",

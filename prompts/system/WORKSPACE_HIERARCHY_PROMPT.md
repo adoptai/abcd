@@ -267,6 +267,46 @@ python cli/workspace.py action list                    # All in active env
 python cli/workspace.py action list --agent my-agent   # Only in agent
 ```
 
+### Move Actions/Agents Between Workspaces
+
+Use `move_action.py` to move actions or agents between LOCAL workspace environments.
+This is useful for:
+- Promoting actions from staging to production
+- Copying actions between different clients
+- Moving agents with all their sub-actions
+
+**⚠️ This script requires explicit user confirmation and cannot be auto-run by AI agents.**
+
+```bash
+# List available local workspace environments
+python cli/move_action.py --list-envs
+
+# List actions/agents in a workspace
+python cli/move_action.py --list-actions --env blackstone-prod
+python cli/move_action.py --list-agents --env 6sense-staging
+
+# Move action within same client (staging → prod)
+python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod
+
+# Move action between different clients
+python cli/move_action.py get-orderpoints --from 6sense-prod --to blackstone-prod
+
+# Copy action (keep original in source workspace)
+python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod --copy
+
+# Move entire agent with all sub-actions
+python cli/move_action.py maersk-product-offer-agent --agent --from blackstone-staging --to blackstone-prod
+
+# Move action into an agent in destination workspace
+python cli/move_action.py get-orderpoints --from 6sense-staging --to blackstone-prod --dest-agent inventory-agent
+```
+
+**After moving an agent**, sub-actions need to be re-registered in the new environment:
+1. Switch to dest env: `python cli/workspace.py env use <dest-workspace>`
+2. For each sub-action: save draft → publish → enable tool mode
+3. Update agent WDL with new action_ids
+4. Save and publish the agent
+
 ### Profile Commands
 
 ```bash

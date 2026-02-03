@@ -254,6 +254,37 @@ python cli/workspace.py action create --id my-action --title "My Action"
 python cli/workspace.py profile show --action my-action
 ```
 
+### Move Actions/Agents Between Workspaces
+
+**⚠️ Requires explicit user confirmation - cannot be auto-run by AI agents.**
+
+Use `move_action.py` to move actions or agents between LOCAL workspace environments.
+Environment names are workspace directory names (e.g., `6sense-prod`, `blackstone-staging`).
+
+```bash
+# List available workspace environments
+python cli/move_action.py --list-envs
+
+# List actions/agents in a workspace
+python cli/move_action.py --list-actions --env blackstone-prod
+python cli/move_action.py --list-agents --env 6sense-staging
+
+# Move action within same client (staging → prod)
+python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod
+
+# Move action between different clients
+python cli/move_action.py get-orderpoints --from 6sense-prod --to blackstone-prod
+
+# Copy action (keep original)
+python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod --copy
+
+# Move entire agent with all sub-actions
+python cli/move_action.py maersk-agent --agent --from blackstone-staging --to blackstone-prod
+```
+
+**After moving an agent**, sub-actions need re-registration in the new environment.
+See `prompts/system/WORKSPACE_HIERARCHY_PROMPT.md` for full workflow.
+
 ### Config Inheritance
 
 ```
