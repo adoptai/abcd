@@ -536,9 +536,6 @@ python cli/discover.py --requirements requirements.md
   # Tools only (filter by execution_type=TOOL)
   python cli/discover.py --actions "fetch" --tools-only
   
-  # Specify environment for cache
-  python cli/discover.py --actions "query" --env staging
-  
   # Full details and JSON output
   python cli/discover.py --apis "user auth" --details --json
   ```
@@ -1151,6 +1148,168 @@ python cli/publish_wdl_action.py workflow-id
 5. Publish (`publish_wdl_action.py`)
 
 For detailed WDL workflow creation instructions, **always refer to [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**.
+
+---
+
+## 🔧 Implementation Guide (For Developers)
+
+This section is for developers creating new CLI scripts or features.
+
+### Standard Pattern: Using Context Module
+
+All CLI scripts should use the context module for accessing workspace resources:
+
+```python
+from cli.wdl_common.context import (
+    get_context,      # Get action context (loads env, resolves profile)
+    get_client,       # Get API client (uses active env credentials)
+    get_discovery,    # Get discovery (uses active env cache)
+    get_manager,      # Get workspace manager singleton
+    ensure_env,       # Ensure env is loaded, get its name
+)
+```
+
+### Pattern 1: Working with an Action
+
+```python
+from cli.wdl_common.context import get_context, get_client
+
+def process_action(action_id: str) -> int:
+    # Get context (loads env, resolves profile automatically)
+    ctx = get_context(action_id)
+    if not ctx:
+        print(f"❌ Action not found in active environment: {action_id}")
+        return 1
+    
+    print(f"📁 Environment: {ctx.env_name}")
+    print(f"📁 Workspace: {ctx.path}")
+    
+    # Access resolved profile
+    base_url = ctx.resolved_profile.get("base_url")
+    security_params = ctx.resolved_profile.get("security_params", {})
+    
+    # Get API client (credentials already loaded)
+    client = get_client()
+    
+    # Do work...
+    return 0
+```
+
+### Pattern 2: Script That Just Needs API Access
+
+```python
+from cli.wdl_common.context import get_client, ensure_env
+
+def list_remote_actions() -> int:
+    # Ensure env is loaded first
+    env = ensure_env()
+    print(f"📁 Using environment: {env}")
+    
+    # Get client
+    client = get_client()
+    
+    success, actions, msg = client.list_tools()
+    # ...
+    return 0
+```
+
+### Pattern 3: Script Using Discovery
+
+```python
+from cli.wdl_common.context import get_discovery, ensure_env
+
+def search_apis(query: str) -> int:
+    env = ensure_env()
+    print(f"📁 Searching in environment: {env}")
+    
+    # Discovery uses per-environment cache
+    discovery = get_discovery()
+    
+    results = discovery.search_apis(query)
+    # ...
+    return 0
+```
+
+### ❌ DO NOT Do This
+
+```python
+# ❌ WRONG - Direct instantiation (no env credentials!)
+from cli.wdl_common.discovery import Discovery
+discovery = Discovery()
+
+# ❌ WRONG - Direct instantiation (no env credentials!)
+from cli.wdl_common.api_client import AdoptAPIClient
+client = AdoptAPIClient()
+
+# ❌ WRONG - Manual env loading (use context functions)
+load_dotenv("workspaces/staging/.env")
+
+# ❌ WRONG - Adding --env parameter to scripts
+# Scripts should use active environment, not accept --env
+parser.add_argument("--env", help="Environment")  # DON'T DO THIS
+```
+
+### ✅ DO This Instead
+
+```python
+# ✅ CORRECT - Use factory functions from context
+from cli.wdl_common.context import get_discovery, get_client
+
+discovery = get_discovery()  # Uses active env automatically
+client = get_client()        # Uses active env automatically
+
+# ✅ CORRECT - Switch env before running script
+# python cli/workspace.py env use staging
+# python cli/discover.py  # Now uses staging
+```
+
+### When --env IS Appropriate
+
+Only these cross-environment operations should accept --env:
+- `workspace.py env use` - Switches active environment
+- `workspace.py env create` - Creates new environment
+- `move_action.py` - Moves between environments (`--from`, `--to`)
+- `workspace.py action checkout-all` - Bulk checkout to specific env
+
+### Environment Files Structure
+
+```
+workspaces/
+├── .active_env              # Contains: "staging"
+├── staging/
+│   ├── .env                 # ADOPT_CLIENT_ID, ADOPT_CLIENT_SECRET
+│   ├── adopt_profile.json   # base_url, security_params
+│   ├── env.json             # Environment metadata
+│   ├── .cache/              # Per-environment embedding cache
+│   │   ├── actions_cache.json
+│   │   └── apis_cache.json
+│   ├── agents/
+│   └── actions/
+└── production/
+    └── ...
+```
+
+### ActionContext Properties
+
+The `ActionContext` dataclass provides convenient properties:
+
+```python
+ctx = get_context("my-action")
+ctx.action_id       # "my-action"
+ctx.path            # Path to action directory
+ctx.env_name        # "staging"
+ctx.agent_name      # "my-agent" or None
+ctx.metadata        # Dict from metadata.json
+ctx.resolved_profile  # Merged adopt_profile.json
+
+# Convenience paths
+ctx.wdl_path        # path / "widdle.json"
+ctx.metadata_path   # path / "metadata.json"
+ctx.apis_dir        # path / "apis"
+ctx.tools_dir       # path / "tools"
+ctx.test_cases_dir  # path / "test_cases"
+ctx.traces_dir      # path / "traces"
+```
 
 ---
 

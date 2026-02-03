@@ -34,16 +34,70 @@ Directory Structure:
 import json
 import os
 import shutil
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Set
 
 from dotenv import load_dotenv
 
 # Base directories
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 WORKSPACES_DIR = PROJECT_ROOT / "workspaces"
+
+
+@dataclass
+class ActionContext:
+    """
+    Complete context for an action, ready to use.
+    
+    This is the primary way to access action data. It includes:
+    - Action metadata and paths
+    - Environment info
+    - Resolved adopt_profile.json with inheritance
+    """
+    action_id: str
+    path: Path
+    env_name: str
+    agent_name: Optional[str]
+    metadata: dict[str, Any]
+    resolved_profile: dict[str, Any]
+    
+    @property
+    def wdl_path(self) -> Path:
+        """Path to widdle.json."""
+        return self.path / "widdle.json"
+    
+    @property
+    def metadata_path(self) -> Path:
+        """Path to metadata.json."""
+        return self.path / "metadata.json"
+    
+    @property
+    def apis_dir(self) -> Path:
+        """Path to apis/ directory."""
+        return self.path / "apis"
+    
+    @property
+    def tools_dir(self) -> Path:
+        """Path to tools/ directory."""
+        return self.path / "tools"
+    
+    @property
+    def test_cases_dir(self) -> Path:
+        """Path to test_cases/ directory."""
+        return self.path / "test_cases"
+    
+    @property
+    def traces_dir(self) -> Path:
+        """Path to traces/ directory."""
+        return self.path / "traces"
+    
+    @property
+    def adopt_profile_path(self) -> Path:
+        """Path to adopt_profile.json."""
+        return self.path / "adopt_profile.json"
 
 
 class WorkspaceType(Enum):
@@ -74,12 +128,142 @@ class HierarchicalWorkspaceManager:
         """Initialize workspace manager."""
         self._ensure_base_structure()
         self._active_env: str | None = None
+        self._loaded_envs: Set[str] = set()
         self._load_active_env()
         
         # Auto-activate default env if no active env
         if not self._active_env and self.env_exists(DEFAULT_ENV):
             self._active_env = DEFAULT_ENV
             self._save_active_env()
+
+    # =========================================================================
+    # Active Environment & Context Methods
+    # =========================================================================
+
+    def ensure_env_loaded(self) -> str:
+        """
+        Ensure active environment's .env is loaded. Returns environment name.
+        
+        This is idempotent - safe to call multiple times.
+        
+        Returns:
+            The active environment name
+            
+        Raises:
+            ValueError: If no active environment
+        """
+        if not self._active_env:
+            raise ValueError(
+                "No active environment. Set one with: "
+                "python cli/workspace.py env use <env-id>"
+            )
+        
+        if self._active_env not in self._loaded_envs:
+            self.load_env_vars(self._active_env)
+            self._loaded_envs.add(self._active_env)
+        
+        return self._active_env
+
+    def get_env_path(self) -> Path | None:
+        """
+        Get path to active environment.
+        
+        Returns:
+            Path to active environment directory, or None if no active env
+        """
+        if not self._active_env:
+            return None
+        return WORKSPACES_DIR / self._active_env
+
+    def get_action_context(self, action_id: str) -> ActionContext | None:
+        """
+        Get complete action context with environment loaded.
+        
+        This is the PRIMARY way to access an action. It:
+        1. Finds the action in the active environment
+        2. Loads the environment's .env file
+        3. Resolves the adopt_profile.json with inheritance
+        4. Returns everything needed to work with the action
+        
+        Args:
+            action_id: Action identifier to find
+            
+        Returns:
+            ActionContext with all resolved data, or None if not found
+        """
+        # Always use active environment
+        if not self._active_env:
+            return None
+        
+        action_info = self.find_action(action_id, env_name=self._active_env)
+        if not action_info:
+            return None
+        
+        env_name = action_info.get("env_name")
+        agent_name = action_info.get("agent_name")
+        path = Path(action_info["path"])
+        
+        # Load environment credentials
+        self.load_env_vars(env_name)
+        
+        # Resolve profile with inheritance
+        resolved_profile = self.resolve_adopt_profile(
+            action_path=path,
+            agent_name=agent_name,
+            env_name=env_name,
+        )
+        
+        return ActionContext(
+            action_id=action_id,
+            path=path,
+            env_name=env_name,
+            agent_name=agent_name,
+            metadata=action_info.get("metadata", {}),
+            resolved_profile=resolved_profile,
+        )
+
+    def select_agent_interactive(self) -> str | None:
+        """
+        Interactively select an agent from the active environment.
+        
+        Returns:
+            Selected agent ID, or None if no agents or user cancels
+        """
+        if not self._active_env:
+            return None
+        
+        agents = self.list_agents()
+        
+        if not agents:
+            return None
+        
+        print("\n📦 Available agents:")
+        for i, agent in enumerate(agents, 1):
+            name = agent.get("name", agent.get("agent_id", "Unknown"))
+            agent_id = agent.get("agent_id", name)
+            desc = agent.get("description", "")[:50]
+            print(f"  {i}. {agent_id}")
+            if desc:
+                print(f"     {desc}...")
+        
+        print("  0. Cancel / Use standalone mode")
+        
+        try:
+            choice = input("\nSelect agent (0 to cancel): ").strip()
+            if not choice or choice == "0":
+                return None
+            
+            idx = int(choice) - 1
+            if 0 <= idx < len(agents):
+                return agents[idx].get("agent_id")
+        except (ValueError, KeyboardInterrupt):
+            pass
+        
+        return None
+
+    # =========================================================================
+    # Base Structure
+    # =========================================================================
 
     def _ensure_base_structure(self) -> None:
         """Ensure base workspace structure exists with default environment."""

@@ -5,8 +5,9 @@ import requests
 from typing import Optional
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# NOTE: Do NOT call load_dotenv() at module level.
+# Environment credentials are loaded by the context module based on active environment.
+# Scripts should use get_bearer_token_for_env() or cli.wdl_common.context functions.
 
 
 def get_bearer_token(

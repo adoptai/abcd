@@ -366,15 +366,20 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
         print(f"❌ Environment not found: {env}")
         return 1
 
-    # Load environment-specific credentials BEFORE creating API client
-    env_path = WORKSPACES_DIR / env
-    env_dotenv = env_path / ".env"
-    if env_dotenv.exists():
-        load_dotenv(env_dotenv, override=True)
-    else:
-        print(f"⚠️  Warning: No .env file found in environment: {env}")
-
-    client = AdoptAPIClient()
+    # Use environment-specific credentials
+    from cli.wdl_common.context import get_client
+    
+    # Temporarily set active env if different
+    original_env = manager.active_env
+    if env != manager.active_env:
+        manager.active_env = env
+    
+    try:
+        client = get_client()
+    finally:
+        # Restore original active env if changed
+        if original_env != env:
+            manager.active_env = original_env
 
     print(f"\n⏳ Fetching agent from remote: {args.remote_id}")
 
@@ -510,14 +515,20 @@ def cmd_agent_sync(args: argparse.Namespace) -> int:
 
     env = args.env or manager.active_env
     
-    # Load environment-specific credentials BEFORE creating API client
-    if env:
-        env_path = WORKSPACES_DIR / env
-        env_dotenv = env_path / ".env"
-        if env_dotenv.exists():
-            load_dotenv(env_dotenv, override=True)
+    # Use environment-specific credentials
+    from cli.wdl_common.context import get_client
     
-    client = AdoptAPIClient()
+    # Temporarily set active env if different
+    original_env = manager.active_env
+    if env and env != manager.active_env:
+        manager.active_env = env
+    
+    try:
+        client = get_client()
+    finally:
+        # Restore original active env if changed
+        if env and original_env != env:
+            manager.active_env = original_env
     agent = manager.get_agent(args.id, env)
 
     if not agent:

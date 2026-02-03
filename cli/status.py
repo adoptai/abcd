@@ -38,19 +38,11 @@ def find_workspace(workflow_id: str) -> tuple[Path, dict]:
     Raises:
         ValueError: If workspace not found
     """
-    # Try with agents first
-    manager = WorkspaceManager(use_agents=True)
-    success, data, msg = manager.load_workspace(workflow_id)
+    manager = WorkspaceManager()
+    action_info = manager.find_action(workflow_id)
     
-    if success:
-        return data["workspace_path"], data.get("metadata", {})
-    
-    # Try standalone
-    manager = WorkspaceManager(use_agents=False)
-    success, data, msg = manager.load_workspace(workflow_id)
-    
-    if success:
-        return data["workspace_path"], data.get("metadata", {})
+    if action_info:
+        return Path(action_info["path"]), action_info.get("metadata", {})
     
     raise ValueError(f"Workspace not found: {workflow_id}")
 

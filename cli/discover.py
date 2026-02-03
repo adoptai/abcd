@@ -2,6 +2,9 @@
 """
 Discovery CLI - List and search for actions and APIs.
 
+Uses the ACTIVE ENVIRONMENT for credentials and caching.
+Switch environment with: python cli/workspace.py env use <env-id>
+
 Usage:
     # List all (by type)
     python cli/discover.py --list-tools            # Tools only (execution_type=TOOL)
@@ -24,9 +27,6 @@ Usage:
 
     # From requirements file
     python cli/discover.py --requirements requirements.md
-
-    # Specify environment for cache
-    python cli/discover.py --actions "query" --env staging
 
     # Verbose debugging
     python cli/discover.py --list-tools --verbose
@@ -170,13 +170,8 @@ Examples:
         help="Minimum fuzzy match threshold 0-1 (default: 0.4)",
     )
 
-    # Environment
-    parser.add_argument(
-        "--env",
-        "-e",
-        type=str,
-        help="Environment name for cache location",
-    )
+    # NOTE: --env removed - always uses active environment
+    # To switch environment: python cli/workspace.py env use <env-id>
 
     # Output options
     parser.add_argument(
@@ -220,9 +215,9 @@ Examples:
 
     _verbose_print("main", "ENTER")
 
-    # Get discovery instance
+    # Get discovery instance (uses active environment)
     _verbose_print("main", "getting discovery instance")
-    discovery = get_discovery(args.env, verbose=_verbose)
+    discovery = get_discovery(verbose=_verbose)
 
     results = {"actions": [], "apis": []}
 

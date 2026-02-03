@@ -147,24 +147,34 @@ def run_test(
     print(f"Workflow ID: {workflow_id}")
 
     # Initialize workspace manager
-    workspace_manager = WorkspaceManager(use_agents=True)
+    workspace_manager = WorkspaceManager()
 
-    # Try to load workspace (auto-detect agent vs standalone)
-    success, data, msg = workspace_manager.load_workspace(workflow_id, agent_name)
+    # Find the action workspace
+    action_info = workspace_manager.find_action(workflow_id)
+    
+    if not action_info:
+        print(f"❌ Workflow not found: {workflow_id}")
+        print("\n💡 Tip: Make sure workflow exists in the active environment")
+        print("=" * 80)
+        return {"success": False, "error": f"Workflow not found: {workflow_id}"}
 
-    if not success:
-        # Try standalone mode
-        workspace_manager = WorkspaceManager(use_agents=False)
-        success, data, msg = workspace_manager.load_workspace(workflow_id)
-
-        if not success:
-            # Check if workspace path exists but loading failed (likely JSON error)
-            workspace_path = data.get("workspace_path")
-            if workspace_path and workspace_path.exists():
-                # Workspace exists but failed to load - likely JSON error
-                wdl_path = workspace_path / "widdle.json"
+    workspace_path = Path(action_info["path"])
+    data = {
+        "workspace_path": workspace_path,
+        "metadata": action_info.get("metadata", {}),
+        "agent_name": action_info.get("agent_name"),
+    }
+    success = True
+    
+    if True:  # Preserve indentation for next block
+        pass  # Placeholder to maintain flow
+    
+    if False:  # Skip the error handling block that's no longer needed
+        if False:
+            workspace_path_check = None
+            if workspace_path_check and workspace_path_check.exists():
+                wdl_path = workspace_path_check / "widdle.json"
                 if wdl_path.exists():
-                    # Try to parse JSON to get better error message
                     try:
                         with open(wdl_path, "r") as f:
                             json.load(f)
@@ -181,7 +191,7 @@ def run_test(
                             "error": f"JSON syntax error: {json_err.msg} at line {json_err.lineno}, column {json_err.colno}",
                         }
                     except Exception as e:
-                        # Some other error reading the file
+                        pass  # Some other error reading the file
                         print(f"❌ Error reading widdle.json: {str(e)}")
                         print(f"   File: {wdl_path}")
                         print("=" * 80)

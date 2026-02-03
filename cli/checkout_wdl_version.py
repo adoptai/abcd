@@ -59,17 +59,10 @@ def checkout_wdl_version(
     meta_manager = None
 
     if workflow_id:
-        # Try agent mode first
-        workspace_manager = WorkspaceManager(use_agents=True)
-        success, data, msg = workspace_manager.load_workspace(workflow_id)
-        if success:
-            workspace = data.get("workspace_path")
-        else:
-            # Try standalone mode
-            workspace_manager = WorkspaceManager(use_agents=False)
-            success, data, msg = workspace_manager.load_workspace(workflow_id)
-            if success:
-                workspace = data.get("workspace_path")
+        workspace_manager = WorkspaceManager()
+        action_info = workspace_manager.find_action(workflow_id)
+        if action_info:
+            workspace = Path(action_info["path"])
 
     # If workspace found, use MetadataManager for action_id
     if workspace and workspace.exists():

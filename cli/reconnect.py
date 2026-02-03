@@ -26,17 +26,11 @@ from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 
 def find_workspace(workflow_id: str) -> Path:
     """Find workspace by workflow_id, auto-detecting agent vs standalone."""
-    manager = WorkspaceManager(use_agents=True)
-    success, data, msg = manager.load_workspace(workflow_id)
+    manager = WorkspaceManager()
+    action_info = manager.find_action(workflow_id)
     
-    if success:
-        return data["workspace_path"]
-    
-    manager = WorkspaceManager(use_agents=False)
-    success, data, msg = manager.load_workspace(workflow_id)
-    
-    if success:
-        return data["workspace_path"]
+    if action_info:
+        return Path(action_info["path"])
     
     raise ValueError(f"Workspace not found: {workflow_id}")
 

@@ -219,7 +219,7 @@ def update_workspace_context(
         workflow_id: Workflow ID
         workspace: Workspace path
         discovery: Discovery instance
-        workspace_manager: WorkspaceManager instance
+        workspace_manager: WorkspaceManager instance (not used, kept for API compatibility)
         use_api_ids: List of API IDs to add
         use_tool_ids: List of tool IDs to add
         agent_name: Agent name (None for standalone)
@@ -231,6 +231,12 @@ def update_workspace_context(
     added_apis = []
     added_tools = []
     
+    # Ensure apis/ and tools/ directories exist
+    apis_dir = workspace / "apis"
+    tools_dir = workspace / "tools"
+    apis_dir.mkdir(exist_ok=True)
+    tools_dir.mkdir(exist_ok=True)
+    
     # Add APIs
     if use_api_ids:
         _verbose_print("update_workspace_context", "adding APIs", f"count={len(use_api_ids)}")
@@ -239,25 +245,29 @@ def update_workspace_context(
             success, api_spec, msg = discovery.get_api_details(api_id)
             
             if success and api_spec:
-                # Add to workspace
-                add_success, add_msg = workspace_manager.add_api_to_workspace(
-                    workflow_id=workflow_id,
-                    api_id=api_id,
-                    api_spec=api_spec,
-                    agent_name=agent_name,
-                )
-                if add_success:
-                    added_apis.append(api_id)
-                    print(f"   ✅ {api_id}")
-                    # Output API details to console
-                    print(f"\n   📋 API Details for {api_id}:")
-                    print("   " + "=" * 76)
-                    print(json.dumps(api_spec, indent=2))
-                    print("   " + "=" * 76)
-                else:
-                    print(f"   ⚠️  Could not add {api_id}: {add_msg}")
+                # Write API spec to file
+                api_file = apis_dir / f"{api_id}.json"
+                api_file.write_text(json.dumps(api_spec, indent=2))
+                added_apis.append(api_id)
+                print(f"   ✅ {api_id}")
+                # Output API details to console
+                print(f"\n   📋 API Details for {api_id}:")
+                print("   " + "=" * 76)
+                print(json.dumps(api_spec, indent=2))
+                print("   " + "=" * 76)
             else:
                 print(f"   ⚠️  Could not fetch API details for {api_id}: {msg}")
+        
+        # Update manifest
+        manifest_file = apis_dir / "manifest.json"
+        existing_apis = []
+        if manifest_file.exists():
+            try:
+                existing_apis = json.loads(manifest_file.read_text()).get("apis", [])
+            except:
+                pass
+        all_apis = list(set(existing_apis + added_apis))
+        manifest_file.write_text(json.dumps({"apis": all_apis}, indent=2))
     
     # Add tools
     if use_tool_ids:
@@ -268,24 +278,28 @@ def update_workspace_context(
             success, tool_spec, msg = discovery.get_tool_details(tool_id)
             
             if success and tool_spec:
-                # Add to workspace using new method
-                add_success, add_msg = workspace_manager.add_tool_to_workspace(
-                    workflow_id=workflow_id,
-                    tool_id=tool_id,
-                    tool_spec=tool_spec,
-                    agent_name=agent_name,
-                )
-                if add_success:
-                    added_tools.append(tool_id)
-                    print(f"   ✅ {tool_id}")
-                    # Also get context for markdown reference
-                    ctx = discovery.get_tool_context(tool_id)
-                    if ctx:
-                        contexts.append(ctx)
-                else:
-                    print(f"   ⚠️  Could not add {tool_id}: {add_msg}")
+                # Write tool spec to file
+                tool_file = tools_dir / f"{tool_id}.json"
+                tool_file.write_text(json.dumps(tool_spec, indent=2))
+                added_tools.append(tool_id)
+                print(f"   ✅ {tool_id}")
+                # Also get context for markdown reference
+                ctx = discovery.get_tool_context(tool_id)
+                if ctx:
+                    contexts.append(ctx)
             else:
                 print(f"   ⚠️  Could not fetch tool details for {tool_id}: {msg}")
+        
+        # Update tools manifest
+        tools_manifest = tools_dir / "manifest.json"
+        existing_tools = []
+        if tools_manifest.exists():
+            try:
+                existing_tools = json.loads(tools_manifest.read_text()).get("tools", [])
+            except:
+                pass
+        all_tools = list(set(existing_tools + added_tools))
+        tools_manifest.write_text(json.dumps({"tools": all_tools}, indent=2))
         
         # Update tool_context.md for backward compatibility
         if contexts:
@@ -309,24 +323,29 @@ def update_workspace_context(
             docs_provider = WDLDocumentationProvider()
             instructions_builder = RoamingInstructionsBuilder(docs_provider)
             
-            # Load existing workspace data
-            success, workspace_data, msg = workspace_manager.load_workspace(workflow_id, agent_name)
-            if success:
-                title = workspace_data.get("metadata", {}).get("title", "WDL Workflow")
-                
-                # Regenerate instructions with updated context
-                roaming_instructions = instructions_builder.build_generation_instructions(
-                    workspace=workspace,
-                    title=title,
-                )
-                
-                # Add tool context references if tools were added
-                if added_tools:
-                    roaming_instructions += "\n\n---\n\n## 🔧 Building Blocks\n\n"
-                    roaming_instructions += "**Tool Context**: Read `tool_context.md` for existing tool WDLs to reference.\n"
-                    roaming_instructions += "\nUse these as building blocks for your workflow.\n"
-                
-                instructions_path.write_text(roaming_instructions)
+            # Get title from metadata
+            metadata_path = workspace / "metadata.json"
+            title = "WDL Workflow"
+            if metadata_path.exists():
+                try:
+                    metadata = json.loads(metadata_path.read_text())
+                    title = metadata.get("title", title)
+                except Exception:
+                    pass
+            
+            # Regenerate instructions with updated context
+            roaming_instructions = instructions_builder.build_generation_instructions(
+                workspace=workspace,
+                title=title,
+            )
+            
+            # Add tool context references if tools were added
+            if added_tools:
+                roaming_instructions += "\n\n---\n\n## 🔧 Building Blocks\n\n"
+                roaming_instructions += "**Tool Context**: Read `tool_context.md` for existing tool WDLs to reference.\n"
+                roaming_instructions += "\nUse these as building blocks for your workflow.\n"
+            
+            instructions_path.write_text(roaming_instructions)
         except Exception as e:
             print(f"⚠️  Could not update roaming instructions: {e}")
     
@@ -533,7 +552,7 @@ def create_simple_tool(
     _verbose_print("create_simple_tool", "creating Discovery")
     discovery = get_discovery()
     _verbose_print("create_simple_tool", "creating WorkspaceManager")
-    workspace_manager = WorkspaceManager(use_agents=not standalone)
+    workspace_manager = WorkspaceManager()
     
     # Fetch API details
     print(f"\n📡 Fetching API details for: {api_id}")
@@ -694,8 +713,9 @@ def create_wdl_action(
     print(f"\n📋 Requirements preview:\n{requirements[:300]}...")
 
     # Initialize components
-    workspace_manager = WorkspaceManager(use_agents=not standalone)
-    discovery = Discovery()
+    workspace_manager = WorkspaceManager()
+    from cli.wdl_common.context import get_discovery
+    discovery = get_discovery()
 
     # Select agent if using agents
     selected_agent: Optional[str] = None
@@ -709,7 +729,6 @@ def create_wdl_action(
                 print("   Or create an agent using: python tool_builder.py")
                 # Fall back to standalone
                 standalone = True
-                workspace_manager = WorkspaceManager(use_agents=False)
 
     mode = f"Agent: {selected_agent}" if selected_agent else "Standalone"
     print(f"\n📁 Mode: {mode}")
@@ -942,41 +961,25 @@ def update_wdl_action(
 
     # Initialize components
     _verbose_print("update_wdl_action", "creating WorkspaceManager")
-    workspace_manager = WorkspaceManager(use_agents=not standalone)
+    workspace_manager = WorkspaceManager()
     _verbose_print("update_wdl_action", "creating Discovery")
     discovery = get_discovery()
 
-    # Determine agent
-    selected_agent: Optional[str] = None
-    if not standalone:
-        if agent_name:
-            selected_agent = agent_name
-        else:
-            # Try to load workspace to determine agent
-            success, workspace_data, msg = workspace_manager.load_workspace(workflow_id, None)
-            if success:
-                metadata = workspace_data.get("metadata", {})
-                selected_agent = metadata.get("agent_name")
-                if selected_agent:
-                    print(f"   Found agent: {selected_agent}")
-            else:
-                # Try standalone
-                standalone = True
-                workspace_manager = WorkspaceManager(use_agents=False)
-
-    mode = f"Agent: {selected_agent}" if selected_agent else "Standalone"
-    print(f"   Mode: {mode}")
-
-    # Load workspace
-    _verbose_print("update_wdl_action", "loading workspace")
-    success, workspace_data, msg = workspace_manager.load_workspace(workflow_id, selected_agent)
-    if not success:
-        print(f"❌ {msg}")
+    # Find the action
+    _verbose_print("update_wdl_action", "finding action")
+    action_info = workspace_manager.find_action(workflow_id)
+    
+    if not action_info:
+        print(f"❌ Action not found: {workflow_id}")
         print("\n💡 Tip: Use --create to create a new workflow")
         _verbose_print("update_wdl_action", "EXIT", "workspace not found")
         return 1
 
-    workspace = workspace_data["workspace_path"]
+    workspace = Path(action_info["path"])
+    selected_agent = action_info.get("agent_name")
+    
+    mode = f"Agent: {selected_agent}" if selected_agent else "Standalone"
+    print(f"   Mode: {mode}")
     print(f"✅ Found workspace: {workspace}")
 
     # Check if we have anything to add
