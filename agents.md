@@ -4,6 +4,54 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 
 ---
 
+## ⛔ CRITICAL: ALWAYS USE CLI SCRIPTS
+
+**NEVER bypass or circumvent the CLI tools.** All operations MUST be performed using the provided CLI scripts.
+
+### ❌ FORBIDDEN Actions
+
+- **DO NOT** directly call AdoptAI APIs bypassing the CLI scripts
+- **DO NOT** manually create workspace directories without `workspace.py`
+- **DO NOT** manually edit `metadata.json` files
+- **DO NOT** use HAR files or network captures to build actions
+- **DO NOT** guess API endpoints or parameters - use `discover.py`
+- **DO NOT** skip testing before saving/publishing
+- **DO NOT** circumvent the workspace manager or context system
+
+### ✅ REQUIRED Workflow
+
+1. **Discovery**: Use `cli/discover.py` to find APIs/actions
+2. **Creation**: Use `cli/manage_wdl_action.py --create` or `cli/workspace.py`
+3. **Edit WDL**: Directly edit `widdle.json` files based on documentation
+4. **Testing**: Use `cli/test_wdl_action.py` for validation
+5. **Saving**: Use `cli/save_wdl_draft.py` to persist changes
+6. **Publishing**: Use `cli/publish_wdl_action.py` when approved
+
+### 📝 Editing WDL Files
+
+**You SHOULD directly edit `widdle.json` files.** This is your primary task.
+
+When editing WDL:
+- **Read the documentation first**: Load `prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`
+- **Use roaming RAG**: Fetch operation docs from `https://adoptai.github.io/widdle_docs/operations/`
+- **Follow templates**: Use patterns from `prompts/templates/`
+- **Check API specs**: Read files in `apis/` folder for endpoint details
+- **Validate locally**: Run `cli/test_wdl_action.py --local-only` after edits
+
+### Why This Matters
+
+The CLI scripts:
+- **Load correct credentials** from the active environment's `.env`
+- **Resolve configuration inheritance** (action → agent → environment)
+- **Track metadata** (versions, action_id, sync status)
+- **Validate WDL structure** before upload
+- **Handle caching** for discovery and embeddings per-environment
+- **Ensure consistency** across the workspace hierarchy
+
+**If a CLI tool doesn't exist for what you need, ask the user first.**
+
+---
+
 ## 🚨 FIRST STEP: Create a TODO List
 
 **Before building any action or workflow, ALWAYS create a TODO list first.**
@@ -329,6 +377,29 @@ Test sub-action through its parent agent:
 python cli/test_runner.py my-agent --via-agent --subaction get-data
 ```
 
+### Parallel Save Draft
+
+```bash
+# Multiple actions
+python cli/save_wdl_draft.py action1 action2 action3 --parallel 3
+
+# Agent + all changed subactions
+python cli/save_wdl_draft.py --agent my-agent
+
+# Agent + ALL subactions (even unchanged)
+python cli/save_wdl_draft.py --agent my-agent --force
+```
+
+### Parallel Publish
+
+```bash
+# Multiple actions
+python cli/publish_wdl_action.py action1 action2 action3 --parallel 3 --yes
+
+# Agent + all draft subactions (publishes subactions first, then agent)
+python cli/publish_wdl_action.py --agent my-agent --yes
+```
+
 ---
 
 ## Tool Mode / Deployment Rules
@@ -611,11 +682,24 @@ python cli/discover.py --requirements requirements.md
   - **No interactive prompts**: All parameters via command line
   - **Local WDL storage**: Automatically saves WDL to `versions/v{version_number}_widdle.json`
   - Updates `metadata.json` with version info in versions map
+  - **Multiple actions**: Pass multiple IDs for parallel save
+  - **Agent support**: `--agent` saves agent + all changed subactions
 - **Usage**: Persist changes without making workflow live
 - **Menu Option**: 10
-- **Example**:
+- **Examples**:
   ```bash
-  python cli/save_wdl_draft.py --workflow-id {id} --description "Fixed bug" --standalone
+  # Single action
+  python cli/save_wdl_draft.py my-action
+  python cli/save_wdl_draft.py --workflow-id my-action --description "Fixed bug"
+  
+  # Multiple actions in parallel
+  python cli/save_wdl_draft.py action1 action2 action3 --parallel 3
+  
+  # Agent + all changed subactions
+  python cli/save_wdl_draft.py --agent my-agent
+  
+  # Agent + ALL subactions (even unchanged)
+  python cli/save_wdl_draft.py --agent my-agent --force
   ```
 - **Local Storage**: Each saved draft stores WDL in `versions/v{version_number}_widdle.json` for future checkout
 
@@ -626,11 +710,21 @@ python cli/discover.py --requirements requirements.md
   - **Local WDL storage**: Saves WDL to `versions/v{version_number}_widdle.json` when publishing
   - Updates version status to published in metadata.json
   - Shows existing description when available
-- **⚠️ Requires explicit user confirmation**
+  - **Multiple actions**: Pass multiple IDs for parallel publish
+  - **Agent support**: `--agent` publishes subactions first, then agent
+- **⚠️ Requires explicit user confirmation** (use `--yes` to skip)
 - **Menu Option**: 11
-- **Example**:
+- **Examples**:
   ```bash
-  python cli/publish_wdl_action.py {action_id} --version 10 --description "Production release"
+  # Single action
+  python cli/publish_wdl_action.py my-action
+  python cli/publish_wdl_action.py --workflow-id my-action --description "Production release"
+  
+  # Multiple actions in parallel
+  python cli/publish_wdl_action.py action1 action2 action3 --parallel 3 --yes
+  
+  # Agent + all draft subactions (publishes subactions first, then agent)
+  python cli/publish_wdl_action.py --agent my-agent --yes
   ```
 - **Local Storage**: Tries to save WDL locally (from draft copy or workspace) for future checkout
 

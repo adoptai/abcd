@@ -480,6 +480,50 @@ class MetadataManager:
         current_hash = self.calculate_wdl_hash()
         return current_hash != metadata.working_version.remote_wdl_hash
 
+    def get_remote_status(self) -> str:
+        """
+        Determine current remote status of the action.
+
+        Returns:
+            One of:
+            - "local_only": No action_id or never pushed to remote
+            - "draft": Has draft version(s) on remote but no published
+            - "published": Has published version, no newer drafts
+            - "draft_with_published": Has published version AND newer draft
+        """
+        metadata = self.load()
+        
+        if not metadata.remote.action_id:
+            return "local_only"
+        
+        latest_draft = metadata.remote_versions.latest_draft
+        latest_published = metadata.remote_versions.latest_published
+        
+        # Also check versions dict as fallback (for when remote_versions not synced)
+        if not latest_draft and not latest_published and metadata.versions:
+            for v_num_str, v_info in metadata.versions.items():
+                try:
+                    v_num = int(v_num_str)
+                except ValueError:
+                    continue
+                is_published = v_info.is_published if hasattr(v_info, 'is_published') else False
+                if is_published:
+                    if latest_published is None or v_num > latest_published:
+                        latest_published = v_num
+                else:
+                    if latest_draft is None or v_num > latest_draft:
+                        latest_draft = v_num
+        
+        if latest_published:
+            if latest_draft and latest_draft > latest_published:
+                return "draft_with_published"
+            return "published"
+        
+        if latest_draft:
+            return "draft"
+        
+        return "local_only"
+
     def update_wdl_hashes(self, is_saved: bool = False) -> None:
         """
         Update WDL hashes after WDL modification or save.

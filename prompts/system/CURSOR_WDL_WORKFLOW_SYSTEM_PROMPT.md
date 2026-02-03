@@ -588,6 +588,37 @@ Descriptions help you:
 3. Search for specific operations: `grep -r "operation_id" versions/`
 4. Use local copies for quick reference without API calls
 
+#### Parallel and Batch Operations
+
+When working with multiple actions (e.g., agent with subactions), use parallel execution:
+
+```bash
+# Save multiple actions in parallel
+python cli/save_wdl_draft.py action1 action2 action3 --parallel 3
+
+# Save agent + all changed subactions
+python cli/save_wdl_draft.py --agent my-agent
+
+# Save agent + ALL subactions (even unchanged)
+python cli/save_wdl_draft.py --agent my-agent --force
+
+# Publish multiple actions in parallel
+python cli/publish_wdl_action.py action1 action2 action3 --parallel 3 --yes
+
+# Publish agent + all draft subactions (subactions first, then agent)
+python cli/publish_wdl_action.py --agent my-agent --yes
+
+# Test multiple actions in parallel
+python cli/test_runner.py action1 action2 action3 --parallel 3
+
+# Test agent + all subactions
+python cli/test_runner.py --agent my-agent --all-subactions
+```
+
+**Agent workflow order:**
+- **Save/Publish**: Subactions are processed first (in parallel), then the agent
+- **Test**: Use `test_runner.py` for parallel testing across actions
+
 #### Version Metadata Structure
 
 The `metadata.json` file uses a **versions map structure**:

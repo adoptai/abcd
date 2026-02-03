@@ -4,6 +4,40 @@
 
 ---
 
+## ⛔ CRITICAL: ALWAYS USE CLI SCRIPTS
+
+**NEVER bypass or circumvent the CLI tools.** All operations MUST use CLI scripts.
+
+### ❌ FORBIDDEN Actions
+- **DO NOT** manually edit `metadata.json` files
+- **DO NOT** call AdoptAI APIs directly bypassing CLI scripts
+- **DO NOT** manually create workspace directories
+- **DO NOT** use HAR files or network captures
+- **DO NOT** guess API endpoints - use `discover.py`
+- **DO NOT** skip testing before saving/publishing
+
+### ✅ REQUIRED Workflow
+1. **Discovery**: `cli/discover.py`
+2. **Creation**: `cli/manage_wdl_action.py --create` or `cli/workspace.py`
+3. **Edit WDL**: Directly edit `widdle.json` based on documentation
+4. **Testing**: `cli/test_wdl_action.py`
+5. **Saving**: `cli/save_wdl_draft.py`
+6. **Publishing**: `cli/publish_wdl_action.py`
+
+### 📝 Editing WDL Files
+
+**You SHOULD directly edit `widdle.json` files.** This is your primary task.
+
+- **Read docs first**: Load `prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`
+- **Use roaming RAG**: Fetch from `https://adoptai.github.io/widdle_docs/operations/`
+- **Follow templates**: Use `prompts/templates/`
+- **Check API specs**: Read `apis/` folder for endpoint details
+- **Validate locally**: Run `cli/test_wdl_action.py --local-only` after edits
+
+**If a CLI tool doesn't exist for what you need, ask the user first.**
+
+---
+
 ## 🚨 MANDATORY FIRST STEPS (Before Building Actions)
 
 ### 1. CREATE A TODO LIST
@@ -133,6 +167,29 @@ python cli/test_runner.py --workspace production-client-a
 
 # Via-agent (sub-action through agent)
 python cli/test_runner.py my-agent --via-agent --subaction get-data
+```
+
+### Parallel Save Draft
+
+```bash
+# Multiple actions
+python cli/save_wdl_draft.py action1 action2 action3 --parallel 3
+
+# Agent + all changed subactions
+python cli/save_wdl_draft.py --agent my-agent
+
+# Agent + ALL subactions (even unchanged)
+python cli/save_wdl_draft.py --agent my-agent --force
+```
+
+### Parallel Publish
+
+```bash
+# Multiple actions
+python cli/publish_wdl_action.py action1 action2 action3 --parallel 3 --yes
+
+# Agent + all draft subactions (publishes subactions first, then agent)
+python cli/publish_wdl_action.py --agent my-agent --yes
 ```
 
 ### Tool Mode (for sub-actions)

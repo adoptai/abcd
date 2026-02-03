@@ -902,6 +902,13 @@ USE THESE FLAGS ONLY when automatic behavior doesn't work:
   --agent NAME      Override agent detection
   --version NUM     Override version detection
   --allow-draft     Force allow draft flag
+
+PARALLEL & BATCH TESTING:
+  For testing multiple actions in parallel, use test_runner.py:
+  
+  python test_runner.py action1 action2 action3 --parallel 3
+  python test_runner.py --workspace production-env
+  python test_runner.py --agent my-agent --all-subactions
 """,
     )
 
