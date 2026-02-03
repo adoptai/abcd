@@ -66,6 +66,93 @@ Config files resolve in priority order (first found wins):
 
 ---
 
+## adopt_profile.json Structure
+
+### Basic Structure
+
+```json
+{
+  "base_url": "https://default-api.example.com",
+  "application_base_url": "",
+  "workflow_params": {},
+  "security_params": {
+    "Authorization": "Bearer token123"
+  }
+}
+```
+
+### Advanced: profiles_map for Multi-API Actions
+
+When your action calls multiple APIs with different base URLs or authentication, use `profiles_map`:
+
+```json
+{
+  "base_url": "https://default-api.example.com",
+  "application_base_url": "",
+  "workflow_params": {},
+  "security_params": {},
+  "profiles_map": {
+    "Maersk": {
+      "base_url": "https://api.maersk.com",
+      "security_params": {
+        "Consumer-Key": "your-maersk-api-key"
+      }
+    },
+    "Salesforce": {
+      "base_url": "https://yourorg.salesforce.com",
+      "security_params": {
+        "Authorization": "Bearer sf-token"
+      }
+    }
+  }
+}
+```
+
+### How profiles_map Works
+
+1. **In your WDL REST block**, set the `application` property:
+   ```json
+   {
+     "id": "fetch_container_types",
+     "operation": "REST",
+     "application": "Maersk",
+     "method": "GET",
+     "url": "/v2/departures/containerTypes"
+   }
+   ```
+
+2. **At runtime**, the executor looks up `"Maersk"` in `profiles_map`:
+   - Uses `profiles_map.Maersk.base_url` as the API base URL
+   - Adds `profiles_map.Maersk.security_params` as headers to the request
+
+3. **Fallback**: If no matching profile is found, falls back to the root `base_url` and `security_params`
+
+### profiles_map vs Legacy Configuration
+
+| Approach | When to Use |
+|----------|-------------|
+| Root `base_url` + `security_params` | Single API actions |
+| `profiles_map` | Actions calling multiple APIs with different endpoints/auth |
+
+### MCP Integration: mcp_profiles_map
+
+For MCP (Model Context Protocol) integrations:
+
+```json
+{
+  "mcp_profiles_map": {
+    "slack-integration": {
+      "tool_id": "slack-send-message",
+      "security_params": {
+        "Authorization": "Bearer xoxb-slack-token"
+      }
+    }
+  }
+}
+```
+
+---
+
 ## Environment Validation (Before Creating Actions)
 
 **IMPORTANT**: Before creating any action, validate that the user's request matches the active environment's purpose.

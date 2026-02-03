@@ -506,12 +506,136 @@ python cli/test_wdl_action.py <tool-1>
 
 ---
 
+### Category 6: profiles_map Issues
+
+#### 6.1 Missing Application Profile
+
+**Pattern**: REST block uses `application` property but no matching entry in `profiles_map`
+
+**Detection**:
+```python
+def detect_missing_profile(wdl, adopt_profile):
+    profiles_map = adopt_profile.get('profiles_map', {})
+    for block in wdl:
+        if block.get('operation') == 'REST' and 'application' in block:
+            app_name = block['application']
+            if app_name not in profiles_map:
+                return f"Missing profile for application: {app_name}"
+    return None
+```
+
+**Example**:
+```json
+// WDL
+{ "operation": "REST", "application": "Maersk", "url": "/v2/containers" }
+
+// adopt_profile.json - Missing Maersk profile!
+{ "base_url": "https://api.example.com", "profiles_map": {} }
+```
+
+**Fix Strategy**:
+1. Add the missing profile to `adopt_profile.json`:
+   ```json
+   {
+     "profiles_map": {
+       "Maersk": {
+         "base_url": "https://api.maersk.com",
+         "security_params": {
+           "Consumer-Key": "your-api-key"
+         }
+       }
+     }
+   }
+   ```
+
+**Severity**: CRITICAL - REST call will use wrong base URL or fail authentication
+
+---
+
+#### 6.2 Wrong Security Parameter Name
+
+**Pattern**: Using `security_headers` instead of `security_params` in `adopt_profile.json`
+
+**Detection**:
+```python
+def detect_wrong_security_name(adopt_profile):
+    profiles_map = adopt_profile.get('profiles_map', {})
+    for app_name, profile in profiles_map.items():
+        if 'security_headers' in profile:
+            return f"Use 'security_params' not 'security_headers' in profiles_map.{app_name}"
+    return None
+```
+
+**Example**:
+```json
+// WRONG - Uses security_headers
+{
+  "profiles_map": {
+    "Maersk": {
+      "base_url": "https://api.maersk.com",
+      "security_headers": { "Consumer-Key": "key" }  // WRONG
+    }
+  }
+}
+
+// CORRECT - Uses security_params
+{
+  "profiles_map": {
+    "Maersk": {
+      "base_url": "https://api.maersk.com",
+      "security_params": { "Consumer-Key": "key" }  // CORRECT
+    }
+  }
+}
+```
+
+**Note**: The CLI automatically converts `security_params` to `security_headers` when sending to the backend.
+
+**Severity**: HIGH - Authentication will fail
+
+---
+
+#### 6.3 Application Name Mismatch
+
+**Pattern**: Application name in WDL doesn't match key in `profiles_map` (case-sensitive)
+
+**Detection**:
+```python
+def detect_app_name_mismatch(wdl, adopt_profile):
+    profiles_map = adopt_profile.get('profiles_map', {})
+    for block in wdl:
+        if block.get('operation') == 'REST' and 'application' in block:
+            app_name = block['application']
+            # Check for case mismatch
+            for profile_key in profiles_map.keys():
+                if app_name.lower() == profile_key.lower() and app_name != profile_key:
+                    return f"Case mismatch: WDL uses '{app_name}' but profile has '{profile_key}'"
+    return None
+```
+
+**Example**:
+```json
+// WDL uses "maersk" (lowercase)
+{ "operation": "REST", "application": "maersk" }
+
+// adopt_profile.json has "Maersk" (capitalized)
+{ "profiles_map": { "Maersk": { ... } } }
+```
+
+**Fix Strategy**:
+1. Ensure exact case match between WDL `application` and `profiles_map` key
+
+**Severity**: CRITICAL - Profile won't be found, falls back to default
+
+---
+
 ## Related Documentation
 
 - [WDL Schema Reference](../../docs/wdl_schema.md)
 - [API Configuration Guide](../../docs/api_configuration.md)
 - [Diagnostic Toolkit CLI](../../docs/diagnostic_toolkit.md)
 - `prompts/system/DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md` - Full diagnostic system prompt
+- `prompts/system/WORKSPACE_HIERARCHY_PROMPT.md` - profiles_map configuration details
 
 
 

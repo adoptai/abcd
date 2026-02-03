@@ -288,6 +288,36 @@ Override with `--env`:
 python cli/test_runner.py my-action --env staging
 ```
 
+### Multi-API Actions with profiles_map
+
+For actions that call multiple external APIs (e.g., Maersk, Salesforce), configure `profiles_map` in `adopt_profile.json`:
+
+```json
+{
+  "base_url": "https://default-api.example.com",
+  "profiles_map": {
+    "Maersk": {
+      "base_url": "https://api.maersk.com",
+      "security_params": {
+        "Consumer-Key": "your-maersk-key"
+      }
+    }
+  }
+}
+```
+
+The REST block uses the `application` property to select the profile:
+```json
+{
+  "id": "get_containers",
+  "operation": "REST",
+  "application": "Maersk",
+  "url": "/v2/departures/containerTypes"
+}
+```
+
+**Note**: Use `security_params` in `adopt_profile.json` (user-facing). The CLI automatically maps this to `security_headers` when sending to the backend.
+
 ---
 
 ## Troubleshooting

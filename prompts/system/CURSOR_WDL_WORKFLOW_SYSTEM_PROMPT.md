@@ -668,6 +668,53 @@ The WDL documentation is hosted remotely for easy access:
 | `OUTPUT_TEXT` | Format text output |
 | `OUTPUT_TABLE` | Format tabular output |
 
+### REST Operation with `application` Property
+
+When your action needs to call multiple APIs with different base URLs or authentication, use the `application` property in REST blocks:
+
+```json
+{
+  "id": "fetch_from_maersk",
+  "operation": "REST",
+  "application": "Maersk",
+  "method": "GET",
+  "url": "/v2/departures/containerTypes",
+  "query_params": {
+    "isBookable": "true"
+  }
+}
+```
+
+**How it works:**
+1. The `application` property tells the executor which profile to use
+2. The executor looks up the application name in `profiles_map` (from `adopt_profile.json`)
+3. Uses the matching profile's `base_url` and `security_params` for the request
+
+**Configure profiles_map in adopt_profile.json:**
+```json
+{
+  "base_url": "https://default-api.example.com",
+  "profiles_map": {
+    "Maersk": {
+      "base_url": "https://api.maersk.com",
+      "security_params": {
+        "Consumer-Key": "your-api-key"
+      }
+    }
+  }
+}
+```
+
+**Benefits:**
+- Single action can call multiple external APIs
+- Each API gets its own authentication
+- No need to pass credentials as workflow parameters
+- Clean separation between action logic and environment configuration
+
+**Fallback behavior:**
+- If `profiles_map` doesn't contain the application, falls back to root `base_url` and `security_params`
+- If no `application` property is set, uses the root profile directly
+
 ## WDL Best Practices
 
 1. **Unique IDs**: Every operation needs a unique `id`
@@ -721,9 +768,12 @@ Common issues:
 | Error | Likely Cause | Fix |
 |-------|--------------|-----|
 | 401/403 | Auth issues | Check `adopt_profile.json` security_params |
+| 401/403 with `application` | Missing profile | Add entry to `profiles_map` in `adopt_profile.json` |
 | 404 | Wrong URL | Verify endpoint path in REST operation |
+| 404 with `application` | Wrong base_url in profile | Check `profiles_map.{app}.base_url` |
 | JQ error | Bad filter syntax | Review JQ_FILTER documentation |
 | Missing input | Undeclared param | Add to required_inputs |
+| Profile not found | Case mismatch | Match exact case between `application` and `profiles_map` key |
 
 ## Diagnostic Toolkit for API Issues
 
