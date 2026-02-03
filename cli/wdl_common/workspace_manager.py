@@ -1181,8 +1181,25 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         return merged
 
     def _deep_merge(self, base: dict, override: dict) -> None:
-        """Deep merge override into base."""
+        """
+        Deep merge override into base, skipping empty values.
+        
+        Empty values (empty string, empty dict, empty list, None) in override
+        do NOT overwrite existing values in base. This enables fallback:
+        action -> agent -> env (only non-empty values override).
+        """
         for key, value in override.items():
+            # Skip empty values - let base value remain
+            if value is None:
+                continue
+            if isinstance(value, str) and value == "":
+                continue
+            if isinstance(value, dict) and len(value) == 0:
+                continue
+            if isinstance(value, list) and len(value) == 0:
+                continue
+            
+            # Deep merge nested dicts
             if key in base and isinstance(base[key], dict) and isinstance(value, dict):
                 self._deep_merge(base[key], value)
             else:

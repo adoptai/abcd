@@ -714,6 +714,39 @@ class MetadataManager:
                 reason=f"Testing current version {remote.current}",
             )
 
+        # Fallback: check versions dict directly for any draft/published versions
+        # This handles cases where remote_versions summary wasn't properly updated
+        if metadata.versions:
+            latest_draft_from_versions = None
+            latest_published_from_versions = None
+            for v_num_str, v_info in metadata.versions.items():
+                try:
+                    v_num = int(v_num_str)
+                except ValueError:
+                    continue
+                # v_info is a VersionInfo object
+                is_published = v_info.is_published if hasattr(v_info, 'is_published') else False
+                if is_published:
+                    if latest_published_from_versions is None or v_num > latest_published_from_versions:
+                        latest_published_from_versions = v_num
+                else:
+                    if latest_draft_from_versions is None or v_num > latest_draft_from_versions:
+                        latest_draft_from_versions = v_num
+            
+            if latest_draft_from_versions:
+                return self.TestTarget(
+                    version=latest_draft_from_versions,
+                    allow_draft=True,
+                    reason=f"Testing latest draft version {latest_draft_from_versions} (from versions)",
+                )
+            
+            if latest_published_from_versions:
+                return self.TestTarget(
+                    version=latest_published_from_versions,
+                    allow_draft=False,
+                    reason=f"Testing latest published version {latest_published_from_versions} (from versions)",
+                )
+
         # No version info available
         return self.TestTarget(
             version=None,

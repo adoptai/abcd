@@ -159,24 +159,48 @@ def run_test(
         return {"success": False, "error": f"Workflow not found: {workflow_id}"}
 
     workspace_path = Path(action_info["path"])
+    
+    # Load WDL
+    wdl_path = workspace_path / "widdle.json"
+    wdl = []
+    if wdl_path.exists():
+        try:
+            wdl = json.loads(wdl_path.read_text())
+        except json.JSONDecodeError as json_err:
+            print("❌ Invalid JSON in widdle.json")
+            print(f"   Error: {json_err.msg} at line {json_err.lineno}, column {json_err.colno}")
+            print(f"   File: {wdl_path}")
+            print("\n💡 Fix JSON syntax errors before proceeding")
+            print("=" * 80)
+            return {
+                "success": False,
+                "error": f"JSON syntax error: {json_err.msg} at line {json_err.lineno}, column {json_err.colno}",
+            }
+    
+    # Resolve adopt_profile.json with inheritance (action -> agent -> env)
+    resolved_profile = workspace_manager.resolve_adopt_profile(
+        action_path=workspace_path,
+        agent_name=action_info.get("agent_name"),
+        env_name=action_info.get("env_name"),
+    )
+    
     data = {
         "workspace_path": workspace_path,
         "metadata": action_info.get("metadata", {}),
         "agent_name": action_info.get("agent_name"),
+        "wdl": wdl,
+        "profile": resolved_profile,
     }
     success = True
-    
-    if True:  # Preserve indentation for next block
-        pass  # Placeholder to maintain flow
     
     if False:  # Skip the error handling block that's no longer needed
         if False:
             workspace_path_check = None
             if workspace_path_check and workspace_path_check.exists():
-                wdl_path = workspace_path_check / "widdle.json"
-                if wdl_path.exists():
+                wdl_path_check = workspace_path_check / "widdle.json"
+                if wdl_path_check.exists():
                     try:
-                        with open(wdl_path, "r") as f:
+                        with open(wdl_path_check, "r") as f:
                             json.load(f)
                     except json.JSONDecodeError as json_err:
                         print("❌ Invalid JSON in widdle.json")
