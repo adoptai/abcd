@@ -290,6 +290,7 @@ class Discovery:
         tools_only: bool = False,
         execution_type: Optional[str] = None,
         force_refresh: bool = False,
+        include_hidden: bool = False,
     ) -> Tuple[bool, List[Dict[str, Any]], str]:
         """
         Fetch actions from API, update cache with new items.
@@ -302,6 +303,7 @@ class Discovery:
                 - "DEFAULT": All actions with default execution mode
                 - "WORKFLOW": Workflow-type actions
             force_refresh: If True, re-embed all items
+            include_hidden: If True, fetch hidden sub-actions from Uber Agents
 
         Returns:
             Tuple of (success, actions, message)
@@ -346,6 +348,10 @@ class Discovery:
             data = response.json()
             actions = data.get("capabilities", [])
             self._verbose_print("fetch_actions", "parsed actions", f"count={len(actions)}")
+
+            # Fetch hidden sub-actions from Uber Agents if requested
+            if include_hidden:
+                actions = self._fetch_hidden_subactions(actions, headers=self.headers)
 
         except requests.exceptions.RequestException as e:
             # Fall back to cache
@@ -410,6 +416,139 @@ class Discovery:
         if tags := action.get("tags"):
             parts.append(" ".join(tags) if isinstance(tags, list) else str(tags))
         return " ".join(parts) or "untitled action"
+
+    def _fetch_hidden_subactions(
+        self, 
+        actions: List[Dict[str, Any]], 
+        headers: Dict[str, str]
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch hidden sub-actions from Uber Agents.
+        
+        Args:
+            actions: List of visible actions
+            headers: HTTP headers with auth
+            
+        Returns:
+            Combined list with visible actions + hidden sub-actions
+        """
+        self._verbose_print("_fetch_hidden_subactions", "ENTER", f"{len(actions)} visible actions")
+        
+        # Track IDs we already have
+        visible_ids = {a.get("id") for a in actions}
+        all_actions = list(actions)  # Copy the original list
+        
+        # Find Uber Agents and their sub-actions
+        for action in actions:
+            action_id = action.get("id")
+            if not action_id:
+                continue
+            
+            try:
+                # Fetch full action details to check if it's an Uber Agent
+                url = f"{self.actions_endpoint}/v1/actions/{action_id}/current/"
+                response = requests.get(url, headers=headers, timeout=30)
+                
+                if response.status_code != 200:
+                    continue
+                
+                action_data = response.json()
+                wdl = action_data.get("wdl", [])
+                
+                if isinstance(wdl, str):
+                    wdl = json.loads(wdl)
+                
+                # Check for PROMPT_AND_TOOLS_AGENT operation
+                sub_action_ids = []
+                for step in wdl:
+                    if isinstance(step, dict) and step.get("operation") == "PROMPT_AND_TOOLS_AGENT":
+                        sub_action_ids = step.get("action_ids", [])
+                        break
+                
+                if not sub_action_ids:
+                    continue
+                    
+                self._verbose_print(
+                    "_fetch_hidden_subactions", 
+                    "found uber agent", 
+                    f"{action.get('title')}: {len(sub_action_ids)} sub-actions"
+                )
+                
+                # Mark the parent as an Uber Agent
+                action["is_uber_agent"] = True
+                action["sub_action_ids"] = sub_action_ids
+                action["sub_action_count"] = len(sub_action_ids)
+                
+                # Fetch each sub-action that's not already in the list
+                for sub_id in sub_action_ids:
+                    if sub_id in visible_ids:
+                        # Already in list, just mark it as a sub-action
+                        for a in all_actions:
+                            if a.get("id") == sub_id:
+                                a["is_subaction"] = True
+                                a["parent_agent_id"] = action_id
+                                a["parent_agent_title"] = action.get("title")
+                                break
+                        continue
+                    
+                    # Fetch the hidden sub-action
+                    sub_url = f"{self.actions_endpoint}/v1/actions/{sub_id}/current/"
+                    try:
+                        sub_response = requests.get(sub_url, headers=headers, timeout=30)
+                        if sub_response.status_code != 200:
+                            self._verbose_print(
+                                "_fetch_hidden_subactions", 
+                                "failed to fetch sub-action", 
+                                f"{sub_id}: {sub_response.status_code}"
+                            )
+                            continue
+                        
+                        sub_data = sub_response.json()
+                        
+                        # Create action entry for the sub-action
+                        sub_action = {
+                            "id": sub_id,
+                            "title": sub_data.get("title", "Unknown"),
+                            "description": sub_data.get("action_description", ""),
+                            "is_subaction": True,
+                            "is_hidden": True,
+                            "parent_agent_id": action_id,
+                            "parent_agent_title": action.get("title"),
+                        }
+                        
+                        all_actions.append(sub_action)
+                        visible_ids.add(sub_id)
+                        
+                        self._verbose_print(
+                            "_fetch_hidden_subactions", 
+                            "added hidden sub-action", 
+                            sub_action["title"]
+                        )
+                        
+                    except requests.exceptions.RequestException as e:
+                        self._verbose_print(
+                            "_fetch_hidden_subactions", 
+                            "network error fetching sub-action", 
+                            f"{sub_id}: {e}"
+                        )
+                        continue
+                        
+            except Exception as e:
+                self._verbose_print(
+                    "_fetch_hidden_subactions", 
+                    "error processing action", 
+                    f"{action_id}: {e}"
+                )
+                continue
+        
+        hidden_count = len(all_actions) - len(actions)
+        self._verbose_print(
+            "_fetch_hidden_subactions", 
+            "EXIT", 
+            f"added {hidden_count} hidden sub-actions, total {len(all_actions)}"
+        )
+        
+        return all_actions
 
     def _get_actions_index(self) -> Optional[Any]:
         """Get or build FAISS index for actions."""

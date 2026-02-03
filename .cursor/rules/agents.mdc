@@ -146,8 +146,8 @@ python cli/deployment_rules.py my-action --show
 
 ```bash
 # List by type
-python cli/discover.py --list-tools         # Tools only
-python cli/discover.py --list-all           # All actions (no filter)
+python cli/discover.py --list-tools         # Tools only (visible)
+python cli/discover.py --list-all           # All actions INCLUDING hidden sub-actions
 python cli/discover.py --list-workflows     # Workflows only
 python cli/discover.py --list-apis          # Available APIs
 python cli/discover.py --list-uber-agents   # Uber Agents (PROMPT_AND_TOOLS_AGENT)
@@ -169,6 +169,11 @@ python cli/discover.py --list-tools --verbose
 python cli/discover.py --actions "query" --json
 ```
 
+**Understanding output flags:**
+- 🤖 `UBER (N sub-actions)` - Uber Agent with N sub-actions
+- 🔗 `Sub-action of <Agent>` - This action belongs to an Uber Agent
+- 👁️ `Hidden` - Action hidden from default list (is_visible_in_list=false)
+
 ### Bulk Checkout (`cli/workspace.py action checkout-all`)
 
 ```bash
@@ -185,6 +190,21 @@ python cli/workspace.py action checkout-all --env <env-id> --uber-agents-only --
 python cli/workspace.py action checkout-all --env <env-id> --force
 ```
 
+### Move Action to Agent
+
+```bash
+# Move a standalone action to become part of an Uber Agent
+python cli/workspace.py agent move-action --action <action-id> --agent <agent-id>
+
+# Move without auto-updating agent's WDL (manual update later)
+python cli/workspace.py agent move-action --action <action-id> --agent <agent-id> --no-wdl-update
+```
+
+**After moving, ensure:**
+1. Action is published: `python cli/publish_wdl_action.py --workflow-id <action-id>`
+2. Tool mode enabled: `python cli/deployment_rules.py <action-id> --enable-tool-mode`
+3. Push updated agent: `python cli/save_wdl_draft.py --workflow-id <agent-id>`
+
 ---
 
 ## Command Categories
@@ -197,6 +217,7 @@ python cli/workspace.py action checkout-all --env <env-id> --force
 | **Versioning** | `checkout_wdl_version.py`, `list_wdl_versions.py` |
 | **Workspace** | `workspace.py env/agent/action/profile` |
 | **Bulk Operations** | `workspace.py action checkout-all` |
+| **Agent Management** | `workspace.py agent move-action/add-subaction/remove-subaction` |
 | **Tool Mode** | `deployment_rules.py` |
 | **Discovery** | `discover.py --list-*`, `discover.py --actions/--apis` |
 

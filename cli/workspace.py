@@ -291,6 +291,64 @@ def cmd_agent_remove_subaction(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_agent_move_action(args: argparse.Namespace) -> int:
+    """Move a standalone action to become part of an agent."""
+    manager = get_workspace_manager()
+    
+    env = args.env or manager.active_env
+    if not env:
+        print("❌ No environment specified. Use --env or set active environment first.")
+        return 1
+    
+    print(f"\n{'='*70}")
+    print("📦 MOVE ACTION TO AGENT")
+    print(f"{'='*70}")
+    print(f"   Action: {args.action}")
+    print(f"   Target Agent: {args.agent}")
+    print(f"   Environment: {env}")
+    
+    # Check if the action exists
+    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
+    standalone_path = WORKSPACES_DIR / env / "actions" / args.action
+    
+    if not standalone_path.exists():
+        print(f"\n❌ Standalone action not found: {args.action}")
+        print(f"   Expected path: {standalone_path}")
+        return 1
+    
+    # Check if agent exists
+    if not manager.agent_exists(args.agent, env):
+        print(f"\n❌ Agent not found: {args.agent}")
+        return 1
+    
+    # Perform the move
+    success, message = manager.move_action_to_agent(
+        action_id=args.action,
+        agent_name=args.agent,
+        env_name=env,
+        update_wdl=not args.no_wdl_update,
+    )
+    
+    if success:
+        print(f"\n✅ {message}")
+        agent_path = WORKSPACES_DIR / env / "agents" / args.agent / "actions" / args.action
+        print(f"   New location: {agent_path}")
+        
+        if not args.no_wdl_update:
+            print(f"   Agent WDL updated with action reference")
+        else:
+            print(f"   ⚠️  Agent WDL NOT updated (--no-wdl-update flag)")
+        
+        print(f"\n💡 Next steps:")
+        print(f"   1. Ensure the action is published: python cli/publish_wdl_action.py --workflow-id {args.action}")
+        print(f"   2. Enable tool mode: python cli/deployment_rules.py {args.action} --enable-tool-mode")
+        print(f"   3. Push the updated agent: python cli/save_wdl_draft.py --workflow-id {args.agent}")
+        return 0
+    else:
+        print(f"\n❌ {message}")
+        return 1
+
+
 def cmd_agent_checkout(args: argparse.Namespace) -> int:
     """Checkout agent from remote with all sub-actions."""
     from dotenv import load_dotenv
@@ -1062,6 +1120,26 @@ def main() -> int:
     agent_remove.add_argument("--action", required=True, help="Action ID")
     agent_remove.add_argument("--env", help="Environment")
     agent_remove.set_defaults(func=cmd_agent_remove_subaction)
+
+    # agent move-action (move standalone action to agent)
+    agent_move = agent_subparsers.add_parser(
+        "move-action",
+        help="Move standalone action to become an agent's sub-action",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Move action 'my-tool' to agent 'my-agent'
+  python cli/workspace.py agent move-action --action my-tool --agent my-agent
+  
+  # Move without updating agent WDL (manual update later)
+  python cli/workspace.py agent move-action --action my-tool --agent my-agent --no-wdl-update
+        """,
+    )
+    agent_move.add_argument("--action", required=True, help="Standalone action ID to move")
+    agent_move.add_argument("--agent", required=True, help="Target agent ID")
+    agent_move.add_argument("--env", help="Environment")
+    agent_move.add_argument("--no-wdl-update", action="store_true", help="Don't update agent's WDL")
+    agent_move.set_defaults(func=cmd_agent_move_action)
 
     # agent checkout
     agent_checkout = agent_subparsers.add_parser("checkout", help="Checkout agent from remote")

@@ -674,13 +674,13 @@ When your action needs to call multiple APIs with different base URLs or authent
 
 ```json
 {
-  "id": "fetch_from_maersk",
+  "id": "fetch_from_external_api",
   "operation": "REST",
-  "application": "Maersk",
+  "application": "ShippingAPI",
   "method": "GET",
-  "url": "/v2/departures/containerTypes",
+  "url": "/v2/shipments/types",
   "query_params": {
-    "isBookable": "true"
+    "active": "true"
   }
 }
 ```
@@ -695,10 +695,10 @@ When your action needs to call multiple APIs with different base URLs or authent
 {
   "base_url": "https://default-api.example.com",
   "profiles_map": {
-    "Maersk": {
-      "base_url": "https://api.maersk.com",
+    "ShippingAPI": {
+      "base_url": "https://api.shipping-provider.com",
       "security_params": {
-        "Consumer-Key": "your-api-key"
+        "API-Key": "your-api-key"
       }
     }
   }

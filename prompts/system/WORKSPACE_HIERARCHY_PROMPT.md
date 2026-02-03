@@ -92,16 +92,16 @@ When your action calls multiple APIs with different base URLs or authentication,
   "workflow_params": {},
   "security_params": {},
   "profiles_map": {
-    "Maersk": {
-      "base_url": "https://api.maersk.com",
+    "ShippingAPI": {
+      "base_url": "https://api.shipping-provider.com",
       "security_params": {
-        "Consumer-Key": "your-maersk-api-key"
+        "API-Key": "your-shipping-api-key"
       }
     },
-    "Salesforce": {
-      "base_url": "https://yourorg.salesforce.com",
+    "CRMAPI": {
+      "base_url": "https://yourorg.crm-provider.com",
       "security_params": {
-        "Authorization": "Bearer sf-token"
+        "Authorization": "Bearer crm-token"
       }
     }
   }
@@ -113,17 +113,17 @@ When your action calls multiple APIs with different base URLs or authentication,
 1. **In your WDL REST block**, set the `application` property:
    ```json
    {
-     "id": "fetch_container_types",
+     "id": "fetch_shipment_data",
      "operation": "REST",
-     "application": "Maersk",
+     "application": "ShippingAPI",
      "method": "GET",
-     "url": "/v2/departures/containerTypes"
+     "url": "/v2/shipments/types"
    }
    ```
 
-2. **At runtime**, the executor looks up `"Maersk"` in `profiles_map`:
-   - Uses `profiles_map.Maersk.base_url` as the API base URL
-   - Adds `profiles_map.Maersk.security_params` as headers to the request
+2. **At runtime**, the executor looks up `"ShippingAPI"` in `profiles_map`:
+   - Uses `profiles_map.ShippingAPI.base_url` as the API base URL
+   - Adds `profiles_map.ShippingAPI.security_params` as headers to the request
 
 3. **Fallback**: If no matching profile is found, falls back to the root `base_url` and `security_params`
 
@@ -282,23 +282,23 @@ This is useful for:
 python cli/move_action.py --list-envs
 
 # List actions/agents in a workspace
-python cli/move_action.py --list-actions --env blackstone-prod
-python cli/move_action.py --list-agents --env 6sense-staging
+python cli/move_action.py --list-actions --env clienta-prod
+python cli/move_action.py --list-agents --env clientb-staging
 
 # Move action within same client (staging → prod)
-python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod
+python cli/move_action.py my-action --from clienta-staging --to clienta-prod
 
 # Move action between different clients
-python cli/move_action.py get-orderpoints --from 6sense-prod --to blackstone-prod
+python cli/move_action.py my-action --from clienta-prod --to clientb-prod
 
 # Copy action (keep original in source workspace)
-python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod --copy
+python cli/move_action.py my-action --from clienta-staging --to clienta-prod --copy
 
 # Move entire agent with all sub-actions
-python cli/move_action.py maersk-product-offer-agent --agent --from blackstone-staging --to blackstone-prod
+python cli/move_action.py my-agent --agent --from clienta-staging --to clienta-prod
 
 # Move action into an agent in destination workspace
-python cli/move_action.py get-orderpoints --from 6sense-staging --to blackstone-prod --dest-agent inventory-agent
+python cli/move_action.py my-action --from clienta-staging --to clientb-prod --dest-agent target-agent
 ```
 
 **After moving an agent**, sub-actions need to be re-registered in the new environment:

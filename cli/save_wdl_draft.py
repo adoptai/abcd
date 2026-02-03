@@ -67,28 +67,35 @@ def save_wdl_draft(
     print("⚠️  This saves a draft - it will NOT be live until published")
 
     # Find workspace
-    workspace_manager = WorkspaceManager(use_agents=not standalone)
+    workspace_manager = WorkspaceManager()
     workspace_data = None
+    workspace = None
     
     if workflow_id:
-        # Load workspace by workflow_id
-        success, workspace_data, msg = workspace_manager.load_workspace(workflow_id, agent_name)
-        if not success:
-            print(f"❌ {msg}")
+        # Load workspace by workflow_id using find_action
+        workspace_data = workspace_manager.find_action(workflow_id)
+        if not workspace_data:
+            print(f"❌ Workspace not found for: {workflow_id}")
+            print("💡 Make sure the action exists in the active environment")
             return False, ""
-        workspace = workspace_data["workspace_path"]
+        workspace = workspace_data["path"]
         
         # Get action_id from metadata if not provided
         if not action_id:
             metadata = workspace_data.get("metadata", {})
             action_id = metadata.get("action_id")
     elif action_id:
-        # Try to find workspace by action_id (legacy mode)
-        workspace = Path(__file__).parent.parent / "actions" / action_id
-        if not workspace.exists():
-            print(f"❌ Workspace not found: {workspace}")
-            print("💡 Try using --workflow-id instead")
-            return False, ""
+        # Try to find workspace by action_id
+        workspace_data = workspace_manager.find_action(action_id)
+        if workspace_data:
+            workspace = workspace_data["path"]
+        else:
+            # Legacy fallback
+            workspace = Path(__file__).parent.parent / "actions" / action_id
+            if not workspace.exists():
+                print(f"❌ Workspace not found: {workspace}")
+                print("💡 Try using --workflow-id instead")
+                return False, ""
     else:
         print("❌ Must provide either --action-id or --workflow-id")
         return False, ""

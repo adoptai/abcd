@@ -3,7 +3,7 @@
 Move Actions and Agents Between Local Workspace Environments
 
 This script moves actions or agents (with all sub-actions) between LOCAL workspace
-environments (e.g., 6sense-staging → 6sense-prod, or blackstone-staging → solo-brands-prod).
+environments (e.g., clienta-staging → clienta-prod, or clienta-prod → clientb-prod).
 
 Both source and destination environments MUST exist as local workspaces in the
 workspaces/ directory before running this script.
@@ -21,18 +21,18 @@ Usage:
     python cli/move_action.py --list-envs
     
     # List actions/agents in a workspace
-    python cli/move_action.py --list-actions --env 6sense-staging
-    python cli/move_action.py --list-agents --env blackstone-prod
+    python cli/move_action.py --list-actions --env clienta-staging
+    python cli/move_action.py --list-agents --env clienta-prod
 
 Features:
     - Move actions/agents between LOCAL workspace environments
-    - Works across different clients (e.g., 6sense → blackstone)
+    - Works across different clients (e.g., clienta → clientb)
     - Clears remote action_ids (sub-actions need re-registration in new environment)
     - Updates agent WDL action_ids placeholder for re-registration
     - Requires explicit user confirmation (cannot be auto-run)
 
 IMPORTANT:
-    - Environment names are LOCAL workspace directory names (e.g., 6sense-prod, blackstone-staging)
+    - Environment names are LOCAL workspace directory names (e.g., clienta-prod, clientb-staging)
     - Both source and destination workspaces must already exist locally
     - Use 'python cli/workspace.py env create' to create new workspaces first
 """
@@ -705,7 +705,7 @@ def main():
         epilog="""
 WORKSPACE ENVIRONMENTS:
     Environments are LOCAL workspace directories in workspaces/ folder.
-    Examples: 6sense-prod, 6sense-staging, blackstone-prod, solo-brands-prod
+    Examples: clienta-prod, clienta-staging, clientb-prod, clientc-staging
     
     Use --list-envs to see all available local workspaces.
 
@@ -714,23 +714,23 @@ Examples:
     python cli/move_action.py --list-envs
     
     # Move action within same client (staging → prod)
-    python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod
+    python cli/move_action.py my-action --from clienta-staging --to clienta-prod
     
     # Move action between different clients
-    python cli/move_action.py get-orderpoints --from 6sense-prod --to blackstone-prod
+    python cli/move_action.py my-action --from clienta-prod --to clientb-prod
     
     # Copy action (keep original in source workspace)
-    python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod --copy
+    python cli/move_action.py my-action --from clienta-staging --to clienta-prod --copy
     
     # Move entire agent with all sub-actions
-    python cli/move_action.py maersk-product-offer-agent --agent --from blackstone-staging --to blackstone-prod
+    python cli/move_action.py my-agent --agent --from clienta-staging --to clienta-prod
     
     # Move action into an agent in destination workspace
-    python cli/move_action.py get-orderpoints --from 6sense-staging --to blackstone-prod --dest-agent inventory-agent
+    python cli/move_action.py my-action --from clienta-staging --to clientb-prod --dest-agent target-agent
     
     # List actions/agents in a workspace
-    python cli/move_action.py --list-actions --env blackstone-prod
-    python cli/move_action.py --list-agents --env 6sense-staging
+    python cli/move_action.py --list-actions --env clienta-prod
+    python cli/move_action.py --list-agents --env clientb-staging
 
 ⚠️  IMPORTANT: 
     - This script requires explicit user confirmation (type the full ID to confirm)

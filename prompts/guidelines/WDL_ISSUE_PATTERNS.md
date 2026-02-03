@@ -527,9 +527,9 @@ def detect_missing_profile(wdl, adopt_profile):
 **Example**:
 ```json
 // WDL
-{ "operation": "REST", "application": "Maersk", "url": "/v2/containers" }
+{ "operation": "REST", "application": "ShippingAPI", "url": "/v2/shipments" }
 
-// adopt_profile.json - Missing Maersk profile!
+// adopt_profile.json - Missing ShippingAPI profile!
 { "base_url": "https://api.example.com", "profiles_map": {} }
 ```
 
@@ -538,10 +538,10 @@ def detect_missing_profile(wdl, adopt_profile):
    ```json
    {
      "profiles_map": {
-       "Maersk": {
-         "base_url": "https://api.maersk.com",
+       "ShippingAPI": {
+         "base_url": "https://api.shipping-provider.com",
          "security_params": {
-           "Consumer-Key": "your-api-key"
+           "API-Key": "your-api-key"
          }
        }
      }
@@ -571,9 +571,9 @@ def detect_wrong_security_name(adopt_profile):
 // WRONG - Uses security_headers
 {
   "profiles_map": {
-    "Maersk": {
-      "base_url": "https://api.maersk.com",
-      "security_headers": { "Consumer-Key": "key" }  // WRONG
+    "ShippingAPI": {
+      "base_url": "https://api.shipping-provider.com",
+      "security_headers": { "API-Key": "key" }  // WRONG
     }
   }
 }
@@ -581,9 +581,9 @@ def detect_wrong_security_name(adopt_profile):
 // CORRECT - Uses security_params
 {
   "profiles_map": {
-    "Maersk": {
-      "base_url": "https://api.maersk.com",
-      "security_params": { "Consumer-Key": "key" }  // CORRECT
+    "ShippingAPI": {
+      "base_url": "https://api.shipping-provider.com",
+      "security_params": { "API-Key": "key" }  // CORRECT
     }
   }
 }
@@ -615,11 +615,11 @@ def detect_app_name_mismatch(wdl, adopt_profile):
 
 **Example**:
 ```json
-// WDL uses "maersk" (lowercase)
-{ "operation": "REST", "application": "maersk" }
+// WDL uses "shippingapi" (lowercase)
+{ "operation": "REST", "application": "shippingapi" }
 
-// adopt_profile.json has "Maersk" (capitalized)
-{ "profiles_map": { "Maersk": { ... } } }
+// adopt_profile.json has "ShippingAPI" (different case)
+{ "profiles_map": { "ShippingAPI": { ... } } }
 ```
 
 **Fix Strategy**:

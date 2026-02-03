@@ -259,27 +259,27 @@ python cli/workspace.py profile show --action my-action
 **⚠️ Requires explicit user confirmation - cannot be auto-run by AI agents.**
 
 Use `move_action.py` to move actions or agents between LOCAL workspace environments.
-Environment names are workspace directory names (e.g., `6sense-prod`, `blackstone-staging`).
+Environment names are workspace directory names (e.g., `clienta-prod`, `clientb-staging`).
 
 ```bash
 # List available workspace environments
 python cli/move_action.py --list-envs
 
 # List actions/agents in a workspace
-python cli/move_action.py --list-actions --env blackstone-prod
-python cli/move_action.py --list-agents --env 6sense-staging
+python cli/move_action.py --list-actions --env clienta-prod
+python cli/move_action.py --list-agents --env clientb-staging
 
 # Move action within same client (staging → prod)
-python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod
+python cli/move_action.py my-action --from clienta-staging --to clienta-prod
 
 # Move action between different clients
-python cli/move_action.py get-orderpoints --from 6sense-prod --to blackstone-prod
+python cli/move_action.py my-action --from clienta-prod --to clientb-prod
 
 # Copy action (keep original)
-python cli/move_action.py get-orderpoints --from 6sense-staging --to 6sense-prod --copy
+python cli/move_action.py my-action --from clienta-staging --to clienta-prod --copy
 
 # Move entire agent with all sub-actions
-python cli/move_action.py maersk-agent --agent --from blackstone-staging --to blackstone-prod
+python cli/move_action.py my-agent --agent --from clienta-staging --to clienta-prod
 ```
 
 **After moving an agent**, sub-actions need re-registration in the new environment.
@@ -758,16 +758,16 @@ python cli/discover.py --list-tools --json
 #### Bulk Checkout Commands (`cli/workspace.py action checkout-all`)
 ```bash
 # Checkout all actions from remote
-python cli/workspace.py action checkout-all --env 6sense-prod
+python cli/workspace.py action checkout-all --env my-env
 
 # Limit to first N actions
-python cli/workspace.py action checkout-all --env 6sense-prod --limit 10
+python cli/workspace.py action checkout-all --env my-env --limit 10
 
 # Checkout only Uber Agents with sub-actions
-python cli/workspace.py action checkout-all --env 6sense-prod --uber-agents-only --include-subactions
+python cli/workspace.py action checkout-all --env my-env --uber-agents-only --include-subactions
 
 # Force overwrite existing
-python cli/workspace.py action checkout-all --env 6sense-prod --force
+python cli/workspace.py action checkout-all --env my-env --force
 ```
 
 #### Simple Actions

@@ -138,17 +138,26 @@ python cli/workspace.py env use <env-id>
 ### Step 2: List All Remote Actions
 
 ```bash
-# List ALL actions (not just tools)
-python cli/discover.py --list-all --json
+# List ALL actions including hidden sub-actions
+# This fetches visible actions AND hidden sub-actions from Uber Agents
+python cli/discover.py --list-all
 
-# Or list by type
+# List by type (only visible actions)
 python cli/discover.py --list-tools
 python cli/discover.py --list-workflows
 python cli/discover.py --list-uber-agents  # List Uber Agents (PROMPT_AND_TOOLS_AGENT)
 
 # Search for specific action
 python cli/discover.py --actions "action name or description" --mode fuzzy
+
+# JSON output for programmatic use
+python cli/discover.py --list-all --json
 ```
+
+**Understanding the output:**
+- 🤖 `UBER (N sub-actions)` - This is an Uber Agent with N sub-actions
+- 🔗 `Sub-action of <Agent>` - This action belongs to an Uber Agent
+- 👁️ `Hidden` - This action is hidden from the default list (is_visible_in_list=false)
 
 ### Step 3: Select Action to Edit
 
@@ -248,6 +257,37 @@ python cli/workspace.py action checkout-all --env <env-id> --force
 - `--workflows-only`: Only checkout workflow-type actions
 - `--uber-agents-only`: Only checkout Uber Agents
 - `--include-subactions`: Download sub-actions for Uber Agents
+
+---
+
+## 🔄 MOVING ACTIONS TO AGENTS
+
+If you need to add an existing standalone action to an Uber Agent (make it a sub-action):
+
+```bash
+# Move standalone action to become part of an agent
+python cli/workspace.py agent move-action \
+  --action <action-id> \
+  --agent <agent-id> \
+  --env <env-id>
+```
+
+**What this does:**
+1. Moves the action folder from `workspaces/<env>/actions/<action-id>` to `workspaces/<env>/agents/<agent-id>/actions/<action-id>`
+2. Updates the action's metadata to reference the parent agent
+3. Updates the agent's `agent.json` to include the action in `sub_actions`
+4. Updates the agent's `widdle.json` to add the action ID to `PROMPT_AND_TOOLS_AGENT.action_ids`
+
+**Important requirements for sub-actions:**
+1. The action must be **published** (not just a draft)
+2. The action must have **tool mode enabled**: `python cli/deployment_rules.py <action-id> --enable-tool-mode`
+3. The action title must match format: `^[a-zA-Z0-9_-]{1,128}$` (no spaces)
+
+**After moving, push the updated agent:**
+```bash
+python cli/save_wdl_draft.py --workflow-id <agent-id>
+python cli/publish_wdl_action.py --workflow-id <agent-id>
+```
 
 ---
 

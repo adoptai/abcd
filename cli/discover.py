@@ -239,14 +239,18 @@ Examples:
             _verbose_print("main", f"fetched {len(items)} tools")
 
         elif args.list_all:
-            _verbose_print("main", "listing all actions (no execution_type filter)")
-            print("⏳ Fetching all actions...", file=sys.stderr)
-            success, items, msg = discovery.fetch_actions(execution_type=None, force_refresh=args.refresh)
+            _verbose_print("main", "listing all actions (including hidden sub-actions)")
+            print("⏳ Fetching all actions (including hidden)...", file=sys.stderr)
+            success, items, msg = discovery.fetch_actions(
+                execution_type=None, 
+                force_refresh=args.refresh,
+                include_hidden=True,  # Fetch hidden sub-actions from Uber Agents
+            )
             if not success:
                 print(f"❌ {msg}")
                 sys.exit(1)
             results["actions"] = items
-            _verbose_print("main", f"fetched {len(items)} actions")
+            _verbose_print("main", f"fetched {len(items)} actions (including hidden)")
 
         elif args.list_workflows:
             _verbose_print("main", "listing workflows (execution_type=WORKFLOW)")
@@ -365,8 +369,23 @@ Examples:
                 action_id = action.get("id", "")[:20]
                 exec_type = action.get("execution_type", "")
                 desc = (action.get("description") or "")[:60]
+                
+                # Build status indicators
+                status_flags = []
+                if action.get("is_uber_agent"):
+                    status_flags.append(f"🤖 UBER ({action.get('sub_action_count', 0)} sub-actions)")
+                if action.get("is_subaction"):
+                    parent = action.get("parent_agent_title", "unknown")
+                    status_flags.append(f"🔗 Sub-action of {parent}")
+                if action.get("is_hidden"):
+                    status_flags.append("👁️ Hidden")
+                
+                status_str = " | ".join(status_flags) if status_flags else ""
+                
                 print(f"\n{i}. {title} [{score}%]")
                 print(f"   ID: {action_id}... | Type: {exec_type}")
+                if status_str:
+                    print(f"   {status_str}")
                 if desc:
                     print(f"   {desc}...")
 

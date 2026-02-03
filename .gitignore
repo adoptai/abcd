@@ -141,3 +141,4 @@ Thumbs.db
 *.log
 
 workspaces/*
+.active_env

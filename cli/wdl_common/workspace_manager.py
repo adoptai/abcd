@@ -542,6 +542,99 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         except Exception as e:
             return False, f"Failed to add sub-action: {e}"
 
+    def move_action_to_agent(
+        self,
+        action_id: str,
+        agent_name: str,
+        env_name: str | None = None,
+        update_wdl: bool = True,
+    ) -> tuple[bool, str]:
+        """
+        Move a standalone action to become a sub-action of an agent.
+        
+        Args:
+            action_id: The action to move
+            agent_name: Target agent to move action into
+            env_name: Environment (uses active if not specified)
+            update_wdl: If True, also update agent's WDL to include the action
+            
+        Returns:
+            Tuple of (success, message)
+        """
+        import shutil
+        
+        env = env_name or self._active_env
+        if not env:
+            return False, "No environment specified"
+        
+        if not self.agent_exists(agent_name, env):
+            return False, f"Agent not found: {agent_name}"
+        
+        # Check for action in standalone actions
+        standalone_path = WORKSPACES_DIR / env / "actions" / action_id
+        if not standalone_path.exists():
+            return False, f"Standalone action not found: {action_id}"
+        
+        agent_path = WORKSPACES_DIR / env / "agents" / agent_name
+        target_path = agent_path / "actions" / action_id
+        
+        if target_path.exists():
+            return False, f"Action already exists in agent: {action_id}"
+        
+        try:
+            # Read action metadata for title and remote ID
+            metadata_file = standalone_path / "metadata.json"
+            action_title = action_id
+            remote_action_id = None
+            
+            if metadata_file.exists():
+                metadata = json.loads(metadata_file.read_text())
+                action_title = metadata.get("title", action_id)
+                remote_action_id = metadata.get("action_id") or metadata.get("remote_action_id")
+            
+            # Move the action folder
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(standalone_path), str(target_path))
+            
+            # Update action metadata to reflect new location
+            new_metadata_file = target_path / "metadata.json"
+            if new_metadata_file.exists():
+                metadata = json.loads(new_metadata_file.read_text())
+                metadata["agent_name"] = agent_name
+                metadata["env_name"] = env
+                metadata["moved_to_agent_at"] = datetime.now().isoformat()
+                new_metadata_file.write_text(json.dumps(metadata, indent=2))
+            
+            # Add to agent's sub_actions list
+            agent_file = agent_path / "agent.json"
+            agent_data = json.loads(agent_file.read_text())
+            
+            agent_data.setdefault("sub_actions", []).append({
+                "action_id": action_id,
+                "remote_action_id": remote_action_id,
+                "title": action_title,
+            })
+            agent_data["updated_at"] = datetime.now().isoformat()
+            agent_file.write_text(json.dumps(agent_data, indent=2))
+            
+            # Update agent's WDL if requested and remote ID is available
+            if update_wdl and remote_action_id:
+                wdl_file = agent_path / "widdle.json"
+                if wdl_file.exists():
+                    wdl = json.loads(wdl_file.read_text())
+                    for step in wdl:
+                        if step.get("operation") == "PROMPT_AND_TOOLS_AGENT":
+                            action_ids = step.get("action_ids", [])
+                            if remote_action_id not in action_ids:
+                                action_ids.append(remote_action_id)
+                            break
+                    wdl_file.write_text(json.dumps(wdl, indent=2))
+            
+            return True, f"Moved {action_id} to agent {agent_name}"
+            
+        except Exception as e:
+            return False, f"Failed to move action: {e}"
+
     def remove_subaction(
         self,
         agent_name: str,
