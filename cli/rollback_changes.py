@@ -5,6 +5,9 @@ Rollback Changes - Rollback API/WDL changes using saved rollback files.
 This script restores APIs and tools to their original state before
 fixes were applied.
 
+IMPORTANT: This script integrates with the hierarchical workspace manager.
+All operations use the active environment's credentials.
+
 Usage:
     # Rollback from file
     python cli/rollback_changes.py --file rollback_20260119.json
@@ -26,9 +29,9 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token_for_env
 
 from wdl_common.api_client import AdoptAPIClient
+from wdl_common.context import ensure_env, get_client
 from wdl_common.interactive import print_error, print_success, print_warning, prompt_confirmation
 from wdl_common.rollback import display_rollback_contents, list_rollback_files, load_rollback_state
 
@@ -274,7 +277,13 @@ Examples:
         return 0
     
     try:
-        bearer_token = get_bearer_token_for_env()  # Uses active environment
+        # Ensure environment is loaded and show which one we're using
+        env_name = ensure_env()
+        print(f"📁 Environment: {env_name}")
+        
+        # Get client (uses active environment credentials)
+        client = get_client()
+        bearer_token = client.bearer_token
         
         results = rollback_from_file(
             bearer_token=bearer_token,

@@ -5,6 +5,9 @@ Diagnose APIs - Scan APIs for issues by matching to network logs.
 This script scans all APIs and matches them to HTTP network logs to identify
 potential issues like trailing slash mismatches, missing parameters, etc.
 
+IMPORTANT: This script integrates with the hierarchical workspace manager.
+All operations use the active environment's credentials and cache.
+
 Usage:
     # Full diagnostic scan
     python cli/diagnose_apis.py --scan --output diagnostics/report.json
@@ -28,9 +31,9 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token_for_env
 
 from wdl_common.api_client import AdoptAPIClient
+from wdl_common.context import ensure_env, get_client
 from wdl_common.data_cache import DataCache
 from wdl_common.issue_detector import detect_trailing_slash_issue
 from wdl_common.log_matcher import match_api_to_network_logs
@@ -270,8 +273,15 @@ Examples:
     print("=" * 70)
     
     try:
-        cache = DataCache()
-        bearer_token = get_bearer_token_for_env()  # Uses active environment
+        # Ensure environment is loaded and show which one we're using
+        env_name = ensure_env()
+        print(f"📁 Environment: {env_name}")
+        
+        # Get client and cache (both use active environment)
+        client = get_client()
+        bearer_token = client.bearer_token
+        cache = DataCache()  # Uses active environment's cache automatically
+        print(f"📂 Cache: {cache.cache_dir}")
         
         # Load or fetch network logs
         logs = cache.load_logs_cache()

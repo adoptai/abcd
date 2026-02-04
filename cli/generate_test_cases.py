@@ -5,6 +5,9 @@ Generate Test Cases - Create test cases for tools based on their WDL.
 This script analyzes a tool's WDL and generates appropriate test cases
 that can be used for evaluation and verification.
 
+IMPORTANT: This script integrates with the hierarchical workspace manager.
+All operations use the active environment's credentials.
+
 Usage:
     # Generate test cases for a tool
     python cli/generate_test_cases.py <tool-id>
@@ -27,9 +30,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token_for_env
 
 from wdl_common.api_client import AdoptAPIClient
+from wdl_common.context import ensure_env, get_client
 
 
 def analyze_wdl_for_test_cases(wdl: List[Dict]) -> Dict[str, Any]:
@@ -294,8 +297,12 @@ Examples:
     print("=" * 70)
     
     try:
-        bearer_token = get_bearer_token_for_env()  # Uses active environment
-        client = AdoptAPIClient(bearer_token)
+        # Ensure environment is loaded and show which one we're using
+        env_name = ensure_env()
+        print(f"📁 Environment: {env_name}")
+        
+        # Get client (uses active environment credentials)
+        client = get_client()
         
         # Get tool details
         print(f"\n⏳ Fetching tool {args.tool_id}...")

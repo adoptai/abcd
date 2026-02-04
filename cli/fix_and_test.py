@@ -5,6 +5,9 @@ Fix and Test - Apply fixes to tools and run tests to verify.
 This script applies fixes to tool WDLs and runs tests to verify the fixes work.
 It's designed for the fix-test-iterate workflow used by AI agents.
 
+IMPORTANT: This script integrates with the hierarchical workspace manager.
+All operations use the active environment's credentials.
+
 Usage:
     # Apply a single fix and test
     python cli/fix_and_test.py <tool-id> --fix-file fix.json --test
@@ -29,9 +32,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token_for_env
 
 from wdl_common.api_client import AdoptAPIClient
+from wdl_common.context import ensure_env, get_client
 from wdl_common.data_cache import DataCache
 from wdl_common.diff_utils import display_diff, generate_wdl_diff
 from wdl_common.interactive import print_error, print_info, print_success, print_warning
@@ -345,8 +348,13 @@ Examples:
     print("=" * 70)
     
     try:
-        bearer_token = get_bearer_token_for_env()  # Uses active environment
-        client = AdoptAPIClient(bearer_token)
+        # Ensure environment is loaded and show which one we're using
+        env_name = ensure_env()
+        print(f"📁 Environment: {env_name}")
+        
+        # Get client (uses active environment credentials)
+        client = get_client()
+        bearer_token = client.bearer_token
         rollback_manager = RollbackManager()
         
         # Get current tool details

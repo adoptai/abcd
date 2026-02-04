@@ -5,6 +5,9 @@ Fix API Path - Fix API paths (trailing slashes, etc.) with user confirmation.
 This script fixes API paths based on diagnostic results, showing diffs and
 requiring user confirmation before making changes.
 
+IMPORTANT: This script integrates with the hierarchical workspace manager.
+All operations use the active environment's credentials and cache.
+
 Usage:
     # Fix single API
     python cli/fix_api_path.py <api-id> --trailing-slash add
@@ -28,8 +31,8 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token_for_env
 
+from wdl_common.context import ensure_env, get_client
 from wdl_common.data_cache import DataCache
 from wdl_common.diff_utils import format_path_change
 from wdl_common.interactive import (
@@ -344,7 +347,13 @@ Examples:
     print("=" * 70)
     
     try:
-        bearer_token = get_bearer_token_for_env()  # Uses active environment
+        # Ensure environment is loaded and show which one we're using
+        env_name = ensure_env()
+        print(f"📁 Environment: {env_name}")
+        
+        # Get client (uses active environment credentials)
+        client = get_client()
+        bearer_token = client.bearer_token
         
         if args.api_id and args.path:
             # Fix single API with direct path (no cache needed)

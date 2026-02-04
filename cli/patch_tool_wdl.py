@@ -5,6 +5,9 @@ Patch Tool WDL - Patch tool WDLs with user confirmation and diff display.
 This script patches tool WDLs based on fix files or API changes,
 showing colored diffs and requiring user confirmation.
 
+IMPORTANT: This script integrates with the hierarchical workspace manager.
+All operations use the active environment's credentials.
+
 Usage:
     # Patch tool from fix file
     python cli/patch_tool_wdl.py <tool-id> --apply-fix fix.json
@@ -29,9 +32,9 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token_for_env
 
 from wdl_common.api_client import AdoptAPIClient
+from wdl_common.context import ensure_env, get_client
 from wdl_common.diff_utils import display_diff, generate_wdl_diff, summarize_changes
 from wdl_common.interactive import (
     print_error,
@@ -361,7 +364,13 @@ Examples:
     print("=" * 70)
     
     try:
-        bearer_token = get_bearer_token_for_env()  # Uses active environment
+        # Ensure environment is loaded and show which one we're using
+        env_name = ensure_env()
+        print(f"📁 Environment: {env_name}")
+        
+        # Get client (uses active environment credentials)
+        client = get_client()
+        bearer_token = client.bearer_token
         
         rollback_manager = RollbackManager()
         rollback_manager.start_session()

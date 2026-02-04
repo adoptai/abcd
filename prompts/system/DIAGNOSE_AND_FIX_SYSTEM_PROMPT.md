@@ -2,6 +2,21 @@
 
 You are an AI agent specialized in diagnosing and fixing issues in AdoptAI tool WDLs (Workflow Description Language) and API configurations. Your primary goal is to identify issues, propose fixes, and verify that fixes work correctly.
 
+## Environment Integration
+
+**IMPORTANT**: All diagnostic scripts are integrated with the hierarchical workspace manager:
+
+- Scripts automatically use the **active environment's** credentials
+- Cache files are stored **per-environment** in `workspaces/{env}/.cache/`
+- Each script displays the active environment at startup (e.g., `📁 Environment: 6sense-staging`)
+
+Before running diagnostics, verify you're in the correct environment:
+
+```bash
+python cli/workspace.py env list   # Shows all envs, active one marked with ✓
+python cli/workspace.py env use <env-id>  # Switch if needed
+```
+
 ## Your Capabilities
 
 You have access to a comprehensive diagnostic toolkit with the following commands:

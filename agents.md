@@ -903,19 +903,31 @@ python cli/[script_name].py --help
 
 The Diagnostic Toolkit provides AI agents with tools to diagnose and fix issues in APIs and tool WDLs.
 
+**🔒 Environment Integration**: All diagnostic scripts are integrated with the hierarchical workspace manager:
+- Scripts automatically use the **active environment's** credentials
+- Cache files are stored **per-environment** in `workspaces/{env}/.cache/`
+- Each script displays the active environment at startup
+
+This ensures cached data from one client environment doesn't contaminate diagnostics for another.
+
 ### Core Diagnostic Workflow
 
 ```bash
-# 1. Run comprehensive scan
-python cli/diagnose_and_fix.py --scan --format llm --output diagnostics/report.json
+# 1. Verify you're in the correct environment
+python cli/workspace.py env list
 
-# 2. Review issues and create fixes
+# 2. Run comprehensive scan (uses active environment)
+python cli/diagnose_and_fix.py --scan --format llm --output diagnostics/report.json
+# Output: "📁 Environment: 6sense-staging"
+# Output: "📂 Cache: workspaces/6sense-staging/.cache"
+
+# 3. Review issues and create fixes
 # (AI agent analyzes report and generates fixes.json)
 
-# 3. Apply fixes with testing
+# 4. Apply fixes with testing
 python cli/diagnose_and_fix.py --apply-fixes fixes.json --test-after-fix
 
-# 4. Rollback if needed
+# 5. Rollback if needed
 python cli/rollback_changes.py --file diagnostics/rollback_xxx.json
 ```
 
@@ -932,17 +944,19 @@ python cli/rollback_changes.py --file diagnostics/rollback_xxx.json
 
 ### Diagnostic Scripts
 
-| Script | Purpose |
-|--------|---------|
-| `diagnose_and_fix.py` | Main workflow - scan, diagnose, fix |
-| `fetch_http_logs.py` | Fetch and cache network logs |
-| `diagnose_apis.py` | Scan APIs for issues |
-| `inspect_tool_wdl.py` | Inspect tool WDLs for issues |
-| `fix_api_path.py` | Fix API paths (trailing slashes) |
-| `patch_tool_wdl.py` | Patch tool WDLs |
-| `fix_and_test.py` | Apply fix and run tests |
-| `rollback_changes.py` | Rollback applied changes |
-| `generate_test_cases.py` | Generate test cases for tools |
+All scripts automatically use the active environment's credentials and per-environment cache.
+
+| Script | Purpose | Per-Env Cache |
+|--------|---------|---------------|
+| `diagnose_and_fix.py` | Main workflow - scan, diagnose, fix | ✅ |
+| `fetch_http_logs.py` | Fetch and cache network logs | ✅ |
+| `diagnose_apis.py` | Scan APIs for issues | ✅ |
+| `inspect_tool_wdl.py` | Inspect tool WDLs for issues | ✅ |
+| `fix_api_path.py` | Fix API paths (trailing slashes) | ✅ |
+| `patch_tool_wdl.py` | Patch tool WDLs | - |
+| `fix_and_test.py` | Apply fix and run tests | - |
+| `rollback_changes.py` | Rollback applied changes | - |
+| `generate_test_cases.py` | Generate test cases for tools | - |
 
 ### Fix File Format
 
