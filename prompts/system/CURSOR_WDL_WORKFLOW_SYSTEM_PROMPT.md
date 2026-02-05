@@ -748,10 +748,33 @@ When your action needs to call multiple APIs with different base URLs or authent
 
 > ⚠️ **IMPORTANT**: The root `base_url` is **always required** even when using `profiles_map`. The backend validates that a base_url exists before execution. Set the root `base_url` to your primary/default API endpoint - `profiles_map` entries will override it at runtime for matching applications.
 
+## ⚠️ CRITICAL: How to Reference Operation Outputs
+
+**The `id` field of each operation IS the output reference.** There is NO separate "output_key" field.
+
+To reference the output of a previous operation in subsequent steps:
+- Use `{operation_id}` to reference the full output of an operation
+- Use `{operation_id.field_name}` to access a specific field from the output
+- Use `input: "operation_id"` (without braces) for operations that take a single input
+
+**Example:**
+```json
+{"id": "api_call", "operation": "REST", "url": "/api/users", "method": "GET"},
+{"id": "extract", "operation": "EXTRACT", "input": "api_call", "field": "data"},
+{"id": "output", "operation": "OUTPUT_TEXT", "raw": true, "inputs": {"content": "{extract}"}}
+```
+
+In this example:
+- `api_call` is both the operation ID AND the reference name for its output
+- `input: "api_call"` references the output of the REST operation
+- `{extract}` references the output of the EXTRACT operation
+
+---
+
 ## WDL Best Practices
 
-1. **Unique IDs**: Every operation needs a unique `id`
-2. **Data Flow**: Reference previous operations by their `id` in `input` or `inputs`
+1. **Unique IDs**: Every operation needs a unique `id` - this ID is also how you reference the operation's output
+2. **Data Flow**: Reference previous operations by their `id` in `input` or `inputs` fields
 3. **Dynamic Values**: Use `{workflow_arguments.param_name}` for user inputs
 4. **Required Inputs**: Always include a `required_inputs` block
 5. **End with OUTPUT**: Every workflow should end with an OUTPUT operation
@@ -1088,15 +1111,14 @@ python cli/manage_wdl_action.py --create --template simple --use-api api-id -t "
     "operation": "REST",
     "method": "GET",
     "canonical_api_endpoint": "/v1/users/{user_id}",
-    "url": "/v1/users/{workflow_arguments.user_id}",
-    "output_key": "user_data"
+    "url": "/v1/users/{workflow_arguments.user_id}"
   },
   {
     "id": "output",
     "operation": "OUTPUT_TEXT",
     "raw": true,
     "inputs": {
-      "content": "{user_data}"
+      "content": "{get_user}"
     }
   }
 ]

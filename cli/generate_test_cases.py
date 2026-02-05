@@ -83,10 +83,10 @@ def analyze_wdl_for_test_cases(wdl: List[Dict]) -> Dict[str, Any]:
         if operation == 'TRANSFORM':
             analysis['operations'].append({
                 'type': 'TRANSFORM',
-                'output_key': block.get('output_key', ''),
+                'id': block.get('id', ''),
             })
-            if block.get('output_key'):
-                analysis['output_fields'].append(block.get('output_key'))
+            if block.get('id'):
+                analysis['output_fields'].append(block.get('id'))
         
         if operation == 'CONDITIONAL' or 'conditions' in block:
             analysis['has_conditionals'] = True

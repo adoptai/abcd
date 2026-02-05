@@ -284,16 +284,13 @@ class WDLValidator:
         """Validate that input references point to valid IDs."""
         warnings = []
 
-        # Collect all defined IDs and output_keys
+        # Collect all defined IDs (operations are referenced by their id field)
         defined_ids: Set[str] = set()
         for op in wdl:
             if isinstance(op, dict):
                 op_id = op.get("id")
                 if op_id:
                     defined_ids.add(op_id)
-                output_key = op.get("output_key")
-                if output_key:
-                    defined_ids.add(output_key)
 
         # Built-in references
         builtin_refs = {"workflow_arguments", "security_params", "status_codes"}
@@ -387,34 +384,33 @@ class WDLValidator:
         """
         Validate OUTPUT_TEXT value references.
 
-        When using EXTRACT with output_key, OUTPUT_TEXT.values should reference
-        the output_key, not the EXTRACT operation ID.
+        Validates that OUTPUT_TEXT operations reference valid operation IDs.
         """
         warnings = []
 
-        # Map of EXTRACT IDs to their output_keys
-        extract_output_keys: Dict[str, str] = {}
+        # Collect all defined operation IDs
+        defined_ids: Set[str] = set()
         for op in wdl:
-            if isinstance(op, dict) and op.get("operation") == "EXTRACT":
+            if isinstance(op, dict):
                 op_id = op.get("id")
-                output_key = op.get("output_key")
-                if op_id and output_key:
-                    extract_output_keys[op_id] = output_key
+                if op_id:
+                    defined_ids.add(op_id)
 
-        # Check OUTPUT_TEXT operations
+        # Check OUTPUT_TEXT operations reference valid IDs
         for op in wdl:
             if isinstance(op, dict) and op.get("operation") == "OUTPUT_TEXT":
                 values = op.get("values", [])
-                format_string = op.get("format_string", "")
-
                 if isinstance(values, list):
                     for val in values:
-                        if isinstance(val, str) and val in extract_output_keys:
-                            output_key = extract_output_keys[val]
-                            warnings.append(
-                                f"OUTPUT_TEXT references EXTRACT '{val}' directly. "
-                                f"Consider using output_key '{output_key}' instead for cleaner output."
-                            )
+                        # Check if it's a reference (starts with { or is a plain ID)
+                        if isinstance(val, str):
+                            # Extract the base reference (remove { } and any .field access)
+                            ref = val.strip("{}")
+                            base_ref = ref.split(".")[0] if "." in ref else ref
+                            if base_ref not in defined_ids and base_ref not in {"workflow_arguments", "security_params", "status_codes"}:
+                                warnings.append(
+                                    f"OUTPUT_TEXT references '{base_ref}' which may not be defined"
+                                )
 
         return warnings
 
@@ -536,6 +532,7 @@ def validate_wdl_file(
     """
     validator = WDLValidator()
     return validator.validate_file(wdl_path, context, auto_fix)
+
 
 
 

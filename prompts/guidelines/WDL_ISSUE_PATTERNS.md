@@ -474,8 +474,7 @@ When creating fixes, use this template:
       "method": "GET",
       "url": "/api/v1/resource/{workflow_arguments.paramName}/",
       "canonical_api_endpoint": "/api/v1/resource/{resourceId}/",
-      "query_parameters": {},
-      "output_key": "result"
+      "query_params": {}
     }
   ],
   "test_prompts": [

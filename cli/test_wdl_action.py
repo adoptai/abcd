@@ -380,11 +380,6 @@ def run_test(
             elif op_id:
                 seen_ids.add(op_id)
 
-            # Track output_key for reference validation
-            output_key = op.get("output_key")
-            if output_key and isinstance(output_key, str):
-                seen_ids.add(output_key)
-
             # Check for operation field
             if not operation:
                 errors.append(f"Operation {i} missing required 'operation' field")

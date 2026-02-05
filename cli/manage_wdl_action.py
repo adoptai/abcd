@@ -422,15 +422,14 @@ def _generate_simple_tool_placeholder_wdl(api_details: Dict[str, Any]) -> List[D
             "operation": "REST",
             "method": method,
             "canonical_api_endpoint": canonical_path,
-            "url": url,
-            "output_key": "api_response"
+            "url": url
         },
         {
             "id": "output",
             "operation": "OUTPUT_TEXT",
             "raw": True,
             "inputs": {
-                "content": "{api_response}"
+                "content": "{call_api}"
             }
         }
     ]
