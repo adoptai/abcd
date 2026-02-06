@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """
-Enhanced Test Runner - Parallel and batch test execution.
+Enhanced Test Runner - Parallel and batch test execution with LLM-integrated output.
 
 Features:
 - Parallel test execution for multiple actions
 - Batch testing (--workspace, --agent flags)
 - Via-agent testing for sub-actions through uber agents
 - Multiple action arguments support
+- Always uses allow_draft=True (simpler, avoids metadata issues)
+- Robust trace extraction from success and error responses
+- Direct LLM/Cursor-friendly output for automated evaluation
 
 Usage:
     # Test single action
@@ -23,14 +26,20 @@ Usage:
 
     # Test sub-action through agent (via-agent testing)
     python test_runner.py my-agent --via-agent --subaction get-orderpoints
+
+    # Run all test cases for an action
+    python test_runner.py my-action --all
+
+    # Verbose mode for Cursor/LLM integration
+    python test_runner.py my-action --verbose
 """
 
 import argparse
-import asyncio
 import json
+import re
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -43,14 +52,180 @@ from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 
 @dataclass
 class TestResult:
-    """Result of a single test run."""
+    """Result of a single test run with full context for LLM evaluation."""
     action_id: str
     success: bool
     message: str
     duration_ms: int
     test_name: str = ""
+    prompt: str = ""
     output: Any = None
     error: str | None = None
+    execution_trace: dict | None = None
+    test_criteria: dict | None = None  # From test file (description, key_fields, etc.)
+    wdl_operations: list | None = None  # For context on failure
+    workspace_path: str = ""
+    failed_operation: str | None = None  # Which operation failed
+    trace_path: str | None = None  # Path to saved trace file
+
+
+def extract_execution_trace(response: dict | None, error_msg: str | None) -> dict | None:
+    """
+    Extract execution trace from response or error message.
+    
+    Handles both:
+    - Success case: trace in response.data.debug_tracing
+    - Error case: trace embedded in JSON error message
+    """
+    execution_trace = None
+    
+    # Try extracting from response first
+    if response and isinstance(response, dict):
+        # Check data.debug_tracing (primary location)
+        data = response.get("data", {})
+        if isinstance(data, dict):
+            execution_trace = data.get("debug_tracing") or data.get("execution_trace")
+        
+        # Check direct response fields
+        if not execution_trace:
+            execution_trace = response.get("debug_tracing") or response.get("execution_trace")
+    
+    # Try extracting from error message if not found
+    if not execution_trace and error_msg:
+        # Check if error message contains debug_tracing or execution_trace
+        if "debug_tracing" in error_msg or "execution_trace" in error_msg:
+            try:
+                # Try to extract JSON from error message
+                # Format: "Failed: XXX - {json}"
+                if " - {" in error_msg:
+                    json_part = error_msg.split(" - ", 1)[1]
+                    try:
+                        error_json = json.loads(json_part)
+                        execution_trace = (
+                            error_json.get("debug_tracing") or
+                            error_json.get("data", {}).get("debug_tracing") or
+                            error_json.get("execution_trace") or
+                            error_json.get("data", {}).get("execution_trace")
+                        )
+                    except json.JSONDecodeError:
+                        pass
+                
+                # Fallback: regex extraction
+                if not execution_trace:
+                    # Try debug_tracing first
+                    for pattern_name in ["debug_tracing", "execution_trace"]:
+                        pattern = rf'"{pattern_name}"\s*:\s*(\{{(?:[^{{}}]|(?:\{{[^{{}}]*\}}))*\}})'
+                        match = re.search(pattern, error_msg)
+                        if match:
+                            try:
+                                execution_trace = json.loads(match.group(1))
+                                break
+                            except json.JSONDecodeError:
+                                pass
+                
+                # Last resort: find full JSON object
+                if not execution_trace:
+                    json_start = error_msg.find("{")
+                    if json_start != -1:
+                        json_str = error_msg[json_start:]
+                        brace_count = 0
+                        end_pos = -1
+                        for i, char in enumerate(json_str):
+                            if char == "{":
+                                brace_count += 1
+                            elif char == "}":
+                                brace_count -= 1
+                                if brace_count == 0:
+                                    end_pos = i + 1
+                                    break
+                        if end_pos > 0:
+                            try:
+                                error_json = json.loads(json_str[:end_pos])
+                                execution_trace = (
+                                    error_json.get("debug_tracing") or
+                                    error_json.get("data", {}).get("debug_tracing") or
+                                    error_json.get("execution_trace") or
+                                    error_json.get("data", {}).get("execution_trace")
+                                )
+                            except json.JSONDecodeError:
+                                pass
+            except Exception:
+                pass
+    
+    return execution_trace
+
+
+def identify_failed_operation(trace: dict | None, error_msg: str | None) -> str | None:
+    """Identify which operation failed from trace or error message."""
+    if trace and isinstance(trace, dict):
+        # Look for failed operation in trace
+        for op_id, op_data in trace.items():
+            if isinstance(op_data, dict):
+                if op_data.get("error") or op_data.get("status") == "failed":
+                    return op_id
+    
+    # Try to extract from error message
+    if error_msg:
+        # Common patterns: "Operation X failed", "Error in X", etc.
+        patterns = [
+            r"Operation\s+['\"]?(\w+)['\"]?\s+failed",
+            r"Error\s+in\s+['\"]?(\w+)['\"]?",
+            r"['\"]?(\w+)['\"]?\s+operation\s+failed",
+            r"Input\s+['\"]?(\w+)['\"]?\s+is\s+not",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, error_msg, re.IGNORECASE)
+            if match:
+                return match.group(1)
+    
+    return None
+
+
+def save_trace(workspace: Path, result: "TestResult") -> Path | None:
+    """
+    Save execution trace to file for debugging.
+    
+    Args:
+        workspace: Workspace path
+        result: TestResult with trace data
+        
+    Returns:
+        Path to saved trace file, or None if nothing to save
+    """
+    if not result.execution_trace and not result.error:
+        return None
+    
+    traces_dir = workspace / "traces"
+    traces_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    test_name = result.test_name.replace(".json", "") if result.test_name else "test"
+    trace_path = traces_dir / f"trace_{test_name}_{timestamp}.json"
+    
+    trace_data = {
+        "timestamp": datetime.now().isoformat(),
+        "action_id": result.action_id,
+        "test_file": result.test_name,
+        "prompt": result.prompt,
+        "success": result.success,
+        "duration_ms": result.duration_ms,
+        "output": result.output if result.success else None,
+        "error_message": result.error if not result.success else None,
+        "execution_trace": result.execution_trace,
+        "test_criteria": result.test_criteria,
+        "failed_operation": result.failed_operation,
+        "wdl_operations": result.wdl_operations,
+    }
+    
+    trace_path.write_text(json.dumps(trace_data, indent=2, default=str))
+    return trace_path
+
+
+def get_all_test_files(test_cases_dir: Path) -> list[str]:
+    """Get all test JSON files in the test_cases directory."""
+    if not test_cases_dir.exists():
+        return []
+    return sorted([f.name for f in test_cases_dir.glob("test_*.json")])
 
 
 def run_single_test(
@@ -58,18 +233,20 @@ def run_single_test(
     manager: HierarchicalWorkspaceManager,
     local_only: bool = False,
     test_file: str | None = None,
+    verbose: bool = False,
 ) -> TestResult:
     """
-    Run test for a single action.
+    Run test for a single action with full context for LLM evaluation.
 
     Args:
         action_id: Action/workflow ID
         manager: Workspace manager instance
         local_only: Only validate WDL locally
         test_file: Specific test file to run
+        verbose: Include WDL operations in output for debugging
 
     Returns:
-        TestResult with outcome
+        TestResult with full context for LLM/Cursor evaluation
     """
     import time
     start_time = time.time()
@@ -96,6 +273,7 @@ def run_single_test(
                 message="No WDL file",
                 duration_ms=0,
                 error="widdle.json not found",
+                workspace_path=str(workspace),
             )
 
         # Load and validate WDL
@@ -107,7 +285,8 @@ def run_single_test(
                 success=False,
                 message="Invalid JSON",
                 duration_ms=int((time.time() - start_time) * 1000),
-                error=str(e),
+                error=f"JSON syntax error in widdle.json: {e.msg} at line {e.lineno}, column {e.colno}",
+                workspace_path=str(workspace),
             )
 
         # Basic validation
@@ -118,7 +297,17 @@ def run_single_test(
                 message="Invalid WDL structure",
                 duration_ms=int((time.time() - start_time) * 1000),
                 error="WDL must be a non-empty list",
+                workspace_path=str(workspace),
             )
+
+        # Extract WDL operation IDs for context
+        wdl_operations = []
+        for op in wdl:
+            if isinstance(op, dict) and op.get("id"):
+                wdl_operations.append({
+                    "id": op.get("id"),
+                    "operation": op.get("operation", "METADATA"),
+                })
 
         if local_only:
             return TestResult(
@@ -126,6 +315,8 @@ def run_single_test(
                 success=True,
                 message="WDL valid (local only)",
                 duration_ms=int((time.time() - start_time) * 1000),
+                wdl_operations=wdl_operations if verbose else None,
+                workspace_path=str(workspace),
             )
 
         # Get remote action ID for testing
@@ -138,7 +329,8 @@ def run_single_test(
                 success=False,
                 message="Not linked to remote",
                 duration_ms=int((time.time() - start_time) * 1000),
-                error="No remote action_id in metadata. Save draft first.",
+                error="No remote action_id in metadata. Run: python cli/save_wdl_draft.py --workflow-id " + action_id,
+                workspace_path=str(workspace),
             )
 
         # Load test case
@@ -154,12 +346,26 @@ def run_single_test(
                 success=False,
                 message="No test case",
                 duration_ms=int((time.time() - start_time) * 1000),
-                error=f"Test file not found: {test_path.name}",
+                error=f"Test file not found: {test_path.name}. Create test_cases/test_1.json with prompt and workflow_params.",
+                workspace_path=str(workspace),
             )
 
         test_case = json.loads(test_path.read_text())
         prompt = test_case.get("prompt", "test")
         workflow_params = test_case.get("workflow_params", {})
+        
+        # Extract test criteria for LLM evaluation (full expected_output from test file)
+        expected_output = test_case.get("expected_output", {})
+        test_criteria = {
+            "description": test_case.get("description") or expected_output.get("description", ""),
+            "expected_behavior": test_case.get("expected_behavior", {}),
+            "expected_output": expected_output,
+            "validation_type": expected_output.get("validation", "similarity"),
+            "key_fields": expected_output.get("key_fields", []),
+            "sample_output": expected_output.get("sample_output"),
+        }
+        # Clean up empty/None criteria
+        test_criteria = {k: v for k, v in test_criteria.items() if v}
 
         # Load profile with inheritance
         resolved_profile = manager.resolve_adopt_profile(
@@ -168,8 +374,8 @@ def run_single_test(
             env_name=action_info.get("env_name"),
         )
 
-        # Run test
-        client = get_api_client_for_env()  # Uses active environment
+        # Run test (always allow_draft=True for simpler testing)
+        client = get_api_client_for_env()
         success, response, msg = client.run_action(
             action_id=remote_action_id,
             user_input=prompt,
@@ -178,24 +384,53 @@ def run_single_test(
             allow_draft=True,
         )
 
-        return TestResult(
+        # Extract execution trace
+        execution_trace = extract_execution_trace(response, msg if not success else None)
+        
+        # Identify failed operation
+        failed_op = identify_failed_operation(execution_trace, msg if not success else None)
+        
+        # Extract clean output
+        output = None
+        if response and isinstance(response, dict):
+            data = response.get("data", {})
+            if isinstance(data, dict):
+                # Remove trace from output for cleaner display
+                output = {k: v for k, v in data.items() if k not in ("debug_tracing", "execution_trace")}
+            else:
+                output = data
+
+        result = TestResult(
             action_id=action_id,
             success=success,
-            message="Test passed" if success else msg[:100],
+            message="Test passed" if success else msg[:200] if msg else "Unknown error",
             duration_ms=int((time.time() - start_time) * 1000),
             test_name=test_path.name,
-            output=response.get("data", {}).get("output") if isinstance(response, dict) else None,
-            error=None if success else msg,
+            prompt=prompt,
+            output=output,
+            error=msg if not success else None,
+            execution_trace=execution_trace,
+            test_criteria=test_criteria if test_criteria else None,
+            wdl_operations=wdl_operations if (verbose or not success) else None,
+            workspace_path=str(workspace),
+            failed_operation=failed_op,
         )
+        
+        # Save trace to file (especially useful on failure)
+        trace_file = save_trace(workspace, result)
+        if trace_file:
+            result.trace_path = str(trace_file)
+        
+        return result
 
     except Exception as e:
-        import time
+        import traceback
         return TestResult(
             action_id=action_id,
             success=False,
-            message="Error",
+            message="Exception during test",
             duration_ms=int((time.time() - start_time) * 1000),
-            error=str(e),
+            error=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()[:500]}",
         )
 
 
@@ -341,6 +576,7 @@ def run_parallel_tests(
     manager: HierarchicalWorkspaceManager,
     max_workers: int = 5,
     local_only: bool = False,
+    verbose: bool = False,
 ) -> list[TestResult]:
     """
     Run tests for multiple actions in parallel.
@@ -350,6 +586,7 @@ def run_parallel_tests(
         manager: Workspace manager
         max_workers: Maximum parallel workers
         local_only: Only validate locally
+        verbose: Include WDL operations for debugging
 
     Returns:
         List of TestResults
@@ -358,7 +595,7 @@ def run_parallel_tests(
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_action = {
-            executor.submit(run_single_test, aid, manager, local_only): aid
+            executor.submit(run_single_test, aid, manager, local_only, None, verbose): aid
             for aid in action_ids
         }
 
@@ -400,8 +637,13 @@ def collect_actions_from_agent(
     return [sa["action_id"] for sa in agent.get("sub_actions", [])]
 
 
-def print_results(results: list[TestResult], start_time: datetime) -> None:
-    """Print test results summary."""
+def print_results(results: list[TestResult], start_time: datetime, verbose: bool = False) -> None:
+    """
+    Print test results with full context for LLM/Cursor evaluation.
+    
+    Output is designed to be consumed by Cursor agent for automated
+    decision-making about next steps (fix WDL, iterate, etc.)
+    """
     end_time = datetime.now()
     total_time = (end_time - start_time).total_seconds()
 
@@ -415,30 +657,173 @@ def print_results(results: list[TestResult], start_time: datetime) -> None:
     print(f"Time: {total_time:.2f}s")
     print("-" * 80)
 
+    # Print passed tests with output for LLM evaluation
     if passed:
         print("\n✅ PASSED:")
         for r in passed:
-            print(f"   {r.action_id} ({r.duration_ms}ms) - {r.message}")
+            print(f"\n   ✅ {r.action_id} ({r.duration_ms}ms) - {r.test_name}")
+            
+            # Show test criteria (what was expected) - always show for LLM to verify
+            if r.test_criteria:
+                if r.test_criteria.get("description"):
+                    print(f"      📝 Expected: {r.test_criteria['description']}")
+                if r.test_criteria.get("key_fields"):
+                    print(f"      🔑 Key Fields: {', '.join(r.test_criteria['key_fields'])}")
+            
+            # Show actual output for LLM verification
+            if r.output:
+                output_str = json.dumps(r.output, indent=2) if isinstance(r.output, (dict, list)) else str(r.output)
+                if len(output_str) > 800:
+                    output_str = output_str[:800] + "\n      ... (truncated)"
+                print(f"      📤 Actual Output:")
+                for line in output_str.split("\n"):
+                    print(f"         {line}")
+            
+            # Show trace path if saved
+            if r.trace_path:
+                print(f"      📁 Trace: {r.trace_path}")
 
+    # Print failed tests with full context for LLM evaluation
     if failed:
-        print("\n❌ FAILED:")
+        print("\n" + "=" * 80)
+        print("❌ FAILED TESTS - DETAILED FOR LLM EVALUATION")
+        print("=" * 80)
+        
         for r in failed:
-            print(f"   {r.action_id} ({r.duration_ms}ms) - {r.message}")
+            print(f"\n{'─' * 80}")
+            print(f"🔴 FAILED: {r.action_id}")
+            print(f"{'─' * 80}")
+            print(f"Test: {r.test_name}")
+            print(f"Duration: {r.duration_ms}ms")
+            if r.workspace_path:
+                print(f"Workspace: {r.workspace_path}")
+            
+            # Show prompt used
+            if r.prompt:
+                print(f"\n📝 PROMPT USED:")
+                print(f"   {r.prompt[:300]}{'...' if len(r.prompt) > 300 else ''}")
+            
+            # Show test criteria for LLM evaluation (prominently display expected output)
+            if r.test_criteria:
+                print(f"\n📋 EXPECTED OUTPUT (for LLM evaluation):")
+                
+                # Show description first (most important for LLM judgment)
+                if r.test_criteria.get("description"):
+                    print(f"   📝 Description: {r.test_criteria['description']}")
+                
+                # Show key fields that should be present
+                if r.test_criteria.get("key_fields"):
+                    print(f"   🔑 Key Fields: {', '.join(r.test_criteria['key_fields'])}")
+                
+                # Show validation type
+                if r.test_criteria.get("validation_type"):
+                    print(f"   📊 Validation: {r.test_criteria['validation_type']}")
+                
+                # Show sample output if provided
+                if r.test_criteria.get("sample_output"):
+                    sample_str = json.dumps(r.test_criteria["sample_output"], indent=4)
+                    if len(sample_str) > 500:
+                        sample_str = sample_str[:500] + "..."
+                    print(f"   📄 Sample Output: {sample_str}")
+                
+                # Show expected behavior if any
+                if r.test_criteria.get("expected_behavior"):
+                    behavior_str = json.dumps(r.test_criteria["expected_behavior"], indent=4)
+                    print(f"   🎯 Expected Behavior: {behavior_str[:300]}")
+            
+            # Show error
+            print(f"\n❌ ERROR:")
             if r.error:
-                print(f"      Error: {r.error[:200]}")
+                # Pretty-print JSON errors if possible
+                try:
+                    if "{" in r.error:
+                        json_start = r.error.find("{")
+                        prefix = r.error[:json_start]
+                        json_part = r.error[json_start:]
+                        parsed = json.loads(json_part)
+                        print(f"   {prefix}")
+                        print(json.dumps(parsed, indent=4)[:1000])
+                    else:
+                        print(f"   {r.error[:1000]}")
+                except:
+                    print(f"   {r.error[:1000]}")
+            
+            # Show failed operation
+            if r.failed_operation:
+                print(f"\n🎯 FAILED OPERATION: {r.failed_operation}")
+            
+            # Show execution trace
+            if r.execution_trace:
+                print(f"\n📍 EXECUTION TRACE:")
+                trace_str = json.dumps(r.execution_trace, indent=2)
+                if len(trace_str) > 2000:
+                    trace_str = trace_str[:2000] + "\n   ... (truncated)"
+                print(f"   {trace_str}")
+            
+            # Show WDL operations for context
+            if r.wdl_operations:
+                print(f"\n📦 WDL OPERATIONS ({len(r.wdl_operations)} total):")
+                for op in r.wdl_operations:
+                    marker = "→" if op.get("id") == r.failed_operation else " "
+                    print(f"   {marker} {op.get('id')}: {op.get('operation')}")
+            
+            # Provide actionable instructions for Cursor
+            print(f"\n🔧 CURSOR INSTRUCTIONS:")
+            print(f"   1. Load debugging prompts for thorough instructions:")
+            print(f"      → prompts/system/TESTING_PROMPT.md")
+            print(f"      → prompts/guidelines/WDL_ISSUE_PATTERNS.md")
+            print(f"      → prompts/system/DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md")
+            print(f"   2. Read the error message and trace above")
+            print(f"   3. Open widdle.json at: {r.workspace_path}/widdle.json")
+            if r.failed_operation:
+                print(f"   4. Find and fix operation: {r.failed_operation}")
+            else:
+                print(f"   4. Analyze which operation is causing the issue")
+            print(f"   5. Common issues to check:")
+            print(f"      - JQ_FILTER: Is extract_all set correctly? (default: true wraps in array)")
+            print(f"      - EXTRACT: Is input an object (not array)?")
+            print(f"      - REST: Is URL correct? Check auth params?")
+            print(f"      - required_inputs: Is it a list of JSON strings?")
+            print(f"   6. After fixing, re-run: python cli/test_runner.py {r.action_id}")
+            
+            # Show trace file location
+            if r.trace_path:
+                print(f"\n📁 Trace saved: {r.trace_path}")
 
+    print("\n" + "=" * 80)
+    
+    # Final summary for Cursor decision
+    if failed:
+        print("\n🤖 LLM EVALUATION SUMMARY:")
+        print(f"   {len(failed)} test(s) failed. Review the detailed output above.")
+        print(f"   Cursor should analyze errors and fix the WDL before proceeding.")
+        print(f"   After fixes, re-run tests to verify.")
+    else:
+        print("\n🤖 LLM EVALUATION REQUIRED:")
+        print("   All tests executed successfully. Agent should verify:")
+        print("   1. Does the actual output match the expected description?")
+        print("   2. Are the expected key_fields present in the output?")
+        print("   3. Is the data valid and non-hallucinated?")
+        print("   4. Does the output format match what was expected?")
+        print("")
+        print("   If output is valid → proceed with: python cli/save_wdl_draft.py --workflow-id <action-id>")
+        print("   If output needs fixes → modify widdle.json and re-run tests")
+    
     print("=" * 80)
 
 
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Enhanced test runner with parallel and batch support",
+        description="Enhanced test runner with parallel execution and LLM-integrated output",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   # Test single action
   %(prog)s my-action
+
+  # Test with verbose output (shows WDL operations, full traces)
+  %(prog)s my-action --verbose
 
   # Test multiple actions in parallel
   %(prog)s action1 action2 action3 --parallel 3
@@ -451,6 +836,12 @@ Examples:
 
   # Test sub-action through agent (via-agent)
   %(prog)s my-agent --via-agent --subaction get-orderpoints
+
+Key Features:
+  - Always uses allow_draft=True (no metadata version tracking issues)
+  - Robust trace extraction from success and error responses
+  - LLM/Cursor-friendly output for automated evaluation
+  - Parallel execution for multiple actions
         """,
     )
 
@@ -472,7 +863,9 @@ Examples:
     # Test options
     parser.add_argument("--local-only", "-l", action="store_true", help="Only validate WDL locally")
     parser.add_argument("--test", "-t", help="Specific test file to run")
+    parser.add_argument("--all", action="store_true", help="Run all test cases in test_cases/ directory")
     parser.add_argument("--env", "-e", help="Environment to use")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output with WDL operations and full traces")
 
     args = parser.parse_args()
 
@@ -514,7 +907,7 @@ Examples:
             print("❌ No actions found in workspace")
             return 1
         print(f"   Found {len(action_ids)} actions")
-        results = run_parallel_tests(action_ids, manager, args.parallel, args.local_only)
+        results = run_parallel_tests(action_ids, manager, args.parallel, args.local_only, args.verbose)
 
     elif args.agent and args.all_subactions:
         # Batch test all sub-actions in agent
@@ -524,27 +917,61 @@ Examples:
             print("❌ No sub-actions found in agent")
             return 1
         print(f"   Found {len(action_ids)} sub-actions")
-        results = run_parallel_tests(action_ids, manager, args.parallel, args.local_only)
+        results = run_parallel_tests(action_ids, manager, args.parallel, args.local_only, args.verbose)
 
     elif args.actions:
         # Test specific action(s)
         action_ids = args.actions
         if len(action_ids) == 1:
-            # Single action - use simple test
-            print(f"\n🧪 Testing: {action_ids[0]}")
-            result = run_single_test(action_ids[0], manager, args.local_only, args.test)
-            results = [result]
+            # Single action - check if running all test cases
+            action_id = action_ids[0]
+            print(f"\n🧪 Testing: {action_id}")
+            
+            if args.all:
+                # Run all test cases for this action
+                action_info = manager.find_action(action_id)
+                if action_info:
+                    workspace = action_info["path"]
+                    test_cases_dir = workspace / "test_cases"
+                    test_files = get_all_test_files(test_cases_dir)
+                    
+                    if test_files:
+                        print(f"   Running {len(test_files)} test cases: {', '.join(test_files)}")
+                        for test_file in test_files:
+                            result = run_single_test(action_id, manager, args.local_only, test_file, args.verbose)
+                            results.append(result)
+                    else:
+                        print(f"   ⚠️ No test files found in {test_cases_dir}")
+                        results = [TestResult(
+                            action_id=action_id,
+                            success=False,
+                            message="No test files found",
+                            duration_ms=0,
+                            error=f"No test_*.json files in {test_cases_dir}",
+                        )]
+                else:
+                    results = [TestResult(
+                        action_id=action_id,
+                        success=False,
+                        message="Action not found",
+                        duration_ms=0,
+                        error="Action workspace not found",
+                    )]
+            else:
+                # Single test case
+                result = run_single_test(action_id, manager, args.local_only, args.test, args.verbose)
+                results = [result]
         else:
             # Multiple actions - parallel test
             print(f"\n🧪 Testing {len(action_ids)} actions in parallel")
-            results = run_parallel_tests(action_ids, manager, args.parallel, args.local_only)
+            results = run_parallel_tests(action_ids, manager, args.parallel, args.local_only, args.verbose)
 
     else:
         parser.print_help()
         return 0
 
-    # Print results
-    print_results(results, start_time)
+    # Print results with LLM-friendly output
+    print_results(results, start_time, args.verbose)
 
     # Return 0 if all passed, 1 otherwise
     all_passed = all(r.success for r in results)

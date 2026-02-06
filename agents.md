@@ -22,10 +22,15 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 
 1. **Discovery**: Use `cli/discover.py` to find APIs/actions
 2. **Creation**: Use `cli/manage_wdl_action.py --create` or `cli/workspace.py`
-3. **Edit WDL**: Directly edit `widdle.json` files based on documentation
-4. **Testing**: Use `cli/test_wdl_action.py` for validation
-5. **Saving**: Use `cli/save_wdl_draft.py` to persist changes
-6. **Publishing**: Use `cli/publish_wdl_action.py` when approved
+3. **📚 DOCUMENTATION FIRST**: Before editing ANY operation:
+   - Fetch operation docs from `https://adoptai.github.io/widdle_docs/operations/{OPERATION}_OPERATION_DESCRIPTION.md`
+   - Read the FULL documentation for each operation you plan to use
+   - Note default parameter values (especially `extract_all` for JQ_FILTER!)
+4. **Edit WDL**: Directly edit `widdle.json` files based on documentation
+5. **Testing**: Use `cli/test_runner.py` for simpler testing (always `allow_draft=True`)
+   - Or use `cli/test_wdl_action.py` when you need output validation
+6. **Saving**: Use `cli/save_wdl_draft.py` to persist changes
+7. **Publishing**: Use `cli/publish_wdl_action.py` when approved
 
 ### 📝 Editing WDL Files
 
@@ -345,9 +350,27 @@ Action adopt_profile.json → Agent → Environment
 
 **📖 Full details: `prompts/system/TESTING_PROMPT.md`**
 
+### 💡 Choosing Between Test Runners
+
+| Feature | `test_runner.py` (RECOMMENDED) | `test_wdl_action.py` |
+|---------|--------------------------------|----------------------|
+| **Draft handling** | Always `allow_draft=True` ✅ | Complex auto-detection |
+| **Version tracking** | None needed | Auto-detects, can cause issues |
+| **Parallel testing** | ✅ `--parallel N` | Single action only |
+| **Batch testing** | ✅ `--workspace`, `--agent` | No |
+| **Output validation** | ❌ | ✅ expected_output specs |
+| **Fix instructions** | ❌ | ✅ cursor_fix_instructions.md |
+| **Simplicity** | ✅ Simple, reliable | Complex, more features |
+
+**RECOMMENDATION**: Use `test_runner.py` for iterative development. Use `test_wdl_action.py` only when you need output validation or fix instruction generation.
+
 ### Single Action
 
 ```bash
+# RECOMMENDED: Simple testing with automatic draft support
+python cli/test_runner.py my-action
+
+# Alternative: More features but complex version handling
 python cli/test_wdl_action.py my-action
 python cli/test_wdl_action.py my-action --local-only    # Validate only
 python cli/test_wdl_action.py my-action --all           # All test cases
@@ -1207,7 +1230,11 @@ python cli/manage_wdl_action.py --update --workflow-id abc123 --use-api api-1 --
 # Add APIs/tools independently (no --create/--update needed)
 python cli/manage_wdl_action.py --workflow-id abc123 --use-api api-1 --use-tool tool-1
 
-# Test WDL workflow
+# Test WDL workflow (RECOMMENDED: test_runner.py for simpler testing)
+python cli/test_runner.py workflow-id                   # Simple test, always allow_draft=True
+python cli/test_runner.py action1 action2 --parallel 2  # Parallel testing
+
+# Alternative: test_wdl_action.py for output validation features
 python cli/test_wdl_action.py workflow-id --local-only  # Validate JSON syntax + structure
 python cli/test_wdl_action.py workflow-id               # Execute remotely (default test case)
 python cli/test_wdl_action.py workflow-id --all         # Run all test cases

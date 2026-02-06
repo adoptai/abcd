@@ -628,6 +628,73 @@ def detect_app_name_mismatch(wdl, adopt_profile):
 
 ---
 
+---
+
+## ⚠️ MANDATORY: Data Flow Tracing Protocol
+
+When debugging WDL execution failures, follow this systematic 4-step protocol:
+
+### Step 1: Identify the Failing Operation
+
+From the error message or trace, identify:
+- **Which operation failed** (by `id`)
+- **What error type** occurred (KeyError, TypeError, JQ error, etc.)
+- **What input was expected** vs what was received
+
+### Step 2: Trace Data Backwards
+
+Starting from the failing operation, trace the data flow backwards:
+
+```
+failing_operation.input → previous_operation.output → ... → source
+```
+
+For each step:
+1. **Check the output type** - Is it an array, object, string?
+2. **Check for wrappers** - Is the data wrapped in `result: [...]` or similar?
+3. **Check for nesting** - Is it `[[data]]` instead of `[data]`?
+
+### Step 3: Verify Operation Parameters
+
+For the operation that produced the problematic output:
+- **JQ_FILTER**: Check `extract_all` parameter (default: `true` = wraps in array!)
+- **EXTRACT**: Check if input is actually an object (not array)
+- **FIRST_ELEMENT**: Check if you need multiple unwraps for nested arrays
+
+### Step 4: Fix and Verify
+
+After identifying the issue:
+1. **Fix the operation** (add FIRST_ELEMENT, set extract_all=false, etc.)
+2. **Save draft** using `python cli/save_wdl_draft.py`
+3. **Test** using `python cli/test_runner.py` (simpler, always allow_draft=True)
+4. **Verify trace** - Check that data types match expectations at each step
+
+### Common Data Flow Issues
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Cannot index array with string` | JQ_FILTER wrapped result in array | Add FIRST_ELEMENT or set `extract_all: false` |
+| `Input is not a JSON object, it is a list` | Double-nested array `[[...]]` | Add second FIRST_ELEMENT |
+| `KeyError: 'field'` | Input is array, not object | Add FIRST_ELEMENT before EXTRACT |
+| `result: []` wrapper | JQ_FILTER default behavior | Access via `.result` or set `extract_all: false` |
+
+### Example Debug Session
+
+```
+Error: "Cannot index array with string 'Items'"
+↓
+Trace backwards: extractItems.input = "{decodeResponse}"
+↓
+Check decodeResponse output: { "result": [{ "Items": [...] }] }
+↓
+Problem: JQ_FILTER wrapped output in array!
+↓
+Fix: Add FIRST_ELEMENT between JQ_FILTER and EXTRACT
+     OR: Modify JQ filter to access .Items directly
+```
+
+---
+
 ## Related Documentation
 
 - [WDL Schema Reference](../../docs/wdl_schema.md)

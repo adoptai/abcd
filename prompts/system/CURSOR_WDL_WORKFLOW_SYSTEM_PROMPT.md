@@ -135,6 +135,36 @@ python cli/manage_wdl_action.py --update --workflow-id <id> --use-api api-id-1
 python cli/manage_wdl_action.py --workflow-id <id> --use-api api-id-1 --use-tool tool-id-1
 ```
 
+### ⚠️ MANDATORY: Pre-Edit Documentation Checklist
+
+**Before writing or modifying ANY WDL operation, you MUST:**
+
+1. **Fetch the operation documentation** from the remote docs:
+   ```
+   https://adoptai.github.io/widdle_docs/operations/{OPERATION}_OPERATION_DESCRIPTION.md
+   ```
+   Example: Before using JQ_FILTER, fetch `JQ_FILTER_OPERATION_DESCRIPTION.md`
+
+2. **Read the FULL documentation** for each operation you plan to use:
+   - Note all required parameters
+   - Note default values (especially `extract_all` for JQ_FILTER!)
+   - Note output format/structure
+   - Check for "Common Pitfalls" or "Warning" sections
+
+3. **For REQUIRED_INPUTS specifically**:
+   - Check if it should be a list of strings or list of JSON strings
+   - Verify the exact format expected by the executor
+
+4. **For INTELLIGENT_OUTPUT/PROMPT operations**:
+   - Check the exact structure of `context_map` (simple strings, not objects!)
+   - Verify required vs optional fields
+
+5. **Cross-reference with working examples** in the codebase if available
+
+**DO NOT proceed to Phase 3 until you have fetched and read the documentation for ALL operations you plan to use.**
+
+---
+
 ### Phase 3: WDL Generation
 1. Read `cursor_roaming_instructions.md` in the workspace
 2. **Read context files** (if they exist):
@@ -277,6 +307,29 @@ python cli/test_wdl_action.py {workflow_id} --all
    - Ensure outputs contain expected fields and valid data
 4. Re-run tests: `python cli/test_wdl_action.py {workflow_id} --all`
 5. **Iterate until all test cases pass** with similar/valid outputs
+
+#### 💡 RECOMMENDED: Use test_runner.py for Simpler Testing
+
+For iterative development, prefer `test_runner.py` over `test_wdl_action.py`:
+
+```bash
+# Simple test with automatic draft support
+python cli/test_runner.py {workflow_id}
+
+# Parallel testing of multiple actions
+python cli/test_runner.py action1 action2 action3 --parallel 3
+```
+
+**Why use test_runner.py:**
+- **Always uses `allow_draft=True`** - avoids metadata/version tracking issues
+- **No complex version detection** - simpler, more reliable
+- **Parallel execution support** - faster when testing multiple actions
+- **Batch testing** - test entire workspaces or agents at once
+
+**When to use test_wdl_action.py instead:**
+- Need output validation against expected_output specifications
+- Need cursor_fix_instructions.md generation on failure
+- Need detailed trace extraction and LLM review prompts
 
 #### Local Testing (Structure Validation)
 ```bash
