@@ -93,9 +93,9 @@ class RoamingInstructionsBuilder:
         lines.append("Use semantic search to find relevant APIs and tools:\n")
         lines.append("```bash")
         lines.append("# Auto-discover based on requirements")
-        lines.append(f"python cli/manage_wdl_action.py --auto-discover -r {requirements_path} --top-k 5 --json")
+        lines.append(f"python cli/discover.py --requirements {requirements_path} --top 5 --json")
         lines.append("```\n")
-        lines.append("This will return JSON with both `tools` and `apis` arrays.\n")
+        lines.append("This will return JSON with both `actions` and `apis` arrays.\n")
         lines.append("\n### Step 2: Add Context to Workspace\n")
         lines.append("If you find relevant APIs or tools, add them to the workspace using:\n")
         lines.append("```bash")
@@ -259,7 +259,7 @@ class RoamingInstructionsBuilder:
         lines.append("## ✅ After Fixing\n")
         lines.append(f"1. Save updated WDL to: `{widdle_json_path}`")
         lines.append(
-            "2. Run test again: `python cli/test_wdl_action.py {action_id}`"
+            "2. Run test again: `python cli/test_runner.py {action_id}`"
         )
 
         return "\n".join(lines)

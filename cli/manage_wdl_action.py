@@ -17,14 +17,13 @@ Usage:
     # Create complex workflow
     python manage_wdl_action.py --create --template workflow -r requirements.md -t "My Workflow"
     
-    # List available APIs/tools/actions/workflows
-    python manage_wdl_action.py --list-apis
-    python manage_wdl_action.py --list-tools
-    python manage_wdl_action.py --list-all-actions  # execution_type=DEFAULT
-    python manage_wdl_action.py --list-workflows    # execution_type=WORKFLOW
-    
     # Update existing (add APIs/tools)
     python manage_wdl_action.py --update --workflow-id abc123 --use-api api-1
+
+Note: Discovery commands have moved to cli/discover.py
+    python cli/discover.py --list-tools
+    python cli/discover.py --actions "query"
+    python cli/discover.py --apis "query"
 """
 
 import argparse
@@ -36,9 +35,9 @@ from uuid import uuid4
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 from cli.wdl_common.cursor_prompt_builder import RoamingInstructionsBuilder
-from cli.wdl_common.tool_discovery import ToolDiscovery
+from cli.wdl_common.discovery import Discovery, get_discovery
 from cli.wdl_common.wdl_documentation import WDLDocumentationProvider
 from cli.wdl_common.workspace_manager import WorkspaceManager
 
@@ -81,7 +80,7 @@ def _save_draft_for_workspace(
     
     _verbose_print("_save_draft_for_workspace", "loading WDL")
     wdl = json.loads(wdl_path.read_text())
-    client = AdoptAPIClient()
+    client = get_api_client_for_env()  # Uses active environment
     
     # Get current state
     _verbose_print("_save_draft_for_workspace", "getting current action state")
@@ -142,171 +141,11 @@ def _save_draft_for_workspace(
     return True, version or ""
 
 
-def list_tools_command(json_output: bool = False, execution_type: str = "TOOL") -> int:
-    """
-    List available tools/actions from the platform.
-    
-    Args:
-        json_output: Output in JSON format
-        execution_type: Type of actions to fetch:
-            - "TOOL" (default): Regular tools
-            - "DEFAULT": All actions with default execution mode
-            - "WORKFLOW": Workflow-type actions
-    """
-    _verbose_print("list_tools_command", "ENTER", f"json_output={json_output}, execution_type={execution_type}")
-    
-    # Determine label based on execution_type
-    if execution_type == "WORKFLOW":
-        label = "workflows"
-    elif execution_type == "ALL":
-        label = "actions"
-    else:
-        label = "tools"
-    
-    print(f"\n⏳ Fetching available {label}...", file=sys.stderr)
-
-    try:
-        _verbose_print("list_tools_command", "creating ToolDiscovery")
-        discovery = ToolDiscovery(verbose=_verbose)
-        _verbose_print("list_tools_command", "calling fetch_tools", f"execution_type={execution_type}")
-        success, tools, msg = discovery.fetch_tools(execution_type=execution_type, force_refresh=True)
-
-        if not success:
-            print(f"❌ {msg}", file=sys.stderr)
-            _verbose_print("list_tools_command", "EXIT", "fetch failed")
-            return 1
-
-        if json_output:
-            # Machine-readable output for Cursor
-            _verbose_print("list_tools_command", "exporting JSON")
-            print(discovery.export_search_results_json(tools))
-        else:
-            _verbose_print("list_tools_command", "displaying tools")
-            discovery.display_tools(tools)
-            print(f"\n💡 Use --use-tool <ID> to include a tool's WDL as context")
-        _verbose_print("list_tools_command", "EXIT", "success")
-        return 0
-
-    except Exception as e:
-        print(f"❌ Error: {e}", file=sys.stderr)
-        _verbose_print("list_tools_command", "EXIT", f"exception: {e}")
-        return 1
+# Note: Discovery commands have moved to cli/discover.py
+# Use: python cli/discover.py --help
 
 
-def list_apis_command(json_output: bool = False) -> int:
-    """List available APIs from the platform."""
-    _verbose_print("list_apis_command", "ENTER", f"json_output={json_output}")
-    print("\n⏳ Fetching available APIs...", file=sys.stderr)
-
-    try:
-        _verbose_print("list_apis_command", "creating ToolDiscovery")
-        discovery = ToolDiscovery(verbose=_verbose)
-        _verbose_print("list_apis_command", "calling fetch_apis")
-        success, apis, msg = discovery.fetch_apis()
-
-        if not success:
-            print(f"❌ {msg}", file=sys.stderr)
-            _verbose_print("list_apis_command", "EXIT", "fetch failed")
-            return 1
-
-        if json_output:
-            # Machine-readable output for Cursor
-            import json
-            _verbose_print("list_apis_command", "outputting JSON")
-            print(json.dumps({"count": len(apis), "apis": apis}, indent=2))
-        else:
-            # Display all APIs without pagination limit (limit defaults to None)
-            _verbose_print("list_apis_command", "displaying APIs")
-            discovery.display_apis(apis)
-            print("\n💡 Use --use-api <ID> to include an API's spec as context")
-        _verbose_print("list_apis_command", "EXIT", "success")
-        return 0
-
-    except Exception as e:
-        print(f"❌ Error: {e}", file=sys.stderr)
-        _verbose_print("list_apis_command", "EXIT", f"exception: {e}")
-        return 1
-
-
-def search_tools_command(query: str, top_k: int = 5, json_output: bool = False) -> int:
-    """Search for relevant tools using semantic search."""
-    _verbose_print("search_tools_command", "ENTER", f"query={query}, top_k={top_k}")
-    print(f"\n🔍 Searching for tools: '{query}'...", file=sys.stderr)
-
-    try:
-        _verbose_print("search_tools_command", "creating ToolDiscovery")
-        discovery = ToolDiscovery(verbose=_verbose)
-        _verbose_print("search_tools_command", "calling semantic_search_tools")
-        success, results, msg = discovery.semantic_search_tools(query, top_k)
-
-        if not success:
-            print(f"❌ {msg}", file=sys.stderr)
-            _verbose_print("search_tools_command", "EXIT", "search failed")
-            return 1
-
-        if json_output:
-            # Machine-readable output for Cursor
-            # Wrap results with type markers for export
-            _verbose_print("search_tools_command", "exporting JSON")
-            results_with_type = [dict(r, _type="tool") for r in results]
-            print(discovery.export_search_results_json(results_with_type))
-        else:
-            print(f"\n✅ {msg}")
-            for i, tool in enumerate(results, 1):
-                score = tool.get("_similarity_score", 0)
-                print(f"\n{i}. [{score}%] {tool.get('title', 'Untitled')}")
-                print(f"   ID: {tool.get('id')}")
-                print(f"   {tool.get('description', '')[:100]}...")
-            print("\n💡 Use --use-tool <ID> to include a tool's WDL as context")
-        _verbose_print("search_tools_command", "EXIT", "success")
-        return 0
-
-    except Exception as e:
-        print(f"❌ Error: {e}", file=sys.stderr)
-        _verbose_print("search_tools_command", "EXIT", f"exception: {e}")
-        return 1
-
-
-def search_apis_command(query: str, top_k: int = 5, json_output: bool = False) -> int:
-    """Search for relevant APIs using semantic search."""
-    _verbose_print("search_apis_command", "ENTER", f"query={query}, top_k={top_k}")
-    print(f"\n🔍 Searching for APIs: '{query}'...", file=sys.stderr)
-
-    try:
-        _verbose_print("search_apis_command", "creating ToolDiscovery")
-        discovery = ToolDiscovery(verbose=_verbose)
-        _verbose_print("search_apis_command", "calling semantic_search_apis")
-        success, results, msg = discovery.semantic_search_apis(query, top_k)
-
-        if not success:
-            print(f"❌ {msg}", file=sys.stderr)
-            _verbose_print("search_apis_command", "EXIT", "search failed")
-            return 1
-
-        if json_output:
-            # Machine-readable output for Cursor
-            # Wrap results with type markers for export
-            _verbose_print("search_apis_command", "exporting JSON")
-            results_with_type = [dict(r, _type="api") for r in results]
-            print(discovery.export_search_results_json(results_with_type))
-        else:
-            print(f"\n✅ {msg}")
-            for i, api in enumerate(results, 1):
-                score = api.get("_similarity_score", 0)
-                print(f"\n{i}. [{score}%] {api.get('title', api.get('name', 'Untitled'))}")
-                print(f"   ID: {api.get('id')}")
-                print(f"   {api.get('description', '')[:100]}...")
-            print("\n💡 Use --use-api <ID> to include an API's spec as context")
-        _verbose_print("search_apis_command", "EXIT", "success")
-        return 0
-
-    except Exception as e:
-        print(f"❌ Error: {e}", file=sys.stderr)
-        _verbose_print("search_apis_command", "EXIT", f"exception: {e}")
-        return 1
-
-
-def auto_discover_command(requirements_path: str, top_k: int = 5) -> int:
+def _auto_discover_for_create(requirements_path: str, top_k: int = 5) -> int:
     """
     Auto-discover relevant tools AND APIs based on requirements.
     
@@ -320,8 +159,8 @@ def auto_discover_command(requirements_path: str, top_k: int = 5) -> int:
     try:
         _verbose_print("auto_discover_command", "reading requirements file")
         requirements = Path(requirements_path).read_text()
-        _verbose_print("auto_discover_command", "creating ToolDiscovery")
-        discovery = ToolDiscovery(verbose=_verbose)
+        _verbose_print("auto_discover_command", "creating Discovery")
+        discovery = get_discovery()
         _verbose_print("auto_discover_command", "calling discover_tools_for_requirements")
         success, results, msg = discovery.discover_tools_for_requirements(requirements, top_k)
 
@@ -367,7 +206,7 @@ def auto_discover_command(requirements_path: str, top_k: int = 5) -> int:
 def update_workspace_context(
     workflow_id: str,
     workspace: Path,
-    discovery: ToolDiscovery,
+    discovery: Discovery,
     workspace_manager: WorkspaceManager,
     use_api_ids: Optional[List[str]] = None,
     use_tool_ids: Optional[List[str]] = None,
@@ -379,8 +218,8 @@ def update_workspace_context(
     Args:
         workflow_id: Workflow ID
         workspace: Workspace path
-        discovery: ToolDiscovery instance
-        workspace_manager: WorkspaceManager instance
+        discovery: Discovery instance
+        workspace_manager: WorkspaceManager instance (not used, kept for API compatibility)
         use_api_ids: List of API IDs to add
         use_tool_ids: List of tool IDs to add
         agent_name: Agent name (None for standalone)
@@ -392,6 +231,12 @@ def update_workspace_context(
     added_apis = []
     added_tools = []
     
+    # Ensure apis/ and tools/ directories exist
+    apis_dir = workspace / "apis"
+    tools_dir = workspace / "tools"
+    apis_dir.mkdir(exist_ok=True)
+    tools_dir.mkdir(exist_ok=True)
+    
     # Add APIs
     if use_api_ids:
         _verbose_print("update_workspace_context", "adding APIs", f"count={len(use_api_ids)}")
@@ -400,25 +245,29 @@ def update_workspace_context(
             success, api_spec, msg = discovery.get_api_details(api_id)
             
             if success and api_spec:
-                # Add to workspace
-                add_success, add_msg = workspace_manager.add_api_to_workspace(
-                    workflow_id=workflow_id,
-                    api_id=api_id,
-                    api_spec=api_spec,
-                    agent_name=agent_name,
-                )
-                if add_success:
-                    added_apis.append(api_id)
-                    print(f"   ✅ {api_id}")
-                    # Output API details to console
-                    print(f"\n   📋 API Details for {api_id}:")
-                    print("   " + "=" * 76)
-                    print(json.dumps(api_spec, indent=2))
-                    print("   " + "=" * 76)
-                else:
-                    print(f"   ⚠️  Could not add {api_id}: {add_msg}")
+                # Write API spec to file
+                api_file = apis_dir / f"{api_id}.json"
+                api_file.write_text(json.dumps(api_spec, indent=2))
+                added_apis.append(api_id)
+                print(f"   ✅ {api_id}")
+                # Output API details to console
+                print(f"\n   📋 API Details for {api_id}:")
+                print("   " + "=" * 76)
+                print(json.dumps(api_spec, indent=2))
+                print("   " + "=" * 76)
             else:
                 print(f"   ⚠️  Could not fetch API details for {api_id}: {msg}")
+        
+        # Update manifest
+        manifest_file = apis_dir / "manifest.json"
+        existing_apis = []
+        if manifest_file.exists():
+            try:
+                existing_apis = json.loads(manifest_file.read_text()).get("apis", [])
+            except:
+                pass
+        all_apis = list(set(existing_apis + added_apis))
+        manifest_file.write_text(json.dumps({"apis": all_apis}, indent=2))
     
     # Add tools
     if use_tool_ids:
@@ -429,24 +278,28 @@ def update_workspace_context(
             success, tool_spec, msg = discovery.get_tool_details(tool_id)
             
             if success and tool_spec:
-                # Add to workspace using new method
-                add_success, add_msg = workspace_manager.add_tool_to_workspace(
-                    workflow_id=workflow_id,
-                    tool_id=tool_id,
-                    tool_spec=tool_spec,
-                    agent_name=agent_name,
-                )
-                if add_success:
-                    added_tools.append(tool_id)
-                    print(f"   ✅ {tool_id}")
-                    # Also get context for markdown reference
-                    ctx = discovery.get_tool_context(tool_id)
-                    if ctx:
-                        contexts.append(ctx)
-                else:
-                    print(f"   ⚠️  Could not add {tool_id}: {add_msg}")
+                # Write tool spec to file
+                tool_file = tools_dir / f"{tool_id}.json"
+                tool_file.write_text(json.dumps(tool_spec, indent=2))
+                added_tools.append(tool_id)
+                print(f"   ✅ {tool_id}")
+                # Also get context for markdown reference
+                ctx = discovery.get_tool_context(tool_id)
+                if ctx:
+                    contexts.append(ctx)
             else:
                 print(f"   ⚠️  Could not fetch tool details for {tool_id}: {msg}")
+        
+        # Update tools manifest
+        tools_manifest = tools_dir / "manifest.json"
+        existing_tools = []
+        if tools_manifest.exists():
+            try:
+                existing_tools = json.loads(tools_manifest.read_text()).get("tools", [])
+            except:
+                pass
+        all_tools = list(set(existing_tools + added_tools))
+        tools_manifest.write_text(json.dumps({"tools": all_tools}, indent=2))
         
         # Update tool_context.md for backward compatibility
         if contexts:
@@ -470,24 +323,29 @@ def update_workspace_context(
             docs_provider = WDLDocumentationProvider()
             instructions_builder = RoamingInstructionsBuilder(docs_provider)
             
-            # Load existing workspace data
-            success, workspace_data, msg = workspace_manager.load_workspace(workflow_id, agent_name)
-            if success:
-                title = workspace_data.get("metadata", {}).get("title", "WDL Workflow")
-                
-                # Regenerate instructions with updated context
-                roaming_instructions = instructions_builder.build_generation_instructions(
-                    workspace=workspace,
-                    title=title,
-                )
-                
-                # Add tool context references if tools were added
-                if added_tools:
-                    roaming_instructions += "\n\n---\n\n## 🔧 Building Blocks\n\n"
-                    roaming_instructions += "**Tool Context**: Read `tool_context.md` for existing tool WDLs to reference.\n"
-                    roaming_instructions += "\nUse these as building blocks for your workflow.\n"
-                
-                instructions_path.write_text(roaming_instructions)
+            # Get title from metadata
+            metadata_path = workspace / "metadata.json"
+            title = "WDL Workflow"
+            if metadata_path.exists():
+                try:
+                    metadata = json.loads(metadata_path.read_text())
+                    title = metadata.get("title", title)
+                except Exception:
+                    pass
+            
+            # Regenerate instructions with updated context
+            roaming_instructions = instructions_builder.build_generation_instructions(
+                workspace=workspace,
+                title=title,
+            )
+            
+            # Add tool context references if tools were added
+            if added_tools:
+                roaming_instructions += "\n\n---\n\n## 🔧 Building Blocks\n\n"
+                roaming_instructions += "**Tool Context**: Read `tool_context.md` for existing tool WDLs to reference.\n"
+                roaming_instructions += "\nUse these as building blocks for your workflow.\n"
+            
+            instructions_path.write_text(roaming_instructions)
         except Exception as e:
             print(f"⚠️  Could not update roaming instructions: {e}")
     
@@ -564,15 +422,14 @@ def _generate_simple_tool_placeholder_wdl(api_details: Dict[str, Any]) -> List[D
             "operation": "REST",
             "method": method,
             "canonical_api_endpoint": canonical_path,
-            "url": url,
-            "output_key": "api_response"
+            "url": url
         },
         {
             "id": "output",
             "operation": "OUTPUT_TEXT",
             "raw": True,
             "inputs": {
-                "content": "{api_response}"
+                "content": "{call_api}"
             }
         }
     ]
@@ -691,10 +548,10 @@ def create_simple_tool(
     print("=" * 80)
     
     # Initialize components
-    _verbose_print("create_simple_tool", "creating ToolDiscovery")
-    discovery = ToolDiscovery(verbose=_verbose)
+    _verbose_print("create_simple_tool", "creating Discovery")
+    discovery = get_discovery()
     _verbose_print("create_simple_tool", "creating WorkspaceManager")
-    workspace_manager = WorkspaceManager(use_agents=not standalone)
+    workspace_manager = WorkspaceManager()
     
     # Fetch API details
     print(f"\n📡 Fetching API details for: {api_id}")
@@ -761,7 +618,7 @@ def create_simple_tool(
     action_id: Optional[str] = None
     if create_remote:
         print("\n🌐 Creating remote action...")
-        client = AdoptAPIClient()
+        client = get_api_client_for_env()  # Uses active environment
         
         description = api_details.get("description", f"Tool for {api_title}")[:300]
         
@@ -798,7 +655,7 @@ def create_simple_tool(
     print(f"   1. 📖 Read: {workspace}/cursor_roaming_instructions.md")
     print(f"   2. 📋 Review API spec: {workspace}/apis/")
     print(f"   3. ✏️  Refine the placeholder WDL in: {workspace}/widdle.json")
-    print("   4. 🧪 Test locally: python cli/test_wdl_action.py {workflow_id} --local-only")
+    print("   4. 🧪 Test locally: python cli/test_runner.py {workflow_id} --local-only")
     print("   5. 💾 Save draft: python cli/save_wdl_draft.py --workflow-id {workflow_id}")
     print("=" * 80)
     
@@ -855,8 +712,9 @@ def create_wdl_action(
     print(f"\n📋 Requirements preview:\n{requirements[:300]}...")
 
     # Initialize components
-    workspace_manager = WorkspaceManager(use_agents=not standalone)
-    discovery = ToolDiscovery()
+    workspace_manager = WorkspaceManager()
+    from cli.wdl_common.context import get_discovery
+    discovery = get_discovery()
 
     # Select agent if using agents
     selected_agent: Optional[str] = None
@@ -867,10 +725,9 @@ def create_wdl_action(
             selected_agent = workspace_manager.select_agent_interactive()
             if selected_agent is None:
                 print("\n💡 Tip: Use --standalone for local-only development")
-                print("   Or create an agent using: python tool_builder.py")
+                print("   Or create an agent using: python cli/workspace.py agent create")
                 # Fall back to standalone
                 standalone = True
-                workspace_manager = WorkspaceManager(use_agents=False)
 
     mode = f"Agent: {selected_agent}" if selected_agent else "Standalone"
     print(f"\n📁 Mode: {mode}")
@@ -939,7 +796,7 @@ def create_wdl_action(
     if create_remote:
         _verbose_print("create_wdl_action", "creating remote action")
         print("\n🔧 Creating action on Adopt...")
-        client = AdoptAPIClient()
+        client = get_api_client_for_env()  # Uses active environment
         
         # Extract API IDs from api_specs
         api_ids = [spec.get("id") for spec in api_specs if spec.get("id")]
@@ -1068,7 +925,7 @@ def create_wdl_action(
         print(f"   7. Save draft: python cli/save_wdl_draft.py {action_id}")
     elif not action_id:
         print("   7. Configure adopt_profile.json with auth")
-        print(f"   8. Test: python cli/test_wdl_action.py {workflow_id}")
+        print(f"   8. Test: python cli/test_runner.py {workflow_id}")
     print("=" * 80)
 
     _verbose_print("create_wdl_action", "EXIT", "success")
@@ -1103,41 +960,25 @@ def update_wdl_action(
 
     # Initialize components
     _verbose_print("update_wdl_action", "creating WorkspaceManager")
-    workspace_manager = WorkspaceManager(use_agents=not standalone)
-    _verbose_print("update_wdl_action", "creating ToolDiscovery")
-    discovery = ToolDiscovery(verbose=_verbose)
+    workspace_manager = WorkspaceManager()
+    _verbose_print("update_wdl_action", "creating Discovery")
+    discovery = get_discovery()
 
-    # Determine agent
-    selected_agent: Optional[str] = None
-    if not standalone:
-        if agent_name:
-            selected_agent = agent_name
-        else:
-            # Try to load workspace to determine agent
-            success, workspace_data, msg = workspace_manager.load_workspace(workflow_id, None)
-            if success:
-                metadata = workspace_data.get("metadata", {})
-                selected_agent = metadata.get("agent_name")
-                if selected_agent:
-                    print(f"   Found agent: {selected_agent}")
-            else:
-                # Try standalone
-                standalone = True
-                workspace_manager = WorkspaceManager(use_agents=False)
-
-    mode = f"Agent: {selected_agent}" if selected_agent else "Standalone"
-    print(f"   Mode: {mode}")
-
-    # Load workspace
-    _verbose_print("update_wdl_action", "loading workspace")
-    success, workspace_data, msg = workspace_manager.load_workspace(workflow_id, selected_agent)
-    if not success:
-        print(f"❌ {msg}")
+    # Find the action
+    _verbose_print("update_wdl_action", "finding action")
+    action_info = workspace_manager.find_action(workflow_id)
+    
+    if not action_info:
+        print(f"❌ Action not found: {workflow_id}")
         print("\n💡 Tip: Use --create to create a new workflow")
         _verbose_print("update_wdl_action", "EXIT", "workspace not found")
         return 1
 
-    workspace = workspace_data["workspace_path"]
+    workspace = Path(action_info["path"])
+    selected_agent = action_info.get("agent_name")
+    
+    mode = f"Agent: {selected_agent}" if selected_agent else "Standalone"
+    print(f"   Mode: {mode}")
     print(f"✅ Found workspace: {workspace}")
 
     # Check if we have anything to add
@@ -1192,14 +1033,12 @@ Examples:
   python manage_wdl_action.py --create -r req.md -t "My Workflow" --use-api abc-123
   python manage_wdl_action.py --create -r req.md -t "My Workflow" --standalone
   
-  # === DISCOVERY ===
-  python manage_wdl_action.py --list-tools
-  python manage_wdl_action.py --list-all-actions  # execution_type=DEFAULT
-  python manage_wdl_action.py --list-workflows    # execution_type=WORKFLOW
-  python manage_wdl_action.py --list-apis
-  python manage_wdl_action.py --search "user profile"
-  python manage_wdl_action.py --search-apis "authentication"
-  python manage_wdl_action.py --auto-discover -r requirements.md
+  # === DISCOVERY (use cli/discover.py instead) ===
+  python cli/discover.py --list-tools
+  python cli/discover.py --list-all
+  python cli/discover.py --actions "user profile"
+  python cli/discover.py --apis "authentication"
+  python cli/discover.py --requirements requirements.md
 
   # === UPDATE EXISTING ===
   python manage_wdl_action.py --update --workflow-id abc123 --use-api api-1
@@ -1221,41 +1060,8 @@ Examples:
         help="Workflow ID (required for --update or when using --use-api/--use-tool independently)"
     )
 
-    # Discovery commands
-    parser.add_argument(
-        "--list-tools", action="store_true", help="List available tools from platform"
-    )
-    parser.add_argument(
-        "--list-all-actions", action="store_true", 
-        help="List all actions with execution_type=DEFAULT"
-    )
-    parser.add_argument(
-        "--list-workflows", action="store_true", 
-        help="List workflow actions with execution_type=WORKFLOW"
-    )
-    parser.add_argument(
-        "--list-apis", action="store_true", help="List available APIs from platform"
-    )
-    parser.add_argument(
-        "--search", metavar="QUERY",
-        help="Semantic search for tools matching a query"
-    )
-    parser.add_argument(
-        "--search-apis", metavar="QUERY",
-        help="Semantic search for APIs matching a query"
-    )
-    parser.add_argument(
-        "--auto-discover", action="store_true",
-        help="Auto-discover relevant tools AND APIs based on requirements (for Cursor)"
-    )
-    parser.add_argument(
-        "--json", action="store_true",
-        help="Output in JSON format (for Cursor/machine parsing)"
-    )
-    parser.add_argument(
-        "--top-k", type=int, default=5,
-        help="Number of results for search/discovery (default: 5)"
-    )
+    # Note: Discovery commands have moved to cli/discover.py
+    # Use: python cli/discover.py --help
 
     # Template option
     parser.add_argument(
@@ -1316,30 +1122,6 @@ Examples:
         print("[VERBOSE] Verbose mode enabled", file=sys.stderr)
 
     # Handle discovery commands (work independently)
-    if args.list_tools:
-        sys.exit(list_tools_command(json_output=args.json, execution_type="TOOL"))
-
-    if args.list_all_actions:
-        sys.exit(list_tools_command(json_output=args.json, execution_type="ALL"))
-
-    if args.list_workflows:
-        sys.exit(list_tools_command(json_output=args.json, execution_type="WORKFLOW"))
-
-    if args.list_apis:
-        sys.exit(list_apis_command(json_output=args.json))
-
-    if args.search:
-        sys.exit(search_tools_command(args.search, args.top_k, json_output=args.json))
-
-    if args.search_apis:
-        sys.exit(search_apis_command(args.search_apis, args.top_k, json_output=args.json))
-
-    if args.auto_discover:
-        if not args.requirements:
-            print("❌ --auto-discover requires --requirements", file=sys.stderr)
-            sys.exit(1)
-        sys.exit(auto_discover_command(args.requirements, args.top_k))
-
     # Handle update mode
     if args.update:
         if not args.workflow_id:

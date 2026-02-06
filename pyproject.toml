@@ -4,24 +4,17 @@ version = "0.1.0"
 description = "Agent-driven CLI toolkit for building, testing, and managing actions and workflows on the AdoptAI platform."
 authors = ["Adopt AI <contact@adopt.ai>"]
 readme = "README.md"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
 requests = ">=2.31.0"
+python-dotenv = ">=1.0.0"
+pydantic = ">=2.0.0"
+colorama = ">=0.4.6"
 faiss-cpu = ">=1.7.4"
 numpy = ">=1.24.0"
-python-dotenv = ">=1.0.0"
 sentence-transformers = ">=2.2.0"
-openai = ">=1.0.0"
-anthropic = ">=0.39.0"
-pydantic = ">=2.0.0"
-langchain-core = ">=0.3.0"
-langchain-anthropic = ">=0.3.0"
-pandas = ">=2.0.0"
-maxim-py = ">=3.10.9"
-langchain-aws = ">=0.2.0"
-langgraph = ">=0.2.0"
-colorama = ">=0.4.6"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
@@ -34,5 +27,6 @@ target-version = "py311"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "B", "C4", "SIM", "UP"]
 ignore = ["E501"]
+
 
 

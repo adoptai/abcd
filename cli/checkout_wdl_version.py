@@ -3,6 +3,12 @@
 Checkout a specific version of a WDL action.
 
 Downloads the version's WDL to local workspace for testing/modification.
+
+TRANSPARENT BEHAVIOR (default):
+- Action ID: Auto-detected from workspace metadata
+- Agent/Standalone: Auto-detected from workspace location
+
+USE FLAGS ONLY when automatic behavior doesn't work.
 """
 
 import argparse
@@ -14,29 +20,32 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
+from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.version_tracker import (
     update_current_version,
     update_metadata_version,
     set_checked_out_version,
 )
-from cli.wdl_common.workspace_manager import WorkspaceManager
+from cli.wdl_common.workspace_manager import WorkspaceManager, get_workspace_manager
 
 
 def checkout_wdl_version(
-    action_id: str, 
-    version_id: str,
+    action_id: Optional[str] = None,
+    version_id: Optional[str] = None,
     workflow_id: Optional[str] = None,
     standalone: bool = False,
 ) -> bool:
     """
     Checkout a specific version to local workspace.
 
+    TRANSPARENT: Can be called with just workflow_id - action_id auto-detected.
+
     Args:
-        action_id: The action ID
+        action_id: The action ID (optional - auto-detected from metadata)
         version_id: Version to checkout
-        workflow_id: Optional workflow ID to find workspace
-        standalone: Use standalone mode (no agents)
+        workflow_id: Workflow ID to find workspace (recommended)
+        standalone: Use standalone mode (override auto-detection)
 
     Returns:
         True if successful
@@ -44,20 +53,60 @@ def checkout_wdl_version(
     print("\n" + "=" * 80)
     print("📥 CHECKOUT WDL VERSION")
     print("=" * 80)
+
+    # Try to find workspace by workflow_id first
+    workspace = None
+    meta_manager = None
+
+    if workflow_id:
+        workspace_manager = WorkspaceManager()
+        action_info = workspace_manager.find_action(workflow_id)
+        if action_info:
+            workspace = Path(action_info["path"])
+
+    # If workspace found, use MetadataManager for action_id
+    if workspace and workspace.exists():
+        meta_manager = MetadataManager(workspace)
+
+        # Get action_id from metadata if not provided
+        if not action_id:
+            action_id = meta_manager.get_action_id()
+
+        # Try to recover action_id by title if still not found
+        if not action_id:
+            meta_data = meta_manager.load()
+            title = meta_data.title
+            if title:
+                print(f"🔍 No action_id found. Searching by title: {title}")
+                client = get_api_client_for_env()  # Uses active environment
+                success_list, tools, msg_list = client.list_tools()
+                if success_list and tools:
+                    for tool in tools:
+                        if tool.get("title") == title:
+                            action_id = tool.get("action_id") or tool.get("id")
+                            print(f"   ✅ Found action: {action_id}")
+                            meta_manager.set_action_id(action_id)
+                            break
+
+    # Fallback to active environment's actions folder if no workspace
+    if not workspace and action_id:
+        from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_active_environment
+        env = get_active_environment()
+        if env:
+            workspace = WORKSPACES_DIR / env / "actions" / action_id
+        else:
+            workspace = WORKSPACES_DIR / "default" / "actions" / action_id
+
+    if not action_id:
+        print("❌ No action_id found. Provide --action-id or use --workflow-id with linked workspace.")
+        return False
+
+    if not version_id:
+        print("❌ No version specified. Use --version to specify version to checkout.")
+        return False
+
     print(f"Action ID: {action_id}")
     print(f"Version: {version_id}")
-
-    # Try to find workspace by workflow_id or action_id
-    workspace = None
-    if workflow_id:
-        workspace_manager = WorkspaceManager(use_agents=not standalone)
-        success, data, msg = workspace_manager.load_workspace(workflow_id)
-        if success:
-            workspace = data.get("workspace_path")
-    
-    # Fallback to legacy location
-    if not workspace:
-        workspace = Path(__file__).parent.parent / "actions" / action_id
 
     if not workspace.exists():
         print(f"⚠️  Creating workspace: {workspace}")
@@ -66,7 +115,8 @@ def checkout_wdl_version(
         (workspace / "traces").mkdir(exist_ok=True)
         (workspace / "versions").mkdir(exist_ok=True)
 
-    client = AdoptAPIClient()
+    # Load API client with environment credentials
+    client = get_api_client_for_env()
 
     # Get versions list to check if this version is current
     print("\n📋 Checking version status...")
@@ -153,6 +203,22 @@ def checkout_wdl_version(
         print("❌ No WDL found in version")
         return False
 
+    # Check if this is an Uber Agent (contains PROMPT_AND_TOOLS_AGENT operation)
+    is_uber_agent = False
+    sub_action_ids = []
+    for step in wdl:
+        if isinstance(step, dict) and step.get("operation") == "PROMPT_AND_TOOLS_AGENT":
+            is_uber_agent = True
+            sub_action_ids = step.get("action_ids", [])
+            break
+
+    if is_uber_agent and not standalone:
+        print(f"\n🤖 UBER AGENT DETECTED!")
+        print(f"   This action contains PROMPT_AND_TOOLS_AGENT with {len(sub_action_ids)} sub-actions.")
+        print(f"   💡 Consider using agent checkout instead:")
+        print(f"      python cli/workspace.py agent checkout --remote-id {action_id} --env <env> --include-subactions")
+        print(f"\n   Continuing with standard checkout (sub-actions will NOT be downloaded)...")
+
     # Backup current WDL if exists
     wdl_path = workspace / "widdle.json"
     if wdl_path.exists():
@@ -222,10 +288,10 @@ def checkout_wdl_version(
     print("\n   You can now:")
     print("   - Edit widdle.json")
     if workflow_id:
-        print(f"   - Test: python cli/test_wdl_action.py {workflow_id}")
+        print(f"   - Test: python cli/test_runner.py {workflow_id}")
         print(f"   - Save draft: python cli/save_wdl_draft.py --workflow-id {workflow_id}")
     else:
-        print(f"   - Test: python cli/test_wdl_action.py {action_id}")
+        print(f"   - Test: python cli/test_runner.py {action_id}")
         print(f"   - Save draft: python cli/save_wdl_draft.py --action-id {action_id}")
     print("=" * 80)
 
@@ -234,16 +300,46 @@ def checkout_wdl_version(
 
 def main() -> None:
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Checkout a specific version")
-    parser.add_argument("action_id", help="Action ID")
+    parser = argparse.ArgumentParser(
+        description="Checkout a specific version",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+TRANSPARENT BEHAVIOR (default):
+  - Action ID: Auto-detected from workspace metadata
+  - Agent: Auto-detected from workspace location
+
+Examples:
+  # Checkout using workflow_id (RECOMMENDED)
+  python checkout_wdl_version.py --workflow-id my-workflow --version 3
+
+  # Checkout with explicit action_id (legacy)
+  python checkout_wdl_version.py abc123-action-id --version 3
+
+USE FLAGS ONLY when automatic behavior doesn't work.
+""",
+    )
+    parser.add_argument(
+        "action_id", nargs="?", default=None,
+        help="Action ID (optional if --workflow-id provided)"
+    )
     parser.add_argument("--version", "-v", required=True, help="Version to checkout")
-    parser.add_argument("--workflow-id", "-w", help="Workflow ID (to find workspace)")
-    parser.add_argument("--standalone", "-s", action="store_true", help="Standalone mode")
+    parser.add_argument(
+        "--workflow-id", "-w",
+        help="Workflow ID (RECOMMENDED - auto-detects action_id)"
+    )
+    parser.add_argument(
+        "--standalone", "-s", action="store_true",
+        help="Override agent detection with standalone mode"
+    )
     args = parser.parse_args()
 
+    # Require either action_id or workflow_id
+    if not args.action_id and not args.workflow_id:
+        parser.error("Either action_id or --workflow-id is required")
+
     success = checkout_wdl_version(
-        args.action_id, 
-        args.version,
+        action_id=args.action_id,
+        version_id=args.version,
         workflow_id=args.workflow_id,
         standalone=args.standalone,
     )

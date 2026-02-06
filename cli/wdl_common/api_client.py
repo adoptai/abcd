@@ -160,16 +160,52 @@ class AdoptAPIClient:
         except requests.exceptions.RequestException as e:
             return False, f"Network error: {e}"
 
+    def get_deployment_rules(
+        self,
+        action_id: str,
+    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        Get deployment rules for action including tool mode status.
+
+        Returns:
+            Tuple of (success, deployment_rules_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/actions/{action_id}/deployment-rules"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Deployment rules fetched"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
     def set_deployment_rules(
         self,
         action_id: str,
-        is_tool_mode: bool = True,
-    ) -> Tuple[bool, str]:
-        """Set deployment rules for action."""
+        is_tool_mode: bool = False,
+        is_visible_in_list: bool = True,
+        rules: Optional[List[Dict[str, Any]]] = None,
+    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        Set deployment rules for action.
+
+        Args:
+            action_id: Action ID
+            is_tool_mode: Enable Tool Mode (bypass orchestrator)
+            is_visible_in_list: Show in action list
+            rules: Optional targeting rules (user properties, instance attributes)
+
+        Returns:
+            Tuple of (success, deployment_rules_data, message)
+        """
         url = f"{self.actions_endpoint}/v1/actions/{action_id}/deployment-rules"
         payload = {
-            "rules": [],
-            "is_visible_in_list": True,
+            "rules": rules or [],
+            "is_visible_in_list": is_visible_in_list,
             "is_tool_mode": is_tool_mode,
         }
 
@@ -179,12 +215,12 @@ class AdoptAPIClient:
             )
 
             if response.status_code not in (200, 201):
-                return False, f"Failed: {response.status_code} - {response.text}"
+                return False, None, f"Failed: {response.status_code} - {response.text}"
 
-            return True, "Deployment rules set"
+            return True, response.json(), "Deployment rules updated"
 
         except requests.exceptions.RequestException as e:
-            return False, f"Network error: {e}"
+            return False, None, f"Network error: {e}"
 
     def populate_instructions(self, action_id: str) -> Tuple[bool, str]:
         """Trigger instruction population for action."""
@@ -309,6 +345,7 @@ class AdoptAPIClient:
             action_id: Action to run
             user_input: Natural language input
             profile: Adopt profile with base_url, security_params, etc.
+                     Can optionally include profiles_map for per-API profiles.
             workflow_params: Optional workflow parameters
             version_number: Optional version number to test (if None, uses latest published)
             allow_draft: Whether to allow testing draft versions
@@ -316,21 +353,20 @@ class AdoptAPIClient:
         Returns:
             Tuple of (success, response_data, message)
         """
-        try:
-            from langchain_core.messages import HumanMessage
-        except ImportError:
-            return False, None, "langchain_core not installed"
-
         url = f"{self.api_endpoint}/v1/actions/run?include_trace=true"
 
-        message = HumanMessage(content=user_input)
+        # Format message in langchain HumanMessage format
+        message = {
+            "type": "human",
+            "content": user_input,
+        }
 
         combined_params = {**profile.get("workflow_params", {})}
         if workflow_params:
             combined_params.update(workflow_params)
 
         payload = {
-            "messages": [message.model_dump()],
+            "messages": [message],
             "action_id": action_id,
             "execution_type": "TOOL",
             "base_url": profile.get("base_url", ""),
@@ -338,6 +374,33 @@ class AdoptAPIClient:
             "workflow_params": combined_params,
             "security_params": profile.get("security_params", {}),
         }
+        
+        # Add profiles_map if present in profile (for per-API/application profiles)
+        # This allows different base_url and security_params for different APIs
+        # Note: We map security_params -> security_headers for ProjectA3 compatibility
+        profiles_map = profile.get("profiles_map")
+        if profiles_map:
+            # Convert security_params to security_headers in each profile entry
+            # This allows users to use consistent naming (security_params) in adopt_profile.json
+            converted_profiles_map = {}
+            for key, entry in profiles_map.items():
+                converted_entry = entry.copy() if isinstance(entry, dict) else entry
+                if isinstance(converted_entry, dict) and "security_params" in converted_entry:
+                    converted_entry["security_headers"] = converted_entry.pop("security_params")
+                converted_profiles_map[key] = converted_entry
+            payload["profiles_map"] = converted_profiles_map
+        
+        # Add mcp_profiles_map if present (for MCP integration profiles)
+        # Same conversion: security_params -> security_headers
+        mcp_profiles_map = profile.get("mcp_profiles_map")
+        if mcp_profiles_map:
+            converted_mcp_profiles_map = {}
+            for key, entry in mcp_profiles_map.items():
+                converted_entry = entry.copy() if isinstance(entry, dict) else entry
+                if isinstance(converted_entry, dict) and "security_params" in converted_entry:
+                    converted_entry["security_headers"] = converted_entry.pop("security_params")
+                converted_mcp_profiles_map[key] = converted_entry
+            payload["mcp_profiles_map"] = converted_mcp_profiles_map
         
         # Add version parameters if provided
         if version_number is not None:
@@ -754,3 +817,59 @@ class AdoptAPIClient:
 
         except requests.exceptions.RequestException as e:
             return False, None, f"Network error: {e}"
+
+
+def get_api_client_for_env(verbose: bool = False) -> AdoptAPIClient:
+    """
+    Get an API client with credentials from the active environment.
+    
+    This function:
+    1. Uses the active environment
+    2. Loads the environment's .env credentials
+    3. Returns configured AdoptAPIClient
+    
+    Args:
+        verbose: Print verbose info about credential loading.
+    
+    Returns:
+        AdoptAPIClient configured with environment credentials.
+        
+    Raises:
+        ValueError: If no active environment
+    """
+    from dotenv import load_dotenv
+    from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_workspace_manager
+
+    manager = get_workspace_manager()
+    
+    if not manager.active_env:
+        raise ValueError(
+            "No active environment. Set one with: "
+            "python cli/workspace.py env use <env-id>"
+        )
+    
+    env = manager.active_env
+    env_path = WORKSPACES_DIR / env
+
+    # Load environment-specific .env file
+    env_dotenv = env_path / ".env"
+    if env_dotenv.exists():
+        if verbose:
+            print(f"[VERBOSE] Loading credentials from: {env_dotenv}", file=sys.stderr)
+        load_dotenv(env_dotenv, override=True)
+
+        # Check if credentials are configured
+        client_id = os.getenv("ADOPT_CLIENT_ID", "")
+        client_secret = os.getenv("ADOPT_CLIENT_SECRET", "")
+
+        if "your-" in client_id.lower() or not client_id:
+            print(f"⚠️  Warning: ADOPT_CLIENT_ID not configured in: {env}", file=sys.stderr)
+            print(f"   Edit: {env_dotenv}", file=sys.stderr)
+        if "your-" in client_secret.lower() or not client_secret:
+            print(f"⚠️  Warning: ADOPT_CLIENT_SECRET not configured in: {env}", file=sys.stderr)
+            print(f"   Edit: {env_dotenv}", file=sys.stderr)
+    else:
+        print(f"⚠️  Warning: No .env file in environment: {env}", file=sys.stderr)
+        print(f"   Expected: {env_dotenv}", file=sys.stderr)
+
+    return AdoptAPIClient()

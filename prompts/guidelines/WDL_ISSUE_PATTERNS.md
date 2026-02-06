@@ -24,7 +24,7 @@ This document catalogs common WDL issues, their detection patterns, and fix stra
 3. **SAVE DRAFT AND TEST**
    ```bash
    python cli/save_wdl_draft.py --workflow-id <id> --standalone
-   python cli/test_wdl_action.py <id>
+   python cli/test_runner.py <id>
    ```
 
 ### Why This Matters
@@ -474,8 +474,7 @@ When creating fixes, use this template:
       "method": "GET",
       "url": "/api/v1/resource/{workflow_arguments.paramName}/",
       "canonical_api_endpoint": "/api/v1/resource/{resourceId}/",
-      "query_parameters": {},
-      "output_key": "result"
+      "query_params": {}
     }
   ],
   "test_prompts": [
@@ -498,11 +497,201 @@ python cli/diagnose_and_fix.py --scan --format llm | grep "api_id: <api-id>"
 
 # 3. Save draft and test each tool
 python cli/save_wdl_draft.py --workflow-id <tool-1> --standalone
-python cli/test_wdl_action.py <tool-1>
+python cli/test_runner.py <tool-1>
 # Repeat for all affected tools
 ```
 
 **IMPORTANT**: If you fix an API and don't update all tools using it, those tools will break!
+
+---
+
+### Category 6: profiles_map Issues
+
+#### 6.1 Missing Application Profile
+
+**Pattern**: REST block uses `application` property but no matching entry in `profiles_map`
+
+**Detection**:
+```python
+def detect_missing_profile(wdl, adopt_profile):
+    profiles_map = adopt_profile.get('profiles_map', {})
+    for block in wdl:
+        if block.get('operation') == 'REST' and 'application' in block:
+            app_name = block['application']
+            if app_name not in profiles_map:
+                return f"Missing profile for application: {app_name}"
+    return None
+```
+
+**Example**:
+```json
+// WDL
+{ "operation": "REST", "application": "ShippingAPI", "url": "/v2/shipments" }
+
+// adopt_profile.json - Missing ShippingAPI profile!
+{ "base_url": "https://api.example.com", "profiles_map": {} }
+```
+
+**Fix Strategy**:
+1. Add the missing profile to `adopt_profile.json`:
+   ```json
+   {
+     "profiles_map": {
+       "ShippingAPI": {
+         "base_url": "https://api.shipping-provider.com",
+         "security_params": {
+           "API-Key": "your-api-key"
+         }
+       }
+     }
+   }
+   ```
+
+**Severity**: CRITICAL - REST call will use wrong base URL or fail authentication
+
+---
+
+#### 6.2 Wrong Security Parameter Name
+
+**Pattern**: Using `security_headers` instead of `security_params` in `adopt_profile.json`
+
+**Detection**:
+```python
+def detect_wrong_security_name(adopt_profile):
+    profiles_map = adopt_profile.get('profiles_map', {})
+    for app_name, profile in profiles_map.items():
+        if 'security_headers' in profile:
+            return f"Use 'security_params' not 'security_headers' in profiles_map.{app_name}"
+    return None
+```
+
+**Example**:
+```json
+// WRONG - Uses security_headers
+{
+  "profiles_map": {
+    "ShippingAPI": {
+      "base_url": "https://api.shipping-provider.com",
+      "security_headers": { "API-Key": "key" }  // WRONG
+    }
+  }
+}
+
+// CORRECT - Uses security_params
+{
+  "profiles_map": {
+    "ShippingAPI": {
+      "base_url": "https://api.shipping-provider.com",
+      "security_params": { "API-Key": "key" }  // CORRECT
+    }
+  }
+}
+```
+
+**Note**: The CLI automatically converts `security_params` to `security_headers` when sending to the backend.
+
+**Severity**: HIGH - Authentication will fail
+
+---
+
+#### 6.3 Application Name Mismatch
+
+**Pattern**: Application name in WDL doesn't match key in `profiles_map` (case-sensitive)
+
+**Detection**:
+```python
+def detect_app_name_mismatch(wdl, adopt_profile):
+    profiles_map = adopt_profile.get('profiles_map', {})
+    for block in wdl:
+        if block.get('operation') == 'REST' and 'application' in block:
+            app_name = block['application']
+            # Check for case mismatch
+            for profile_key in profiles_map.keys():
+                if app_name.lower() == profile_key.lower() and app_name != profile_key:
+                    return f"Case mismatch: WDL uses '{app_name}' but profile has '{profile_key}'"
+    return None
+```
+
+**Example**:
+```json
+// WDL uses "shippingapi" (lowercase)
+{ "operation": "REST", "application": "shippingapi" }
+
+// adopt_profile.json has "ShippingAPI" (different case)
+{ "profiles_map": { "ShippingAPI": { ... } } }
+```
+
+**Fix Strategy**:
+1. Ensure exact case match between WDL `application` and `profiles_map` key
+
+**Severity**: CRITICAL - Profile won't be found, falls back to default
+
+---
+
+---
+
+## ⚠️ MANDATORY: Data Flow Tracing Protocol
+
+When debugging WDL execution failures, follow this systematic 4-step protocol:
+
+### Step 1: Identify the Failing Operation
+
+From the error message or trace, identify:
+- **Which operation failed** (by `id`)
+- **What error type** occurred (KeyError, TypeError, JQ error, etc.)
+- **What input was expected** vs what was received
+
+### Step 2: Trace Data Backwards
+
+Starting from the failing operation, trace the data flow backwards:
+
+```
+failing_operation.input → previous_operation.output → ... → source
+```
+
+For each step:
+1. **Check the output type** - Is it an array, object, string?
+2. **Check for wrappers** - Is the data wrapped in `result: [...]` or similar?
+3. **Check for nesting** - Is it `[[data]]` instead of `[data]`?
+
+### Step 3: Verify Operation Parameters
+
+For the operation that produced the problematic output:
+- **JQ_FILTER**: Check `extract_all` parameter (default: `true` = wraps in array!)
+- **EXTRACT**: Check if input is actually an object (not array)
+- **FIRST_ELEMENT**: Check if you need multiple unwraps for nested arrays
+
+### Step 4: Fix and Verify
+
+After identifying the issue:
+1. **Fix the operation** (add FIRST_ELEMENT, set extract_all=false, etc.)
+2. **Save draft** using `python cli/save_wdl_draft.py`
+3. **Test** using `python cli/test_runner.py` (simpler, always allow_draft=True)
+4. **Verify trace** - Check that data types match expectations at each step
+
+### Common Data Flow Issues
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Cannot index array with string` | JQ_FILTER wrapped result in array | Add FIRST_ELEMENT or set `extract_all: false` |
+| `Input is not a JSON object, it is a list` | Double-nested array `[[...]]` | Add second FIRST_ELEMENT |
+| `KeyError: 'field'` | Input is array, not object | Add FIRST_ELEMENT before EXTRACT |
+| `result: []` wrapper | JQ_FILTER default behavior | Access via `.result` or set `extract_all: false` |
+
+### Example Debug Session
+
+```
+Error: "Cannot index array with string 'Items'"
+↓
+Trace backwards: extractItems.input = "{decodeResponse}"
+↓
+Check decodeResponse output: { "result": [{ "Items": [...] }] }
+↓
+Problem: JQ_FILTER wrapped output in array!
+↓
+Fix: Add FIRST_ELEMENT between JQ_FILTER and EXTRACT
+     OR: Modify JQ filter to access .Items directly
+```
 
 ---
 
@@ -512,6 +701,7 @@ python cli/test_wdl_action.py <tool-1>
 - [API Configuration Guide](../../docs/api_configuration.md)
 - [Diagnostic Toolkit CLI](../../docs/diagnostic_toolkit.md)
 - `prompts/system/DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md` - Full diagnostic system prompt
+- `prompts/system/WORKSPACE_HIERARCHY_PROMPT.md` - profiles_map configuration details
 
 
 

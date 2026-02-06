@@ -6,6 +6,9 @@ This is the main workflow script that ties all diagnostic tools together,
 providing a comprehensive workflow for scanning, diagnosing, and fixing
 API and tool WDL issues.
 
+IMPORTANT: This script integrates with the hierarchical workspace manager.
+All operations use the active environment's credentials and cache.
+
 Usage Modes:
     # MODE 1: Scan & Generate Summary (for AI agent investigation)
     python cli/diagnose_and_fix.py --scan --output diagnostics/issues_summary.md
@@ -33,9 +36,9 @@ from typing import Any, Dict, List, Optional, Tuple
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token
 
 from wdl_common.api_client import AdoptAPIClient
+from wdl_common.context import ensure_env, get_client
 from wdl_common.data_cache import DataCache
 from wdl_common.diff_utils import display_diff
 from wdl_common.interactive import (
@@ -172,7 +175,7 @@ def run_comprehensive_scan(
         "report_metadata": {
             "generated_at": datetime.now().isoformat(),
             "scan_duration_seconds": 0,
-            "tool_builder_version": "1.0.0",
+            "abcd_version": "1.0.0",
         },
         "summary": {
             "total_tools": len(tools),
@@ -191,7 +194,7 @@ def run_comprehensive_scan(
             "2. For each issue, examine the 'details' and 'suggested_fix'",
             "3. Generate a fixes.json file with your corrections",
             "4. Run: python cli/diagnose_and_fix.py --apply-fixes fixes.json",
-            "5. Test each fixed tool: python cli/test_wdl_action.py <tool-id> --all",
+            "5. Test each fixed tool: python cli/test_runner.py <tool-id> --all",
         ],
     }
     
@@ -514,8 +517,8 @@ def apply_fixes_from_file(
             if test_after_fix and tool_id:
                 print(f"   🧪 Running tests...")
                 try:
-                    from cli.test_wdl_action import run_test
-                    test_result = run_test(tool_id, run_all=True, no_auto_save=True)
+                    from cli.test_runner import run_test
+                    test_result = run_test(tool_id, run_all=True)
                     results['tested'] += 1
                     if test_result.get('success'):
                         results['test_passed'] += 1
@@ -589,8 +592,15 @@ Examples:
     print("=" * 70)
     
     try:
-        bearer_token = get_bearer_token()
-        cache = DataCache()
+        # Ensure environment is loaded and show which one we're using
+        env_name = ensure_env()
+        print(f"📁 Environment: {env_name}")
+        
+        # Get client and cache (both use active environment)
+        client = get_client()
+        bearer_token = client.bearer_token
+        cache = DataCache()  # Uses active environment's cache automatically
+        print(f"📂 Cache: {cache.cache_dir}")
         
         if args.scan or args.interactive:
             # Run comprehensive scan

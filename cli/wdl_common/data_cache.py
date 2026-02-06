@@ -3,31 +3,65 @@
 Unified data caching system for the diagnostic toolkit.
 
 Manages caching of tools, APIs, and network logs to avoid repeated API calls.
+
+IMPORTANT: This module now integrates with the hierarchical workspace manager.
+Cache files are stored per-environment in workspaces/{env}/.cache/ by default.
 """
 
 import json
 import os
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .models import NetworkLogEntry
 from .log_parser import parse_log_entry, save_logs_to_file
 
 
 class DataCache:
-    """Unified cache manager for tools, APIs, and network logs."""
+    """
+    Unified cache manager for tools, APIs, and network logs.
     
-    def __init__(self, cache_dir: str = "cache"):
+    Integrates with the hierarchical workspace manager to store cache files
+    per-environment. This ensures that cached data from one client environment
+    doesn't contaminate diagnostics for another.
+    
+    Usage:
+        # Preferred: Uses active environment's cache automatically
+        cache = DataCache()
+        
+        # Explicit path (for testing or special cases)
+        cache = DataCache(cache_dir=Path("/custom/path"))
+    """
+    
+    def __init__(self, cache_dir: Optional[Union[str, Path]] = None):
         """
         Initialize the data cache.
         
         Args:
-            cache_dir: Directory to store cache files (relative to tool-builder root)
+            cache_dir: Optional explicit cache directory. If None, uses the
+                       active environment's .cache directory from the workspace
+                       manager. Falls back to global cache/ if no active env.
         """
-        # Find tool-builder root
-        self.tool_builder_root = Path(__file__).parent.parent.parent
-        self.cache_dir = self.tool_builder_root / cache_dir
+        self._env_name: Optional[str] = None
+        
+        if cache_dir is not None:
+            # Explicit path provided
+            self.cache_dir = Path(cache_dir)
+        else:
+            # Try to use per-environment cache from workspace manager
+            try:
+                from cli.wdl_common.context import get_env_cache_path, ensure_env
+                self._env_name = ensure_env()
+                self.cache_dir = get_env_cache_path()
+            except (ValueError, ImportError) as e:
+                # Fallback to global cache if no active env or import error
+                self.repo_root = Path(__file__).parent.parent.parent
+                self.cache_dir = self.repo_root / "cache"
+                print(f"⚠️  Using global cache (no active environment): {self.cache_dir}", 
+                      file=sys.stderr)
+        
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         self.tools_cache_file = self.cache_dir / "tools_detailed.json"
@@ -38,6 +72,11 @@ class DataCache:
         self._tools_cache: Optional[List[Dict]] = None
         self._apis_cache: Optional[List[Dict]] = None
         self._logs_cache: Optional[List[NetworkLogEntry]] = None
+    
+    @property
+    def env_name(self) -> Optional[str]:
+        """Get the environment name this cache is associated with."""
+        return self._env_name
     
     def _get_cache_metadata(self, cache_file: Path) -> Optional[Dict[str, Any]]:
         """Get metadata from a cache file."""
@@ -347,6 +386,12 @@ class DataCache:
         print("\n" + "=" * 60)
         print("📦 CACHE STATUS")
         print("=" * 60)
+        
+        # Show environment info
+        if self._env_name:
+            print(f"  📁 Environment: {self._env_name}")
+        print(f"  📂 Cache Path: {self.cache_dir}")
+        print()
         
         for cache_type, info in status.items():
             if info['exists']:

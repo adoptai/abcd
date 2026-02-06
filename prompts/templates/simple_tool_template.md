@@ -29,15 +29,14 @@ Start with this placeholder and customize based on the API specification:
     "operation": "REST",
     "method": "GET",
     "canonical_api_endpoint": "/api/v1/endpoint",
-    "url": "/api/v1/endpoint",
-    "output_key": "api_response"
+    "url": "/api/v1/endpoint"
   },
   {
     "id": "output",
     "operation": "OUTPUT_TEXT",
     "raw": true,
     "inputs": {
-      "content": "{api_response}"
+      "content": "{call_api}"
     }
   }
 ]
@@ -55,8 +54,7 @@ Start with this placeholder and customize based on the API specification:
          ▼
 ┌─────────────────┐
 │      REST       │  ← Call the API endpoint
-│  output_key:    │
-│  "api_response" │
+│  id: "call_api" │     (id is used to reference results)
 └────────┬────────┘
          │
          ▼ (optional)
@@ -72,6 +70,22 @@ Start with this placeholder and customize based on the API specification:
 │   raw: true     │
 └─────────────────┘
 ```
+
+## ⚠️ CRITICAL: How to Reference Operation Outputs
+
+**The `id` field of each operation IS the output reference.** There is no separate "output_key" field.
+
+To reference the output of a previous operation:
+- Use `{operation_id}` to get the full output
+- Use `{operation_id.field_name}` to access a specific field
+
+Example:
+```json
+{"id": "get_data", "operation": "REST", ...}     // id = "get_data"
+{"id": "output", "operation": "OUTPUT_TEXT", "inputs": {"content": "{get_data}"}}  // Reference by id
+```
+
+---
 
 ## Key Guidelines
 
@@ -93,15 +107,14 @@ Start with this placeholder and customize based on the API specification:
 
 ```json
 {
-  "id": "unique_id",
+  "id": "api_call",
   "operation": "REST",
   "method": "GET|POST|PUT|PATCH|DELETE",
   "canonical_api_endpoint": "/path/from/api/spec",
   "url": "/path/with/{workflow_arguments.param}",
-  "output_key": "response_variable",
   
   // For POST/PUT/PATCH:
-  "body": {
+  "payload": {
     "field": "{workflow_arguments.input_field}"
   },
   
@@ -117,6 +130,8 @@ Start with this placeholder and customize based on the API specification:
 }
 ```
 
+**Note:** The `id` field is used to reference the operation's result in subsequent steps (e.g., `{api_call}` or `{api_call.field}`).
+
 ### 3. Data Transformation (Optional)
 
 Use when you need to extract or filter the API response:
@@ -124,39 +139,30 @@ Use when you need to extract or filter the API response:
 **JQ_FILTER** - Complex JSON transformations:
 ```json
 {
-  "id": "transform",
+  "id": "filtered_data",
   "operation": "JQ_FILTER",
-  "jq_query": ".data | map({id, name})",
-  "inputs": {
-    "data": "{api_response}"
-  },
-  "output_key": "filtered_data"
+  "filter": ".data | map({id, name})",
+  "input": "call_api"
 }
 ```
 
 **EXTRACT** - Simple field extraction:
 ```json
 {
-  "id": "extract",
+  "id": "items",
   "operation": "EXTRACT",
-  "inputs": {
-    "source": "{api_response}",
-    "path": "data.items"
-  },
-  "output_key": "items"
+  "input": "call_api",
+  "field": "data.items"
 }
 ```
 
 **PROJECT** - Select specific fields:
 ```json
 {
-  "id": "project",
-  "operation": "PROJECT",
-  "inputs": {
-    "source": "{api_response}",
-    "fields": ["id", "name", "status"]
-  },
-  "output_key": "projected_data"
+  "id": "projected_data",
+  "operation": "PROJECTION",
+  "input": "call_api",
+  "fields": ["id", "name", "status"]
 }
 ```
 
@@ -168,7 +174,7 @@ Use when you need to extract or filter the API response:
   "operation": "OUTPUT_TEXT",
   "raw": true,
   "inputs": {
-    "content": "{api_response}"
+    "content": "{call_api}"
   }
 }
 ```
@@ -176,8 +182,8 @@ Use when you need to extract or filter the API response:
 ## Variable Reference
 
 - `{workflow_arguments.param_name}` - Reference input parameters
-- `{previous_output_key}` - Reference output from previous operation
-- Use exact names from `required_inputs` and `output_key` fields
+- `{operation_id}` - Reference the full output from a previous operation by its `id`
+- `{operation_id.field}` - Reference a specific field from a previous operation's output
 
 ## Common Patterns
 
@@ -185,8 +191,8 @@ Use when you need to extract or filter the API response:
 ```json
 [
   {"required_inputs": {...}},
-  {"operation": "REST", "output_key": "response"},
-  {"operation": "OUTPUT_TEXT", "inputs": {"content": "{response}"}}
+  {"id": "api_call", "operation": "REST", ...},
+  {"id": "output", "operation": "OUTPUT_TEXT", "raw": true, "inputs": {"content": "{api_call}"}}
 ]
 ```
 
@@ -194,9 +200,9 @@ Use when you need to extract or filter the API response:
 ```json
 [
   {"required_inputs": {...}},
-  {"operation": "REST", "output_key": "raw_response"},
-  {"operation": "JQ_FILTER", "output_key": "filtered"},
-  {"operation": "OUTPUT_TEXT", "inputs": {"content": "{filtered}"}}
+  {"id": "api_call", "operation": "REST", ...},
+  {"id": "filtered", "operation": "JQ_FILTER", "input": "api_call", "filter": "..."},
+  {"id": "output", "operation": "OUTPUT_TEXT", "raw": true, "inputs": {"content": "{filtered}"}}
 ]
 ```
 
@@ -204,8 +210,8 @@ Use when you need to extract or filter the API response:
 ```json
 [
   {"required_inputs": {"data": {"type": "object", "definition": "Data to send"}}},
-  {"operation": "REST", "method": "POST", "body": "{workflow_arguments.data}"},
-  {"operation": "OUTPUT_TEXT", ...}
+  {"id": "api_call", "operation": "REST", "method": "POST", "payload": "{workflow_arguments.data}", ...},
+  {"id": "output", "operation": "OUTPUT_TEXT", "raw": true, "inputs": {"content": "{api_call}"}}
 ]
 ```
 
@@ -215,14 +221,6 @@ Use when you need to extract or filter the API response:
 - [ ] All API parameters are defined in `required_inputs`
 - [ ] `canonical_api_endpoint` matches the API spec exactly
 - [ ] `url` uses `{workflow_arguments.X}` for dynamic values
-- [ ] `output_key` is set on operations that produce data
+- [ ] Each operation has a unique `id` for referencing its output
 - [ ] `OUTPUT_TEXT` with `raw: true` is LAST
-- [ ] All variable references use correct syntax: `{variable_name}`
-
-
-
-
-
-
-
-
+- [ ] All variable references use correct syntax: `{operation_id}` or `{operation_id.field}`

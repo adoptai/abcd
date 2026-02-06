@@ -3,6 +3,12 @@
 List all versions of a WDL action.
 
 Shows version history with status, timestamps, and which version is live.
+
+TRANSPARENT BEHAVIOR (default):
+- Action ID: Auto-detected from workspace metadata
+- Agent/Standalone: Auto-detected from workspace location
+
+USE FLAGS ONLY when automatic behavior doesn't work.
 """
 
 import argparse
@@ -12,7 +18,8 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient
+from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
+from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.version_tracker import (
     sync_versions_from_api,
     read_metadata,
@@ -21,17 +28,19 @@ from cli.wdl_common.workspace_manager import WorkspaceManager
 
 
 def list_wdl_versions(
-    action_id: str,
+    action_id: Optional[str] = None,
     workflow_id: Optional[str] = None,
     standalone: bool = False,
 ) -> bool:
     """
     List all versions of an action and sync to metadata.json.
 
+    TRANSPARENT: Can be called with just workflow_id - action_id auto-detected.
+
     Args:
-        action_id: The action ID
-        workflow_id: Optional workflow ID to find workspace
-        standalone: Use standalone mode (no agents)
+        action_id: The action ID (optional - auto-detected from metadata)
+        workflow_id: Workflow ID to find workspace (recommended)
+        standalone: Use standalone mode (override auto-detection)
 
     Returns:
         True if successful
@@ -39,21 +48,58 @@ def list_wdl_versions(
     print("\n" + "=" * 80)
     print("📋 WDL ACTION VERSIONS")
     print("=" * 80)
+
+    # Try to find workspace by workflow_id first
+    workspace = None
+    meta_manager = None
+
+    if workflow_id:
+        workspace_manager = WorkspaceManager()
+        action_info = workspace_manager.find_action(workflow_id)
+        if action_info:
+            workspace = Path(action_info["path"])
+
+    # If workspace found, use MetadataManager for action_id
+    if workspace and workspace.exists():
+        meta_manager = MetadataManager(workspace)
+
+        # Get action_id from metadata if not provided
+        if not action_id:
+            action_id = meta_manager.get_action_id()
+
+        # Try to recover action_id by title if still not found
+        if not action_id:
+            meta_data = meta_manager.load()
+            title = meta_data.title
+            if title:
+                print(f"🔍 No action_id found. Searching by title: {title}")
+                client = get_api_client_for_env()  # Uses active environment
+                success_list, tools, msg_list = client.list_tools()
+                if success_list and tools:
+                    for tool in tools:
+                        if tool.get("title") == title:
+                            action_id = tool.get("action_id") or tool.get("id")
+                            print(f"   ✅ Found action: {action_id}")
+                            meta_manager.set_action_id(action_id)
+                            break
+
+    # Fallback to active environment's actions folder if no workspace
+    if not workspace and action_id:
+        from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_active_environment
+        env = get_active_environment()
+        if env:
+            workspace = WORKSPACES_DIR / env / "actions" / action_id
+        else:
+            workspace = WORKSPACES_DIR / "default" / "actions" / action_id
+
+    if not action_id:
+        print("❌ No action_id found. Provide action_id or use --workflow-id with linked workspace.")
+        return False
+
     print(f"Action ID: {action_id}")
 
-    # Try to find workspace
-    workspace = None
-    if workflow_id:
-        workspace_manager = WorkspaceManager(use_agents=not standalone)
-        success, data, msg = workspace_manager.load_workspace(workflow_id)
-        if success:
-            workspace = data.get("workspace_path")
-    
-    # Fallback to legacy location
-    if not workspace:
-        workspace = Path(__file__).parent.parent / "actions" / action_id
-
-    client = AdoptAPIClient()
+    # Load API client with environment credentials
+    client = get_api_client_for_env()
 
     success, versions, msg = client.list_versions(action_id)
 
@@ -126,14 +172,44 @@ def list_wdl_versions(
 
 def main() -> None:
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="List action versions")
-    parser.add_argument("action_id", help="Action ID")
-    parser.add_argument("--workflow-id", "-w", help="Workflow ID (to find workspace)")
-    parser.add_argument("--standalone", "-s", action="store_true", help="Standalone mode")
+    parser = argparse.ArgumentParser(
+        description="List action versions",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+TRANSPARENT BEHAVIOR (default):
+  - Action ID: Auto-detected from workspace metadata
+  - Agent: Auto-detected from workspace location
+
+Examples:
+  # List versions using workflow_id (RECOMMENDED)
+  python list_wdl_versions.py --workflow-id my-workflow
+
+  # List versions with explicit action_id (legacy)
+  python list_wdl_versions.py abc123-action-id
+
+USE FLAGS ONLY when automatic behavior doesn't work.
+""",
+    )
+    parser.add_argument(
+        "action_id", nargs="?", default=None,
+        help="Action ID (optional if --workflow-id provided)"
+    )
+    parser.add_argument(
+        "--workflow-id", "-w",
+        help="Workflow ID (RECOMMENDED - auto-detects action_id)"
+    )
+    parser.add_argument(
+        "--standalone", "-s", action="store_true",
+        help="Override agent detection with standalone mode"
+    )
     args = parser.parse_args()
 
+    # Require either action_id or workflow_id
+    if not args.action_id and not args.workflow_id:
+        parser.error("Either action_id or --workflow-id is required")
+
     success = list_wdl_versions(
-        args.action_id,
+        action_id=args.action_id,
         workflow_id=args.workflow_id,
         standalone=args.standalone,
     )

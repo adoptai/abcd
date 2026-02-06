@@ -5,6 +5,9 @@ Inspect Tool WDL - Inspect a tool's WDL for common issues.
 This script inspects tool WDLs for common issues like missing workflow_arguments
 prefix, trailing slash mismatches, missing query parameters, etc.
 
+IMPORTANT: This script integrates with the hierarchical workspace manager.
+All operations use the active environment's credentials and cache.
+
 Usage:
     # Inspect single tool
     python cli/inspect_tool_wdl.py <tool-id>
@@ -28,9 +31,9 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token
 
 from wdl_common.api_client import AdoptAPIClient
+from wdl_common.context import ensure_env, get_client
 from wdl_common.data_cache import DataCache
 from wdl_common.issue_detector import (
     detect_all_issues,
@@ -265,8 +268,15 @@ Examples:
     print("=" * 70)
     
     try:
-        cache = DataCache()
-        bearer_token = get_bearer_token()
+        # Ensure environment is loaded and show which one we're using
+        env_name = ensure_env()
+        print(f"📁 Environment: {env_name}")
+        
+        # Get client and cache (both use active environment)
+        client = get_client()
+        bearer_token = client.bearer_token
+        cache = DataCache()  # Uses active environment's cache automatically
+        print(f"📂 Cache: {cache.cache_dir}")
         
         tools_to_inspect = []
         

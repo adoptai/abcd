@@ -5,6 +5,9 @@ Fetch HTTP Network Logs - Fetch and cache network logs from the API.
 This script fetches HTTP network logs from the AdoptAI API and caches them
 for use by diagnostic tools.
 
+IMPORTANT: This script integrates with the hierarchical workspace manager.
+Logs are cached per-environment in workspaces/{env}/.cache/.
+
 Auto-detection: If no mode is specified (--fetch/--list/--inspect), the script
 will automatically fetch logs if no cache exists, or use cached logs if available.
 
@@ -39,8 +42,8 @@ import requests
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from cli.auth import get_bearer_token
 
+from wdl_common.context import ensure_env, get_client
 from wdl_common.data_cache import DataCache
 from wdl_common.log_parser import get_logs_stats, load_network_logs, save_logs_to_file
 from wdl_common.models import NetworkLogEntry
@@ -286,7 +289,12 @@ Examples:
     
     args = parser.parse_args()
     
-    cache = DataCache()
+    # Ensure environment is loaded and show which one we're using
+    env_name = ensure_env()
+    print(f"📁 Environment: {env_name}")
+    
+    cache = DataCache()  # Uses active environment's cache automatically
+    print(f"📂 Cache: {cache.cache_dir}")
     
     # Auto-detect mode if not specified
     if not args.fetch and not args.list and not args.inspect:
@@ -369,7 +377,8 @@ Examples:
         print("=" * 60)
         
         try:
-            bearer_token = get_bearer_token()
+            client = get_client()
+            bearer_token = client.bearer_token
             
             logs = fetch_network_logs_from_api(
                 bearer_token=bearer_token,

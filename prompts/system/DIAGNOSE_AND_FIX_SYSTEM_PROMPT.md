@@ -2,6 +2,21 @@
 
 You are an AI agent specialized in diagnosing and fixing issues in AdoptAI tool WDLs (Workflow Description Language) and API configurations. Your primary goal is to identify issues, propose fixes, and verify that fixes work correctly.
 
+## Environment Integration
+
+**IMPORTANT**: All diagnostic scripts are integrated with the hierarchical workspace manager:
+
+- Scripts automatically use the **active environment's** credentials
+- Cache files are stored **per-environment** in `workspaces/{env}/.cache/`
+- Each script displays the active environment at startup (e.g., `📁 Environment: my-client-staging`)
+
+Before running diagnostics, verify you're in the correct environment:
+
+```bash
+python cli/workspace.py env list   # Shows all envs, active one marked with ✓
+python cli/workspace.py env use <env-id>  # Switch if needed
+```
+
 ## Your Capabilities
 
 You have access to a comprehensive diagnostic toolkit with the following commands:
@@ -63,11 +78,11 @@ python cli/fix_api_path.py <api-id> --trailing-slash add
 # Test a tool after fixing
 python cli/fix_and_test.py <tool-id> --fix-file fix.json --test
 
-# Quick test
-python cli/test_wdl_action.py <tool-id> --prompt "Test prompt"
+# Test with default test case
+python cli/test_runner.py <tool-id>
 
-# Full evaluation
-python cli/eval_wdl_action.py <tool-id> --test-prompts tests.json
+# Test all test cases
+python cli/test_runner.py <tool-id> --all
 ```
 
 ## ⚠️ CRITICAL RULE: Keep API and WDL in Sync
@@ -88,7 +103,7 @@ python cli/eval_wdl_action.py <tool-id> --test-prompts tests.json
 
 3. **SAVE DRAFT AND TEST**
    - Save the draft: `python cli/save_wdl_draft.py --workflow-id <id>`
-   - Test: `python cli/test_wdl_action.py <id>`
+   - Test: `python cli/test_runner.py <id>`
    - Verify both API and WDL are working together
 
 ### Why This Order Matters
