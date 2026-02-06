@@ -175,7 +175,7 @@ def run_comprehensive_scan(
         "report_metadata": {
             "generated_at": datetime.now().isoformat(),
             "scan_duration_seconds": 0,
-            "tool_builder_version": "1.0.0",
+            "abcd_version": "1.0.0",
         },
         "summary": {
             "total_tools": len(tools),

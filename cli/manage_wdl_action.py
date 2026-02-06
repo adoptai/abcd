@@ -725,7 +725,7 @@ def create_wdl_action(
             selected_agent = workspace_manager.select_agent_interactive()
             if selected_agent is None:
                 print("\n💡 Tip: Use --standalone for local-only development")
-                print("   Or create an agent using: python tool_builder.py")
+                print("   Or create an agent using: python cli/workspace.py agent create")
                 # Fall back to standalone
                 standalone = True
 

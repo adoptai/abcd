@@ -766,12 +766,12 @@ Examples:
     parser.add_argument(
         "--from", "-f",
         dest="source_env",
-        help="Source workspace environment (e.g., 6sense-staging, blackstone-prod)"
+        help="Source workspace environment (e.g., client-staging, client-prod)"
     )
     parser.add_argument(
         "--to", "-t",
         dest="dest_env",
-        help="Destination workspace environment (e.g., 6sense-prod, solo-brands-prod)"
+        help="Destination workspace environment (e.g., client-prod, other-client-prod)"
     )
     parser.add_argument(
         "--source-agent",

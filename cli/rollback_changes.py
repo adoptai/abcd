@@ -264,8 +264,8 @@ Examples:
     file_path = Path(args.file)
     if not file_path.exists():
         # Try in diagnostics directory
-        tool_builder_root = Path(__file__).parent.parent
-        alt_path = tool_builder_root / "diagnostics" / args.file
+        repo_root = Path(__file__).parent.parent
+        alt_path = repo_root / "diagnostics" / args.file
         if alt_path.exists():
             file_path = alt_path
         else:

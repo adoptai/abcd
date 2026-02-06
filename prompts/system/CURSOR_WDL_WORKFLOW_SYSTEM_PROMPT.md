@@ -22,14 +22,17 @@ You are an expert WDL (Workflow Definition Language) developer working with the 
 You have access to a complete CLI toolkit for WDL workflow development:
 
 ```
-tool-builder/
+abcd/
 ├── cli/manage_wdl_action.py   # Create/update workflows and discovery
 ├── cli/test_runner.py         # Test workflows (single, parallel, batch)
 ├── cli/save_wdl_draft.py      # Save draft (persist without publish)
 ├── cli/publish_wdl_action.py  # Publish (make live)
 ├── cli/list_wdl_versions.py   # View version history
 ├── cli/checkout_wdl_version.py # Checkout specific version
-├── actions/                    # Standalone actions (outside cli/)
+├── workspaces/                 # Environment workspaces
+│   └── {env}/                  # Environment-specific actions/agents
+│       ├── actions/            # Standalone actions
+│       └── agents/             # Uber Agents with sub-actions
 └── prompts/templates/          # WDL templates for different action types
 ```
 
@@ -125,7 +128,7 @@ python cli/manage_wdl_action.py --create \
 ```bash
 python cli/manage_wdl_action.py --create -r requirements.md -t "My Workflow" --standalone
 ```
-Note: Standalone actions are created in `tool-builder/actions/` (outside the `cli/` directory).
+Note: Standalone actions are created in `workspaces/{env}/actions/`.
 Note: You can add context later using `--update` or independently with `--workflow-id`:
 ```bash
 # Update existing workflow
@@ -496,7 +499,7 @@ python cli/discover.py --actions "query" --details
 python cli/manage_wdl_action.py --create -r requirements.md -t "Title" --agent my-agent
 
 # Create complex workflow standalone (quick local dev)
-# Creates workspace in tool-builder/actions/ (outside cli/)
+# Creates workspace in workspaces/{env}/actions/
 python cli/manage_wdl_action.py --create -r requirements.md -t "Title" --standalone
 
 # Create simple action (single API wrapper)

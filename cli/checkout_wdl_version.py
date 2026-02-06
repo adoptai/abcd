@@ -88,9 +88,14 @@ def checkout_wdl_version(
                             meta_manager.set_action_id(action_id)
                             break
 
-    # Fallback to legacy location if no workspace
+    # Fallback to active environment's actions folder if no workspace
     if not workspace and action_id:
-        workspace = Path(__file__).parent.parent / "actions" / action_id
+        from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_active_environment
+        env = get_active_environment()
+        if env:
+            workspace = WORKSPACES_DIR / env / "actions" / action_id
+        else:
+            workspace = WORKSPACES_DIR / "default" / "actions" / action_id
 
     if not action_id:
         print("❌ No action_id found. Provide --action-id or use --workflow-id with linked workspace.")

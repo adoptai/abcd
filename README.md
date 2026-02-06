@@ -10,7 +10,7 @@ ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for b
 
 | Type | Description | Use Case |
 |------|-------------|----------|
-| **Simple Tools** | Single-API wrappers (REST → OUTPUT pattern) | Quick API integrations, data fetching |
+| **Simple Tools** | Single-API wrappers (https://github.com/adoptai/abcd/pull/1REST → OUTPUT pattern) | Quick API integrations, data fetching |
 | **Complex Workflows** | Multi-step WDL with REST, JQ_FILTER, PROMPT, CONDITION, etc. | Business logic, data transformations, AI integration |
 | **Uber Agents** | Multi-action orchestrators using PROMPT_AND_TOOLS_AGENT | Composing atomic tools into intelligent workflows |
 
@@ -71,16 +71,16 @@ curl -sSL https://install.python-poetry.org | python3 -
 
 ```bash
 # Clone the repository
-git clone <repository-url> abcd
+git clone https://github.com/adoptai/abcd.git abcd
 cd abcd
 
 # Install dependencies
-poetry install
+poetry install --no-root
 
-# Copy environment template
-cp dev.env .env
+# Copy environment template to default workspace
+cp dev.env workspaces/default/.env
 
-# Configure your credentials in .env
+# Configure your credentials in workspaces/default/.env
 ```
 
 ## Environment Setup
@@ -345,8 +345,8 @@ WDL defines multi-step workflows with operations like:
 ### Workspaces
 
 Workflows are organized in workspaces:
-- **Standalone**: Created in `actions/` directory
-- **Agent-based**: Created in `tool_builder_agents/<agent-name>/workflows/`
+- **Standalone**: Created in `workspaces/{env}/actions/` directory
+- **Agent-based**: Created in `workspaces/{env}/agents/{agent-name}/actions/`
 
 ### Version Management
 

@@ -21,10 +21,10 @@ class RollbackManager:
         Initialize the rollback manager.
         
         Args:
-            rollback_dir: Directory to store rollback files (relative to tool-builder root)
+            rollback_dir: Directory to store rollback files (relative to ABCD repo root)
         """
-        self.tool_builder_root = Path(__file__).parent.parent.parent
-        self.rollback_dir = self.tool_builder_root / rollback_dir
+        self.repo_root = Path(__file__).parent.parent.parent
+        self.rollback_dir = self.repo_root / rollback_dir
         self.rollback_dir.mkdir(parents=True, exist_ok=True)
         
         self._current_entries: List[RollbackEntry] = []
@@ -238,8 +238,8 @@ def list_rollback_files(rollback_dir: str = "diagnostics") -> List[Path]:
     Returns:
         List of rollback file paths, sorted by modification time
     """
-    tool_builder_root = Path(__file__).parent.parent.parent
-    dir_path = tool_builder_root / rollback_dir
+    repo_root = Path(__file__).parent.parent.parent
+    dir_path = repo_root / rollback_dir
     
     if not dir_path.exists():
         return []

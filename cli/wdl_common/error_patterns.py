@@ -66,7 +66,7 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
     # Issue 3.3: Session expired
     r"Odoo Session Expired": {
         "issue": "Session cookie expired",
-        "explanation": "The Odoo session has expired and needs to be refreshed.",
+        "explanation": "The API session has expired and needs to be refreshed.",
         "fix": (
             "Update security_params in adopt_profile.json with fresh cookies.\n"
             "   Get new cookies from browser DevTools (Network tab)."

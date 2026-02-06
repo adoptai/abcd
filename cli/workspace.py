@@ -1199,16 +1199,16 @@ Examples:
         epilog="""
 Examples:
   # Checkout all actions
-  python cli/workspace.py action checkout-all --env 6sense-prod
+  python cli/workspace.py action checkout-all --env my-client-prod
 
   # Checkout first 10 actions
-  python cli/workspace.py action checkout-all --env 6sense-prod --limit 10
+  python cli/workspace.py action checkout-all --env my-client-prod --limit 10
 
   # Checkout only Uber Agents with sub-actions
-  python cli/workspace.py action checkout-all --env 6sense-prod --uber-agents-only --include-subactions
+  python cli/workspace.py action checkout-all --env my-client-prod --uber-agents-only --include-subactions
 
   # Force overwrite existing
-  python cli/workspace.py action checkout-all --env 6sense-prod --force
+  python cli/workspace.py action checkout-all --env my-client-prod --force
         """,
     )
     action_checkout_all.add_argument("--env", help="Environment (uses active if not specified)")

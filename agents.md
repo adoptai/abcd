@@ -467,7 +467,6 @@ ABCD provides a comprehensive CLI toolkit for building and managing actions, age
 
 ### Key Files
 
-- **`tool_builder.py`**: Main interactive CLI menu (entry point)
 - **`cli/`**: All CLI scripts organized by functionality
 - **`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`**: Comprehensive guide for creating complex WDL workflows
 - **`README.md`**: User-facing documentation
@@ -793,9 +792,9 @@ python cli/discover.py --requirements requirements.md
 
 ### Main Entry Point
 
-**`tool_builder.py`**: Interactive menu-driven CLI
+**CLI scripts**: All commands are in the `cli/` directory
 ```bash
-python tool_builder.py
+python cli/<script>.py --help
 ```
 
 **Menu Structure**:
@@ -937,8 +936,8 @@ python cli/workspace.py env list
 
 # 2. Run comprehensive scan (uses active environment)
 python cli/diagnose_and_fix.py --scan --format llm --output diagnostics/report.json
-# Output: "📁 Environment: 6sense-staging"
-# Output: "📂 Cache: workspaces/6sense-staging/.cache"
+# Output: "📁 Environment: my-client-staging"
+# Output: "📂 Cache: workspaces/my-client-staging/.cache"
 
 # 3. Review issues and create fixes
 # (AI agent analyzes report and generates fixes.json)
@@ -1118,7 +1117,7 @@ All tools share common infrastructure:
 ### Workspace Structure
 
 ```
-tool_builder_agents/
+workspaces/{env}/agents/
 └── {agent_name}/
     ├── actions/            # Simple actions
     │   └── {action_id}.json
@@ -1257,7 +1256,6 @@ python cli/publish_wdl_action.py workflow-id
 - **User Documentation**: See `README.md`
 - **WDL Workflow Guide**: See [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)
 - **CLI Help**: `python cli/[script_name].py --help`
-- **Interactive Menu**: `python tool_builder.py`
 
 ---
 
@@ -1451,8 +1449,8 @@ When using actions as sub-tools in a `PROMPT_AND_TOOLS_AGENT` orchestrator, foll
 
 1. **Must be PUBLISHED** - Draft actions cannot be used as sub-tools
 2. **Title format** - Must match pattern: `^[a-zA-Z0-9_-]{1,128}$`
-   - ✅ Good: `odoo-get-orderpoints`, `inventory_check`, `create-po`
-   - ❌ Bad: `Odoo Get Orderpoints`, `Check (Inventory)`, `create po`
+   - ✅ Good: `get-orderpoints`, `inventory_check`, `create-po`
+   - ❌ Bad: `Get Orderpoints`, `Check (Inventory)`, `create po`
 3. **required_inputs format** - Must be a list of JSON strings:
    ```json
    "required_inputs": [
@@ -1467,14 +1465,14 @@ Build atomic tools first, then compose with orchestrator:
 
 ```
 Individual Tools (publish each separately):
-├── odoo-get-orderpoints      # Simple REST wrapper
-├── odoo-create-po            # Simple REST wrapper
-├── odoo-exception-check      # Simple REST wrapper
+├── get-orderpoints           # Simple REST wrapper
+├── create-po                 # Simple REST wrapper
+├── check-exceptions          # Simple REST wrapper
 └── ...
 
 Orchestrator (uses tools above):
 └── inventory-orchestrator    # PROMPT_AND_TOOLS_AGENT
-    └── Uses: odoo-get-orderpoints, odoo-create-po, ...
+    └── Uses: get-orderpoints, create-po, ...
 ```
 
 ⚠️ **Anti-pattern**: Don't build a single 30+ operation monolithic WDL.
@@ -1541,7 +1539,7 @@ working state. No need to specify `--version` or `--allow-draft`.
 | `required_inputs should be a list` | required_inputs is a dict | Run `python cli/validate.py workflow-id --auto-fix` |
 | `tool names have invalid characters` | Title has spaces/special chars | Run `python cli/validate.py workflow-id --auto-fix --orchestrator` |
 | `Action not found` | action_id is lost/wrong | Run `python cli/reconnect.py workflow-id --search` |
-| `Session expired` | Odoo cookie expired | Update `security_params.cookie` in `adopt_profile.json` |
+| `Session expired` | API session/cookie expired | Update `security_params.cookie` in `adopt_profile.json` |
 | `Empty WDL field` | Save failed partially | Run `python cli/save.py workflow-id` again |
 
 ---

@@ -45,7 +45,7 @@ class WDLDocumentationProvider:
     def _find_local_docs_path(self) -> Optional[Path]:
         """Find the local WDL docs path (fallback)."""
         search_paths = [
-            # Symlink in tool-builder
+            # Symlink in abcd repo
             Path(__file__).parent.parent.parent / "wdl_docs",
             # Direct path to ProjectA3
             Path(__file__).parent.parent.parent.parent

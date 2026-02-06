@@ -113,10 +113,11 @@ tools_cache.json
 apis_cache.json
 cache/
 
-# Agent workspaces (generated at runtime)
-tool_builder_agents/
+# Workspaces (generated at runtime, contains client-specific data)
+workspaces/*
+!workspaces/default/
 
-# Standalone Actions (generated at runtime)
+# Legacy standalone actions at root (should be in workspaces/{env}/actions/)
 actions/
 
 # Diagnostics output
@@ -140,6 +141,6 @@ Thumbs.db
 *.har
 *.log
 
-workspaces/*
+# Active environment pointer
 .active_env
 workspaces/.active_env

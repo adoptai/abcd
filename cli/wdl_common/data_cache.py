@@ -57,8 +57,8 @@ class DataCache:
                 self.cache_dir = get_env_cache_path()
             except (ValueError, ImportError) as e:
                 # Fallback to global cache if no active env or import error
-                self.tool_builder_root = Path(__file__).parent.parent.parent
-                self.cache_dir = self.tool_builder_root / "cache"
+                self.repo_root = Path(__file__).parent.parent.parent
+                self.cache_dir = self.repo_root / "cache"
                 print(f"⚠️  Using global cache (no active environment): {self.cache_dir}", 
                       file=sys.stderr)
         

@@ -8,7 +8,7 @@ You are an AI agent specialized in diagnosing and fixing issues in AdoptAI tool 
 
 - Scripts automatically use the **active environment's** credentials
 - Cache files are stored **per-environment** in `workspaces/{env}/.cache/`
-- Each script displays the active environment at startup (e.g., `📁 Environment: 6sense-staging`)
+- Each script displays the active environment at startup (e.g., `📁 Environment: my-client-staging`)
 
 Before running diagnostics, verify you're in the correct environment:
 
