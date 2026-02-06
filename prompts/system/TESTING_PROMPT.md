@@ -10,12 +10,12 @@
 
 | Type | Command | Description |
 |------|---------|-------------|
-| **Single** | `test_wdl_action.py <id>` | Test one action |
+| **Single** | `test_runner.py <id>` | Test one action |
 | **Parallel** | `test_runner.py a1 a2 a3` | Test multiple in parallel |
 | **Batch** | `test_runner.py --workspace ENV` | Test all in environment |
 | **Agent Batch** | `test_runner.py --agent A --all-subactions` | All sub-actions |
 | **Via-Agent** | `test_runner.py A --via-agent --subaction S` | Through agent |
-| **Local** | `test_wdl_action.py <id> --local-only` | Validate only |
+| **Local** | `test_runner.py <id> --local-only` | Validate only |
 
 ---
 
@@ -24,7 +24,7 @@
 ### Basic Test
 
 ```bash
-python cli/test_wdl_action.py my-action
+python cli/test_runner.py my-action
 ```
 
 **What happens:**
@@ -37,7 +37,7 @@ python cli/test_wdl_action.py my-action
 ### Local Validation Only
 
 ```bash
-python cli/test_wdl_action.py my-action --local-only
+python cli/test_runner.py my-action --local-only
 ```
 
 No remote execution - just validates JSON and WDL structure.
@@ -45,20 +45,22 @@ No remote execution - just validates JSON and WDL structure.
 ### Specific Test Case
 
 ```bash
-python cli/test_wdl_action.py my-action --test test_2.json
+python cli/test_runner.py my-action --test test_2.json
 ```
 
 ### All Test Cases
 
 ```bash
-python cli/test_wdl_action.py my-action --all
+python cli/test_runner.py my-action --all
 ```
 
-### Auto-Fix Issues
+### Verbose Output
 
 ```bash
-python cli/test_wdl_action.py my-action --local-only --auto-fix
+python cli/test_runner.py my-action --verbose
 ```
+
+Shows WDL operations and full traces for debugging.
 
 ---
 

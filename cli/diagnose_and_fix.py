@@ -194,7 +194,7 @@ def run_comprehensive_scan(
             "2. For each issue, examine the 'details' and 'suggested_fix'",
             "3. Generate a fixes.json file with your corrections",
             "4. Run: python cli/diagnose_and_fix.py --apply-fixes fixes.json",
-            "5. Test each fixed tool: python cli/test_wdl_action.py <tool-id> --all",
+            "5. Test each fixed tool: python cli/test_runner.py <tool-id> --all",
         ],
     }
     
@@ -517,8 +517,8 @@ def apply_fixes_from_file(
             if test_after_fix and tool_id:
                 print(f"   🧪 Running tests...")
                 try:
-                    from cli.test_wdl_action import run_test
-                    test_result = run_test(tool_id, run_all=True, no_auto_save=True)
+                    from cli.test_runner import run_test
+                    test_result = run_test(tool_id, run_all=True)
                     results['tested'] += 1
                     if test_result.get('success'):
                         results['test_passed'] += 1

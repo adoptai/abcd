@@ -259,7 +259,7 @@ class RoamingInstructionsBuilder:
         lines.append("## ✅ After Fixing\n")
         lines.append(f"1. Save updated WDL to: `{widdle_json_path}`")
         lines.append(
-            "2. Run test again: `python cli/test_wdl_action.py {action_id}`"
+            "2. Run test again: `python cli/test_runner.py {action_id}`"
         )
 
         return "\n".join(lines)

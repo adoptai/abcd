@@ -4,13 +4,59 @@ A comprehensive CLI toolkit designed for AI agents (like Cursor) to build, test,
 
 ## Overview
 
-This repository provides agent-driven scripts for:
+ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for building, testing, and managing AI-powered actions and workflows on the AdoptAI platform. Designed for AI agents (Cursor, Claude, etc.) to invoke as part of automated workflows.
 
-1. **Simple Tools**: Single-API wrapper tools (REST → OUTPUT pattern)
-2. **Complex Workflows**: Multi-step WDL workflows with multiple operations, AI integration, and data transformations
-3. **Diagnostics & Fixes**: Tools to diagnose and fix issues in APIs and WDLs
+### Action Types
 
-> **Note**: This is an agent-driven toolkit, not a traditional interactive CLI. The scripts are designed to be invoked by AI agents (Cursor, Claude, etc.) as part of automated workflows.
+| Type | Description | Use Case |
+|------|-------------|----------|
+| **Simple Tools** | Single-API wrappers (REST → OUTPUT pattern) | Quick API integrations, data fetching |
+| **Complex Workflows** | Multi-step WDL with REST, JQ_FILTER, PROMPT, CONDITION, etc. | Business logic, data transformations, AI integration |
+| **Uber Agents** | Multi-action orchestrators using PROMPT_AND_TOOLS_AGENT | Composing atomic tools into intelligent workflows |
+
+### Discovery & Search
+
+- **Semantic Search**: FAISS embeddings for natural language queries (`"inventory management"`)
+- **Fuzzy Search**: Text matching for specific names (`"get-orderpoints"`)
+- **Hybrid Mode**: Combines both for best results
+- **Requirements-based**: Auto-discover APIs/actions from `.md` requirements files
+
+### Workspace Management
+
+- **Hierarchical Structure**: Environments → Agents → Actions
+- **Multi-Environment Support**: Separate staging/production, multiple clients
+- **Config Inheritance**: Action inherits from Agent inherits from Environment
+- **Profile Management**: Centralized `adopt_profile.json` for base URLs, security params
+
+### Testing & Validation
+
+- **Local Validation**: JSON syntax + WDL structure validation (`--local-only`)
+- **Remote Execution**: Full workflow testing with trace capture
+- **Test Cases**: JSON-based test cases with expected output validation
+- **Parallel Testing**: Test multiple actions simultaneously (`--parallel N`)
+- **Batch Testing**: Test all actions in workspace or agent (`--workspace`, `--agent`)
+- **Via-Agent Testing**: Test sub-actions through parent orchestrator
+
+### Version Management
+
+- **Draft Support**: Save and test drafts without publishing
+- **Version History**: List all versions with descriptions and timestamps
+- **Checkout**: Restore any previous version (local-first, falls back to API)
+- **Publish**: Make specific version live (requires explicit confirmation)
+
+### Diagnostics & Fixes
+
+- **Comprehensive Scanning**: Detect issues across all APIs and WDLs
+- **Issue Detection**: Trailing slashes, missing parameters, invalid structures
+- **Automated Fixes**: Apply fixes with optional post-fix testing
+- **HTTP Log Analysis**: Fetch and analyze network logs for debugging
+- **Rollback Support**: Undo applied changes when needed
+
+### Deployment & Tool Mode
+
+- **Tool Mode**: Enable actions as sub-tools for Uber Agents
+- **Deployment Rules**: Manage visibility and execution settings
+- **Cross-Environment Moves**: Move/copy actions between environments
 
 ## Prerequisites
 
@@ -91,7 +137,7 @@ User Request
     │   → python cli/discover.py --actions "query"
     │
     ├─ "Test a workflow"
-    │   → python cli/test_wdl_action.py <workflow_id>
+    │   → python cli/test_runner.py <workflow_id>
     │
     ├─ "Diagnose and fix issues"
     │   → python cli/diagnose_and_fix.py
@@ -151,19 +197,31 @@ python cli/manage_wdl_action.py --create -r requirements.md -t "Title" --create-
 
 ```bash
 # Validate WDL structure only (no remote execution)
-python cli/test_wdl_action.py {workflow_id} --local-only
+python cli/test_runner.py {workflow_id} --local-only
 
 # Full remote test
-python cli/test_wdl_action.py {workflow_id}
+python cli/test_runner.py {workflow_id}
 
 # Test with specific test case
-python cli/test_wdl_action.py {workflow_id} --test test_2.json
+python cli/test_runner.py {workflow_id} --test test_2.json
 
 # Run all test cases
-python cli/test_wdl_action.py {workflow_id} --all
+python cli/test_runner.py {workflow_id} --all
 
-# Test with agent
-python cli/test_wdl_action.py {workflow_id} --agent my-agent
+# Verbose output (shows WDL operations, full traces)
+python cli/test_runner.py {workflow_id} --verbose
+
+# Test multiple actions in parallel
+python cli/test_runner.py action1 action2 action3 --parallel 3
+
+# Test all actions in workspace
+python cli/test_runner.py --workspace my-env
+
+# Test all sub-actions in an agent
+python cli/test_runner.py --agent my-agent --all-subactions
+
+# Test sub-action through parent agent
+python cli/test_runner.py my-agent --via-agent --subaction get-data
 ```
 
 ### Version Management
@@ -180,19 +238,6 @@ python cli/save_wdl_draft.py --workflow-id {workflow_id} --description "Fixed bu
 
 # Publish workflow (makes it live)
 python cli/publish_wdl_action.py {action_id} --version 10 --description "Production release"
-```
-
-### Bulk Evaluation Commands
-
-```bash
-# Run bulk evaluation using workspace test cases
-python cli/eval_wdl_action.py {workflow_id}
-
-# Evaluate with custom CSV test data
-python cli/eval_wdl_action.py {workflow_id} --csv-file tests.csv
-
-# Evaluate with field exclusion
-python cli/eval_wdl_action.py {workflow_id} --exclude-fields header_message,footer_message
 ```
 
 ### Diagnostic Commands
@@ -226,8 +271,7 @@ abcd/
 │   ├── discover.py               # Action/API discovery (FAISS + fuzzy)
 │   ├── workspace.py              # Hierarchical workspace management
 │   ├── manage_wdl_action.py      # Workflow creation & management
-│   ├── test_wdl_action.py        # Testing workflows
-│   ├── test_runner.py            # Parallel/batch testing
+│   ├── test_runner.py            # Testing workflows (parallel/batch)
 │   ├── save_wdl_draft.py         # Save drafts
 │   ├── publish_wdl_action.py     # Publish workflows
 │   ├── list_wdl_versions.py      # Version listing
@@ -268,8 +312,8 @@ abcd/
 1. **Discover** existing APIs: `python cli/discover.py --apis "inventory management"`
 2. **Create** action: `python cli/manage_wdl_action.py --create --template simple --use-api <id>`
 3. **Refine** WDL based on API specification
-4. **Validate**: `python cli/test_wdl_action.py <id> --local-only`
-5. **Test**: `python cli/test_wdl_action.py <id>`
+4. **Validate**: `python cli/test_runner.py <id> --local-only`
+5. **Test**: `python cli/test_runner.py <id>`
 6. **Save draft**: `python cli/save_wdl_draft.py --workflow-id <id>`
 7. **Publish**: `python cli/publish_wdl_action.py <id>`
 
@@ -280,12 +324,11 @@ abcd/
 3. **Create** workspace: `python cli/manage_wdl_action.py --create -r requirements.md -t "Title"`
 4. **Generate** WDL following roaming instructions
 5. **Create 3 test cases** in `test_cases/` directory
-6. **Test locally**: `python cli/test_wdl_action.py <id> --local-only`
+6. **Test locally**: `python cli/test_runner.py <id> --local-only`
 7. **Save draft**: `python cli/save_wdl_draft.py --workflow-id <id>`
-8. **Test remotely**: `python cli/test_wdl_action.py <id> --all`
+8. **Test remotely**: `python cli/test_runner.py <id> --all`
 9. **Iterate** until all tests pass
-10. **Evaluate** (optional): `python cli/eval_wdl_action.py <id>`
-11. **Publish** when user confirms: `python cli/publish_wdl_action.py <id>`
+10. **Publish** when user confirms: `python cli/publish_wdl_action.py <id>`
 
 ## Key Concepts
 

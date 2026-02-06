@@ -328,7 +328,7 @@ Make the required changes to `widdle.json`:
 
 ```bash
 # JSON syntax + WDL structure validation
-python cli/test_wdl_action.py <action-id> --local-only
+python cli/test_runner.py <action-id> --local-only
 ```
 
 ---
@@ -357,17 +357,17 @@ Ensure test cases exist in `test_cases/` directory:
 
 ```bash
 # Validate structure
-python cli/test_wdl_action.py <action-id> --local-only
+python cli/test_runner.py <action-id> --local-only
 ```
 
 ### Step 3: Test Remotely
 
 ```bash
 # Test single case
-python cli/test_wdl_action.py <action-id> --test test_1.json
+python cli/test_runner.py <action-id> --test test_1.json
 
 # Test all cases
-python cli/test_wdl_action.py <action-id> --all
+python cli/test_runner.py <action-id> --all
 ```
 
 ### Step 4: Debug Failures
@@ -403,7 +403,7 @@ python cli/list_wdl_versions.py --workflow-id <action-id>
 
 ```bash
 # Test the draft version remotely
-python cli/test_wdl_action.py <action-id> --all
+python cli/test_runner.py <action-id> --all
 ```
 
 ### Step 4: Publish (When User Confirms)
@@ -449,11 +449,11 @@ Remote Action Workflow
 │   ├─ Get requirements from user
 │   ├─ Review current WDL
 │   ├─ Make changes
-│   └─ Validate locally: `test_wdl_action.py <id> --local-only`
+│   └─ Validate locally: `test_runner.py <id> --local-only`
 │
 ├─ 5. Test
 │   ├─ Create/update test cases
-│   ├─ Test remotely: `test_wdl_action.py <id> --all`
+│   ├─ Test remotely: `test_runner.py <id> --all`
 │   ├─ Debug failures if any
 │   └─ Iterate until passing
 │

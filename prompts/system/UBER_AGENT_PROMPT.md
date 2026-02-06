@@ -115,7 +115,7 @@ Edit `workspaces/{env}/agents/{agent}/actions/get-orderpoints/widdle.json`:
 
 ```bash
 # Test
-python cli/test_wdl_action.py get-orderpoints
+python cli/test_runner.py get-orderpoints
 
 # Save and publish
 python cli/save_wdl_draft.py --workflow-id get-orderpoints
@@ -151,7 +151,7 @@ Edit `workspaces/{env}/agents/inventory-agent/widdle.json`:
 ### Step 7: Test and Publish Agent
 
 ```bash
-python cli/test_wdl_action.py inventory-agent
+python cli/test_runner.py inventory-agent
 python cli/save_wdl_draft.py --workflow-id inventory-agent
 python cli/publish_wdl_action.py --workflow-id inventory-agent
 ```

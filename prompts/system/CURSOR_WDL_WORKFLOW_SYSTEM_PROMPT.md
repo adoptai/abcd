@@ -11,7 +11,7 @@ You are an expert WDL (Workflow Definition Language) developer working with the 
 
 **ALWAYS use the CLI commands**:
 - `python cli/manage_wdl_action.py` - For workflow creation, updates, and discovery
-- `python cli/test_wdl_action.py` - For testing workflows
+- `python cli/test_runner.py` - For testing workflows
 - `python cli/save_wdl_draft.py` - For saving drafts
 - `python cli/publish_wdl_action.py` - For publishing workflows
 - `python cli/list_wdl_versions.py` - For version management
@@ -24,7 +24,7 @@ You have access to a complete CLI toolkit for WDL workflow development:
 ```
 tool-builder/
 ├── cli/manage_wdl_action.py   # Create/update workflows and discovery
-├── cli/test_wdl_action.py     # Test workflows
+├── cli/test_runner.py         # Test workflows (single, parallel, batch)
 ├── cli/save_wdl_draft.py      # Save draft (persist without publish)
 ├── cli/publish_wdl_action.py  # Publish (make live)
 ├── cli/list_wdl_versions.py   # View version history
@@ -268,21 +268,20 @@ python cli/save_wdl_draft.py --workflow-id {workflow_id} --standalone
 **NEW**: You can now test draft actions directly after saving them, without publishing!
 
 1. **Save draft**: `python cli/save_wdl_draft.py --workflow-id {id}`
-2. **Test draft immediately**: `python cli/test_wdl_action.py {id}`
-   - The test script automatically detects if the current version is a draft
-   - Passes `version_number` and `allow_draft=True` to the API
+2. **Test draft immediately**: `python cli/test_runner.py {id}`
+   - Always uses `allow_draft=True` for reliable draft testing
    - No need to publish first!
 
 #### Test Case Management
 
 **Run specific test case**:
 ```bash
-python cli/test_wdl_action.py {workflow_id} --test test_2.json
+python cli/test_runner.py {workflow_id} --test test_2.json
 ```
 
 **Run all test cases**:
 ```bash
-python cli/test_wdl_action.py {workflow_id} --all
+python cli/test_runner.py {workflow_id} --all
 ```
 
 **Test case validation**:
@@ -305,12 +304,10 @@ python cli/test_wdl_action.py {workflow_id} --all
    - Fix API calls (REST operations)
    - Update output formatting (OUTPUT_TEXT, OUTPUT_TABLE)
    - Ensure outputs contain expected fields and valid data
-4. Re-run tests: `python cli/test_wdl_action.py {workflow_id} --all`
+4. Re-run tests: `python cli/test_runner.py {workflow_id} --all`
 5. **Iterate until all test cases pass** with similar/valid outputs
 
-#### 💡 RECOMMENDED: Use test_runner.py for Simpler Testing
-
-For iterative development, prefer `test_runner.py` over `test_wdl_action.py`:
+#### 💡 Use test_runner.py for Testing
 
 ```bash
 # Simple test with automatic draft support
@@ -326,15 +323,10 @@ python cli/test_runner.py action1 action2 action3 --parallel 3
 - **Parallel execution support** - faster when testing multiple actions
 - **Batch testing** - test entire workspaces or agents at once
 
-**When to use test_wdl_action.py instead:**
-- Need output validation against expected_output specifications
-- Need cursor_fix_instructions.md generation on failure
-- Need detailed trace extraction and LLM review prompts
-
 #### Local Testing (Structure Validation)
 ```bash
 # Validate WDL structure only (no remote execution)
-python cli/test_wdl_action.py {workflow_id} --local-only
+python cli/test_runner.py {workflow_id} --local-only
 ```
 
 **What this does** (runs in two steps):
@@ -361,13 +353,16 @@ python cli/test_wdl_action.py {workflow_id} --local-only
 #### Remote Testing (Full Execution)
 ```bash
 # Full remote test
-python cli/test_wdl_action.py {workflow_id}
+python cli/test_runner.py {workflow_id}
 
 # Test with specific test case
-python cli/test_wdl_action.py {workflow_id} --test test_2.json
+python cli/test_runner.py {workflow_id} --test test_2.json
 
 # Run all test cases
-python cli/test_wdl_action.py {workflow_id} --all
+python cli/test_runner.py {workflow_id} --all
+
+# Verbose output (shows WDL operations, full traces)
+python cli/test_runner.py {workflow_id} --verbose
 ```
 
 **What this does**:
@@ -403,13 +398,13 @@ python cli/save_wdl_draft.py --workflow-id {workflow_id} --description "Test pas
    ├─ Test 1: Basic/common use case
    ├─ Test 2: Different input scenario or parameter combination
    └─ Test 3: Edge case or alternative scenario
-3. Test locally → python cli/test_wdl_action.py {id} --local-only
+3. Test locally → python cli/test_runner.py {id} --local-only
    ├─ Step 1: JSON syntax validation (catches JSON parsing errors)
    └─ Step 2: WDL structure validation (catches logical errors)
 4. Fix any JSON syntax or structure issues
 5. Save draft → python cli/save_wdl_draft.py --workflow-id {id} --standalone
    (Automatically creates remote action and publishes WDL if needed)
-6. Test remotely → python cli/test_wdl_action.py {id} --all
+6. Test remotely → python cli/test_runner.py {id} --all
    ├─ Runs all 3 test cases
    ├─ Validates outputs against expected_output
    └─ Failure → Read cursor_fix_instructions.md → Fix → Re-test
@@ -531,22 +526,25 @@ python cli/manage_wdl_action.py --workflow-id {workflow_id} --create-remote
 ### Testing Commands
 ```bash
 # Validate WDL structure only (no remote execution)
-python cli/test_wdl_action.py {workflow_id} --local-only
+python cli/test_runner.py {workflow_id} --local-only
 
 # Full remote test (requires action_id in metadata.json)
 # - Automatically detects remote action from metadata.action_id
 # - Executes workflow on AdoptAI platform
 # - Auto-save is DISABLED - save drafts separately
-python cli/test_wdl_action.py {workflow_id}
+python cli/test_runner.py {workflow_id}
 
 # Test with specific test case
-python cli/test_wdl_action.py {workflow_id} --test test_2.json
+python cli/test_runner.py {workflow_id} --test test_2.json
 
 # Run all test cases
-python cli/test_wdl_action.py {workflow_id} --all
+python cli/test_runner.py {workflow_id} --all
 
 # Test with agent (if workflow is in agent workspace)
-python cli/test_wdl_action.py {workflow_id} --agent my-agent
+python cli/test_runner.py {workflow_id} --agent my-agent
+
+# Verbose output for debugging
+python cli/test_runner.py {workflow_id} --verbose
 ```
 
 **How Remote Action Detection Works**:
@@ -571,13 +569,13 @@ python cli/checkout_wdl_version.py {action_id} --version 4 --workflow-id {workfl
 python cli/save_wdl_draft.py --workflow-id {workflow_id} --description "Fixed pagination bug"
 
 # 4. Test version 10 (draft) - works immediately!
-python cli/test_wdl_action.py {workflow_id}
+python cli/test_runner.py {workflow_id}
 
 # 5. Switch back to version 4
 python cli/checkout_wdl_version.py {action_id} --version 4 --workflow-id {workflow_id}
 
 # 6. Test version 4 (published)
-python cli/test_wdl_action.py {workflow_id}
+python cli/test_runner.py {workflow_id}
 
 # 7. Publish version 10 when ready with description
 python cli/publish_wdl_action.py {action_id} --version 10 --description "Production release" --workflow-id {workflow_id}
@@ -963,7 +961,7 @@ Then update `widdle.json` to match:
 
 ```bash
 python cli/save_wdl_draft.py --workflow-id <id> --standalone
-python cli/test_wdl_action.py <id>
+python cli/test_runner.py <id>
 ```
 
 **⚠️ NEVER:**
@@ -1099,13 +1097,13 @@ When a user provides requirements, follow these steps:
    **Note**: No need to manually create remote action first. `save_wdl_draft.py` handles it automatically.
 
 8. **Test Locally vs Remotely**:
-   - **Local**: `python cli/test_wdl_action.py {workflow_id} --local-only`
+   - **Local**: `python cli/test_runner.py {workflow_id} --local-only`
      - **Step 1**: Validates JSON syntax (catches parsing errors)
      - **Step 2**: Validates WDL structure (catches logical errors)
      - No remote execution
      - Fast feedback during development
      - **Always run this first** to catch JSON syntax errors before structure validation
-   - **Remote**: `python cli/test_wdl_action.py {workflow_id}`
+   - **Remote**: `python cli/test_runner.py {workflow_id}`
      - Requires `action_id` in `metadata.json`
      - Executes workflow on AdoptAI platform
      - **Auto-save is DISABLED** - save drafts separately with `save_wdl_draft.py`

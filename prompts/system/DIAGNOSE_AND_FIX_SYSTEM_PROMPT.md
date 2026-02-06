@@ -78,11 +78,11 @@ python cli/fix_api_path.py <api-id> --trailing-slash add
 # Test a tool after fixing
 python cli/fix_and_test.py <tool-id> --fix-file fix.json --test
 
-# Test with specific prompt
-python cli/test_wdl_action.py <tool-id> --prompt "Test prompt"
+# Test with default test case
+python cli/test_runner.py <tool-id>
 
 # Test all test cases
-python cli/test_wdl_action.py <tool-id> --all
+python cli/test_runner.py <tool-id> --all
 ```
 
 ## ⚠️ CRITICAL RULE: Keep API and WDL in Sync
@@ -103,7 +103,7 @@ python cli/test_wdl_action.py <tool-id> --all
 
 3. **SAVE DRAFT AND TEST**
    - Save the draft: `python cli/save_wdl_draft.py --workflow-id <id>`
-   - Test: `python cli/test_wdl_action.py <id>`
+   - Test: `python cli/test_runner.py <id>`
    - Verify both API and WDL are working together
 
 ### Why This Order Matters

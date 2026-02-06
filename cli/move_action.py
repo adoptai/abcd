@@ -1087,7 +1087,7 @@ Examples:
             print()
             print("Next steps:")
             print(f"   1. Switch to environment: python cli/workspace.py env use {args.dest_env}")
-            print(f"   2. Test the action: python cli/test_wdl_action.py {args.item_id}")
+            print(f"   2. Test the action: python cli/test_runner.py {args.item_id}")
             print(f"   3. Save draft if needed: python cli/save_wdl_draft.py --workflow-id {args.item_id}")
             print()
         else:

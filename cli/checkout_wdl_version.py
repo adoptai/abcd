@@ -283,10 +283,10 @@ def checkout_wdl_version(
     print("\n   You can now:")
     print("   - Edit widdle.json")
     if workflow_id:
-        print(f"   - Test: python cli/test_wdl_action.py {workflow_id}")
+        print(f"   - Test: python cli/test_runner.py {workflow_id}")
         print(f"   - Save draft: python cli/save_wdl_draft.py --workflow-id {workflow_id}")
     else:
-        print(f"   - Test: python cli/test_wdl_action.py {action_id}")
+        print(f"   - Test: python cli/test_runner.py {action_id}")
         print(f"   - Save draft: python cli/save_wdl_draft.py --action-id {action_id}")
     print("=" * 80)
 

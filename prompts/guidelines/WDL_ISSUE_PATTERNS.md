@@ -24,7 +24,7 @@ This document catalogs common WDL issues, their detection patterns, and fix stra
 3. **SAVE DRAFT AND TEST**
    ```bash
    python cli/save_wdl_draft.py --workflow-id <id> --standalone
-   python cli/test_wdl_action.py <id>
+   python cli/test_runner.py <id>
    ```
 
 ### Why This Matters
@@ -497,7 +497,7 @@ python cli/diagnose_and_fix.py --scan --format llm | grep "api_id: <api-id>"
 
 # 3. Save draft and test each tool
 python cli/save_wdl_draft.py --workflow-id <tool-1> --standalone
-python cli/test_wdl_action.py <tool-1>
+python cli/test_runner.py <tool-1>
 # Repeat for all affected tools
 ```
 

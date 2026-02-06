@@ -655,7 +655,7 @@ def create_simple_tool(
     print(f"   1. 📖 Read: {workspace}/cursor_roaming_instructions.md")
     print(f"   2. 📋 Review API spec: {workspace}/apis/")
     print(f"   3. ✏️  Refine the placeholder WDL in: {workspace}/widdle.json")
-    print("   4. 🧪 Test locally: python cli/test_wdl_action.py {workflow_id} --local-only")
+    print("   4. 🧪 Test locally: python cli/test_runner.py {workflow_id} --local-only")
     print("   5. 💾 Save draft: python cli/save_wdl_draft.py --workflow-id {workflow_id}")
     print("=" * 80)
     
@@ -925,7 +925,7 @@ def create_wdl_action(
         print(f"   7. Save draft: python cli/save_wdl_draft.py {action_id}")
     elif not action_id:
         print("   7. Configure adopt_profile.json with auth")
-        print(f"   8. Test: python cli/test_wdl_action.py {workflow_id}")
+        print(f"   8. Test: python cli/test_runner.py {workflow_id}")
     print("=" * 80)
 
     _verbose_print("create_wdl_action", "EXIT", "success")

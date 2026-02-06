@@ -3,7 +3,7 @@ CLI tools for ABCD.
 
 This package provides all CLI functionality for:
 - Authentication (auth.py)
-- WDL workflow management (manage_wdl_action.py, test_wdl_action.py, etc.)
+- WDL workflow management (manage_wdl_action.py, etc.)
 - Workspace management (workspace.py)
 - Testing (test_runner.py)
 - Validation (validate.py)

@@ -13,7 +13,6 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 - **DO NOT** directly call AdoptAI APIs bypassing the CLI scripts
 - **DO NOT** manually create workspace directories without `workspace.py`
 - **DO NOT** manually edit `metadata.json` files
-- **DO NOT** use HAR files or network captures to build actions
 - **DO NOT** guess API endpoints or parameters - use `discover.py`
 - **DO NOT** skip testing before saving/publishing
 - **DO NOT** circumvent the workspace manager or context system
@@ -27,8 +26,7 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
    - Read the FULL documentation for each operation you plan to use
    - Note default parameter values (especially `extract_all` for JQ_FILTER!)
 4. **Edit WDL**: Directly edit `widdle.json` files based on documentation
-5. **Testing**: Use `cli/test_runner.py` for simpler testing (always `allow_draft=True`)
-   - Or use `cli/test_wdl_action.py` when you need output validation
+5. **Testing**: Use `cli/test_runner.py` for testing (always `allow_draft=True`)
 6. **Saving**: Use `cli/save_wdl_draft.py` to persist changes
 7. **Publishing**: Use `cli/publish_wdl_action.py` when approved
 
@@ -41,7 +39,7 @@ When editing WDL:
 - **Use roaming RAG**: Fetch operation docs from `https://adoptai.github.io/widdle_docs/operations/`
 - **Follow templates**: Use patterns from `prompts/templates/`
 - **Check API specs**: Read files in `apis/` folder for endpoint details
-- **Validate locally**: Run `cli/test_wdl_action.py --local-only` after edits
+- **Validate locally**: Run `cli/test_runner.py --local-only` after edits
 
 ### Why This Matters
 
@@ -224,7 +222,7 @@ Templates: `prompts/templates/` (uber_agent, complex_workflow, simple_tool)
 
 | Command | Purpose |
 |---------|---------|
-| `python cli/test_wdl_action.py <workflow-id>` | Test workflow (auto-detects version/draft) |
+| `python cli/test_runner.py <workflow-id>` | Test workflow (always uses allow_draft=True) |
 | `python cli/save_wdl_draft.py --workflow-id <id>` | Save draft (auto-creates action if needed) |
 | `python cli/publish_wdl_action.py --workflow-id <id>` | Publish workflow (requires confirmation) |
 | `python cli/list_wdl_versions.py --workflow-id <id>` | List all versions |
@@ -243,10 +241,10 @@ python cli/manage_wdl_action.py --create -r requirements.md -t "My Workflow"
 python cli/status.py my-workflow
 
 # 3. Validate locally before testing
-python cli/test_wdl_action.py my-workflow --local-only
+python cli/test_runner.py my-workflow --local-only
 
-# 4. Test remotely (auto-detects version/draft)
-python cli/test_wdl_action.py my-workflow
+# 4. Test remotely
+python cli/test_runner.py my-workflow
 
 # 5. Save draft (auto-creates action if needed)
 python cli/save_wdl_draft.py --workflow-id my-workflow --description "Fixed pagination"
@@ -350,30 +348,31 @@ Action adopt_profile.json → Agent → Environment
 
 **📖 Full details: `prompts/system/TESTING_PROMPT.md`**
 
-### 💡 Choosing Between Test Runners
+### Test Runner Features
 
-| Feature | `test_runner.py` (RECOMMENDED) | `test_wdl_action.py` |
-|---------|--------------------------------|----------------------|
-| **Draft handling** | Always `allow_draft=True` ✅ | Complex auto-detection |
-| **Version tracking** | None needed | Auto-detects, can cause issues |
-| **Parallel testing** | ✅ `--parallel N` | Single action only |
-| **Batch testing** | ✅ `--workspace`, `--agent` | No |
-| **Output validation** | ❌ | ✅ expected_output specs |
-| **Fix instructions** | ❌ | ✅ cursor_fix_instructions.md |
-| **Simplicity** | ✅ Simple, reliable | Complex, more features |
-
-**RECOMMENDATION**: Use `test_runner.py` for iterative development. Use `test_wdl_action.py` only when you need output validation or fix instruction generation.
+| Feature | Description |
+|---------|-------------|
+| **Draft handling** | Always uses `allow_draft=True` ✅ |
+| **Parallel testing** | `--parallel N` for multiple actions |
+| **Batch testing** | `--workspace`, `--agent --all-subactions` |
+| **Via-agent testing** | `--via-agent --subaction` |
+| **Verbose output** | `--verbose` for WDL operations and traces |
+| **Local validation** | `--local-only` for structure validation |
 
 ### Single Action
 
 ```bash
-# RECOMMENDED: Simple testing with automatic draft support
+# Test single action
 python cli/test_runner.py my-action
 
-# Alternative: More features but complex version handling
-python cli/test_wdl_action.py my-action
-python cli/test_wdl_action.py my-action --local-only    # Validate only
-python cli/test_wdl_action.py my-action --all           # All test cases
+# Local validation only
+python cli/test_runner.py my-action --local-only
+
+# Run all test cases
+python cli/test_runner.py my-action --all
+
+# Verbose output with traces
+python cli/test_runner.py my-action --verbose
 ```
 
 ### Parallel Testing
@@ -449,9 +448,6 @@ python cli/deployment_rules.py my-action --disable-tool-mode # Disable
 **Only use explicit flags when automatic behavior fails:**
 
 ```bash
-# Force specific version (when auto-detection picks wrong version)
-python cli/test_wdl_action.py my-workflow --version 3 --allow-draft
-
 # Force standalone mode (when agent detection fails)
 python cli/save_wdl_draft.py --workflow-id my-workflow --standalone
 
@@ -503,7 +499,7 @@ User Request
     │   → python cli/discover.py --list-all
     │
     ├─ "Test a tool/action"
-    │   → python cli/test_wdl_action.py <workflow_id>
+    │   → python cli/test_runner.py <workflow_id>
     │
     ├─ "Diagnose and fix issues"
     │   → Read: DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md
@@ -553,7 +549,7 @@ User Request
 
 1. **Create workspace**: `python cli/manage_wdl_action.py --create --template simple -t "My Action"`
 2. **Edit `widdle.json`** using the template pattern (REST → EXTRACT → OUTPUT_TEXT)
-3. **Test**: `python cli/test_wdl_action.py my-action`
+3. **Test**: `python cli/test_runner.py my-action`
 4. **Save**: `python cli/save_wdl_draft.py --workflow-id my-action`
 5. **Publish**: `python cli/publish_wdl_action.py --workflow-id my-action`
 
@@ -668,7 +664,7 @@ python cli/discover.py --requirements requirements.md
   --use-tool ID         # Add tool to existing workflow
   ```
 
-#### 2. **Test WDL Workflow** (`cli/test_wdl_action.py`)
+#### 2. **Test WDL Workflow** (`cli/test_runner.py`)
 - **Purpose**: Test WDL workflows locally and remotely
 - **Features**:
   - **Step 1**: JSON syntax validation (catches parsing errors)
@@ -887,7 +883,7 @@ python cli/workspace.py action checkout-all --env my-env --force
 #### Simple Actions
 ```bash
 python cli/manage_wdl_action.py --create --template simple -t "Title"  # Create action
-python cli/test_wdl_action.py my-action        # Test action
+python cli/test_runner.py my-action        # Test action
 python cli/save_wdl_draft.py --workflow-id my-action   # Save draft
 python cli/publish_wdl_action.py --workflow-id my-action  # Publish
 ```
@@ -895,7 +891,7 @@ python cli/publish_wdl_action.py --workflow-id my-action  # Publish
 #### Complex Workflows (WDL)
 ```bash
 python cli/manage_wdl_action.py [OPTIONS]    # Create/update WDL workflow
-python cli/test_wdl_action.py [OPTIONS]       # Test WDL workflow
+python cli/test_runner.py [OPTIONS]           # Test WDL workflow
 python cli/save_wdl_draft.py [OPTIONS]        # Save draft
 python cli/publish_wdl_action.py [OPTIONS]    # Publish workflow
 python cli/list_wdl_versions.py [OPTIONS]    # List versions
@@ -1053,7 +1049,7 @@ See these files for AI agent guidance:
 - Tool discovery
 
 #### "I need to test my workflow"
-→ **Use Test** (`cli/test_wdl_action.py`)
+→ **Use Test** (`cli/test_runner.py`)
 - Local validation first (`--local-only`)
 - Remote execution
 - Trace capture
@@ -1165,7 +1161,7 @@ tool_builder_agents/
 1. **Search** for existing APIs: `discover.py --apis "query"`
 2. **Create** action workspace: `manage_wdl_action.py --create --template simple`
 3. **Edit** `widdle.json` using simple template pattern
-4. **Test**: `test_wdl_action.py my-action`
+4. **Test**: `test_runner.py my-action`
 5. **Save/Publish**: `save_wdl_draft.py` then `publish_wdl_action.py`
 
 ### For Complex WDL Workflow Creation
@@ -1181,11 +1177,11 @@ tool_builder_agents/
    - Test 2: Different input scenario or parameter combination
    - Test 3: Edge case or alternative scenario
    - Each should include `prompt`, `workflow_params`, and `expected_output` with `similarity` validation
-7. **Test** locally (`cli/test_wdl_action.py workflow-id --local-only`)
+7. **Test** locally (`cli/test_runner.py workflow-id --local-only`)
    - **Step 1**: JSON syntax validation (catches parsing errors early)
    - **Step 2**: WDL structure validation (catches logical errors)
-8. **Test** remotely (`cli/test_wdl_action.py workflow-id --all`) - Runs all 3 test cases
-   - Or test specific case: `python cli/test_wdl_action.py workflow-id --test test_2.json`
+8. **Test** remotely (`cli/test_runner.py workflow-id --all`) - Runs all 3 test cases
+   - Or test specific case: `python cli/test_runner.py workflow-id --test test_2.json`
    - **Note**: Use filename only (e.g., `test_2.json`), not path (`test_cases/test_2.json`)
 9. **Iterate** based on test results
 10. **Save** draft (`cli/save_wdl_draft.py`) - Automatically creates remote action and publishes WDL if needed
@@ -1233,12 +1229,11 @@ python cli/manage_wdl_action.py --workflow-id abc123 --use-api api-1 --use-tool 
 # Test WDL workflow (RECOMMENDED: test_runner.py for simpler testing)
 python cli/test_runner.py workflow-id                   # Simple test, always allow_draft=True
 python cli/test_runner.py action1 action2 --parallel 2  # Parallel testing
-
-# Alternative: test_wdl_action.py for output validation features
-python cli/test_wdl_action.py workflow-id --local-only  # Validate JSON syntax + structure
-python cli/test_wdl_action.py workflow-id               # Execute remotely (default test case)
-python cli/test_wdl_action.py workflow-id --all         # Run all test cases
-python cli/test_wdl_action.py workflow-id --test test_2.json  # Run specific test case (filename only!)
+python cli/test_runner.py workflow-id --local-only      # Validate JSON syntax + structure
+python cli/test_runner.py workflow-id                   # Execute remotely (default test case)
+python cli/test_runner.py workflow-id --all             # Run all test cases
+python cli/test_runner.py workflow-id --test test_2.json  # Run specific test case
+python cli/test_runner.py workflow-id --verbose         # Verbose with traces
 # Note: Use --test test_2.json, NOT --test test_cases/test_2.json
 
 # Version management
@@ -1249,7 +1244,7 @@ python cli/checkout_wdl_version.py {action_id} --version 3 --workflow-id workflo
 python cli/save_wdl_draft.py --workflow-id workflow-id --description "Fixed bug" --standalone
 
 # Test draft version directly (no publish needed!)
-python cli/test_wdl_action.py workflow-id
+python cli/test_runner.py workflow-id
 
 # Publish (requires confirmation)
 python cli/publish_wdl_action.py workflow-id
@@ -1277,8 +1272,8 @@ python cli/publish_wdl_action.py workflow-id
 
 **Workflow Order**:
 1. Create/Generate WDL
-2. Local validation (`test_wdl_action.py --local-only`)
-3. Remote testing (`test_wdl_action.py --all`)
+2. Local validation (`test_runner.py --local-only`)
+3. Remote testing (`test_runner.py --all`)
 4. Save draft (`save_wdl_draft.py`)
 5. Publish (`publish_wdl_action.py`)
 
@@ -1564,10 +1559,10 @@ python cli/validate.py my-workflow
 python cli/validate.py my-workflow --auto-fix
 python cli/validate.py my-workflow --orchestrator  # For sub-tool use
 
-# Test (auto-detects version/draft from metadata)
-python cli/test_wdl_action.py my-workflow --local-only  # Validate only
-python cli/test_wdl_action.py my-workflow               # Remote test
-python cli/test_wdl_action.py my-workflow --all         # All test cases
+# Test (always uses allow_draft=True)
+python cli/test_runner.py my-workflow --local-only  # Validate only
+python cli/test_runner.py my-workflow               # Remote test
+python cli/test_runner.py my-workflow --all         # All test cases
 
 # Save draft (auto-creates action if needed)
 python cli/save_wdl_draft.py --workflow-id my-workflow
