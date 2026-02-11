@@ -300,6 +300,32 @@ def run_single_test(
                 workspace_path=str(workspace),
             )
 
+        # Compiler validation via API (fail fast — catch errors before remote execution)
+        try:
+            api_client = get_api_client_for_env()
+            success_val, val_data, val_msg = api_client.validate_wdl(wdl)
+            if success_val and val_data and val_data.get("status") == "FAILURE":
+                error_lines = []
+                for err in val_data.get("errors", []):
+                    line = f"[{err['error_code']}] {err['error_msg']}"
+                    if err.get("block_id"):
+                        line += f" (block: {err['block_id']})"
+                    if err.get("suggestion"):
+                        line += f" | Suggestion: {err['suggestion']}"
+                    error_lines.append(line)
+                error_summary = "\n".join(error_lines) if error_lines else "Compilation failed"
+                return TestResult(
+                    action_id=action_id,
+                    success=False,
+                    message="WDL compilation failed",
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    error=error_summary,
+                    workspace_path=str(workspace),
+                )
+        except Exception:
+            # Don't block on API failures — fall through to remote execution
+            pass
+
         # Extract WDL operation IDs for context
         wdl_operations = []
         for op in wdl:

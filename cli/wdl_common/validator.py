@@ -8,13 +8,17 @@ Catches common issues before they reach the platform:
 - Operation references
 - JSON structure
 - OUTPUT_TEXT value references
+- Server-side compiler validation via API
 """
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -74,17 +78,31 @@ class WDLValidator:
     4. required_inputs format (Issue 2.2)
     5. Tool titles for orchestrator (Issue 2.3)
     6. OUTPUT_TEXT references (Issue 4.3)
+    7. Duplicate ID detection
+    8. Server-side compiler validation via API
     """
 
     # Anthropic tool name pattern
     TOOL_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,128}$')
 
-    # Valid operation types
+    # Valid operation types — sourced from generated pydantic models + block compilers
     VALID_OPERATIONS = {
-        "REST", "JQ_FILTER", "EXTRACT", "PROJECT", "OUTPUT_TEXT",
-        "PROMPT", "PROMPT_AND_TOOLS_AGENT", "CONDITION", "FOR_EACH",
-        "PARALLEL", "SET_VARIABLE", "GET_VARIABLE", "PAGINATE",
-        "TRANSFORM", "AGGREGATE", "MERGE", "SPLIT", "WAIT",
+        "ADD_META_TO_CONTEXT", "ARITHMETIC", "ASK_USER_FOR_INPUT",
+        "BYO_SYSTEM_PROMPT", "CONDITION", "CONDITIONAL_ASSIGNMENT",
+        "CONVERSATIONAL_INPUT", "CREATE_MAP", "CRYPTOGRAPHIC_OPERATION",
+        "DATA_SOURCE_LOOKUP", "DOWNLOAD_ENABLED", "EDIT_VALUE", "END",
+        "EXECUTE_PLAN", "EXTRACT", "EXTRACT_AND_FLATTEN_UUID_MAP",
+        "EXTRACT_STRUCTURED_CONTEXT_FROM_ARRAY", "EXTRACT_TRANSFORMED",
+        "FETCH_META_FROM_CONTEXT", "FILTER", "FIRST_ELEMENT", "FLATTEN",
+        "GREETING", "GROUP", "INTELLIGENT_FILTER", "INTELLIGENT_OUTPUT",
+        "INTELLIGENT_OUTPUT_V2", "JQ_FILTER", "JUMP", "M365_EMAIL_OPS",
+        "MERGE", "OUTPUT_KEY_VALUE_TABLE", "OUTPUT_TABLE", "OUTPUT_TEXT",
+        "PAGINATION", "PAYLOAD", "PAYLOAD_GENERATION", "POST_ACTION_URL",
+        "PRE_ACTION_PAYLOAD_GENERATION", "PROJECT", "PROMPT",
+        "PROMPT_AND_TOOLS_AGENT", "REASONING_METADATA", "REQUIRED_INPUTS",
+        "REST", "REST_DELAY", "REST_LOOP", "SORT", "STATEMENT",
+        "SUGGESTIONS", "TEXT_TO_SQL", "TOOL_EXECUTION", "UI_FORMAT_HINT",
+        "VISUALISATION",
     }
 
     def __init__(self, workspace: Optional[Path] = None):
@@ -161,7 +179,47 @@ class WDLValidator:
         # 7. Validate duplicate IDs
         result.errors.extend(self._validate_duplicate_ids(wdl))
 
+        # 8. Run server-side compiler validation via API
+        self._validate_via_api(wdl, result)
+
         return result
+
+    def _validate_via_api(
+        self, wdl: List[Dict[str, Any]], result: ValidationResult
+    ) -> None:
+        """Call the external-apis WDL validation endpoint and merge results."""
+        try:
+            from .api_client import get_api_client_for_env
+
+            client = get_api_client_for_env()
+            success, data, msg = client.validate_wdl(wdl)
+
+            if not success or not data:
+                logger.debug("Validation API unavailable (%s), continuing with local checks only", msg)
+                return
+
+            existing_msgs = {e for e in result.errors} | {w for w in result.warnings}
+
+            for err in data.get("errors", []):
+                formatted = f"[{err['error_code']}] {err['error_msg']}"
+                if err.get("block_id"):
+                    formatted += f" (block: {err['block_id']})"
+                if err.get("suggestion"):
+                    formatted += f" | Suggestion: {err['suggestion']}"
+                if formatted not in existing_msgs:
+                    result.errors.append(formatted)
+
+            for warn in data.get("warnings", []):
+                formatted = f"[{warn['error_code']}] {warn['error_msg']}"
+                if warn.get("block_id"):
+                    formatted += f" (block: {warn['block_id']})"
+                if warn.get("suggestion"):
+                    formatted += f" | Suggestion: {warn['suggestion']}"
+                if formatted not in existing_msgs:
+                    result.warnings.append(formatted)
+
+        except Exception:
+            logger.debug("Validation API call failed, continuing with local checks only", exc_info=True)
 
     def validate_file(
         self,
@@ -532,8 +590,3 @@ def validate_wdl_file(
     """
     validator = WDLValidator()
     return validator.validate_file(wdl_path, context, auto_fix)
-
-
-
-
-

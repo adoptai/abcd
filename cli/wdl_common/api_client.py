@@ -600,6 +600,39 @@ class AdoptAPIClient:
         return True, f"Checked out version {version_id}"
 
     # =========================================================================
+    # WDL Validation Operations
+    # =========================================================================
+
+    def validate_wdl(
+        self,
+        wdl: List[Dict[str, Any]],
+    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        """
+        Validate WDL via the external-apis compiler endpoint.
+
+        Args:
+            wdl: The WDL workflow blocks to validate.
+
+        Returns:
+            Tuple of (success, response_json, message)
+        """
+        url = f"{self.api_endpoint}/v1/wdl/validate"
+        payload = {"wdl": wdl}
+
+        try:
+            response = requests.post(
+                url, headers=self.headers, json=payload, timeout=60
+            )
+
+            if response.status_code != 200:
+                return False, None, f"Validation API failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "ok"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error calling validation API: {e}"
+
+    # =========================================================================
     # API Management Operations (for Diagnostics)
     # =========================================================================
 
