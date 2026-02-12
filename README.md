@@ -1,4 +1,4 @@
-# ABCD - Agent-Based Action & Workflow Builder
+# ABCD - (Adopt | Agent | Action | Automation) Builder in  (Cursor | Copilot | Claude) for (Devs | Dreamers)
 
 A comprehensive CLI toolkit designed for AI agents (like Cursor) to build, test, and manage actions and workflows on the AdoptAI platform.
 
