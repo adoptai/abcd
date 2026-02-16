@@ -30,7 +30,7 @@ ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for b
 
 ### Testing & Validation
 
-- **Local Validation**: JSON syntax + WDL structure validation (`--local-only`)
+- **Compilation**: JSON syntax + WDL structure compilation (`--compile`) — MANDATORY before remote testing
 - **Remote Execution**: Full workflow testing with trace capture
 - **Test Cases**: JSON-based test cases with expected output validation
 - **Parallel Testing**: Test multiple actions simultaneously (`--parallel N`)
@@ -196,8 +196,8 @@ python cli/manage_wdl_action.py --create -r requirements.md -t "Title" --create-
 ### Testing Commands
 
 ```bash
-# Validate WDL structure only (no remote execution)
-python cli/test_runner.py {workflow_id} --local-only
+# Compile WDL (MANDATORY before remote testing)
+python cli/test_runner.py {workflow_id} --compile
 
 # Full remote test
 python cli/test_runner.py {workflow_id}
@@ -312,7 +312,7 @@ abcd/
 1. **Discover** existing APIs: `python cli/discover.py --apis "inventory management"`
 2. **Create** action: `python cli/manage_wdl_action.py --create --template simple --use-api <id>`
 3. **Refine** WDL based on API specification
-4. **Validate**: `python cli/test_runner.py <id> --local-only`
+4. **Compile** (MANDATORY): `python cli/test_runner.py <id> --compile`
 5. **Test**: `python cli/test_runner.py <id>`
 6. **Save draft**: `python cli/save_wdl_draft.py --workflow-id <id>`
 7. **Publish**: `python cli/publish_wdl_action.py <id>`
@@ -324,7 +324,7 @@ abcd/
 3. **Create** workspace: `python cli/manage_wdl_action.py --create -r requirements.md -t "Title"`
 4. **Generate** WDL following roaming instructions
 5. **Create 3 test cases** in `test_cases/` directory
-6. **Test locally**: `python cli/test_runner.py <id> --local-only`
+6. **Compile** (MANDATORY): `python cli/test_runner.py <id> --compile`
 7. **Save draft**: `python cli/save_wdl_draft.py --workflow-id <id>`
 8. **Test remotely**: `python cli/test_runner.py <id> --all`
 9. **Iterate** until all tests pass

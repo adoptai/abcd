@@ -108,10 +108,10 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
 
     # WDL validation errors
     r"Invalid WDL|WDL validation failed": {
-        "issue": "WDL validation failed on platform",
+        "issue": "WDL compilation failed on platform",
         "explanation": "The WDL contains errors that the platform couldn't process.",
         "fix": (
-            "Run local validation first: python cli/validate.py workflow-id\n"
+            "Run compilation first: python cli/test_runner.py workflow-id --compile\n"
             "   Fix any errors before uploading."
         ),
         "auto_fixable": "false",

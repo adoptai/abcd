@@ -39,7 +39,7 @@ When editing WDL:
 - **Use roaming RAG**: Fetch operation docs from `https://adoptai.github.io/widdle_docs/operations/`
 - **Follow templates**: Use patterns from `prompts/templates/`
 - **Check API specs**: Read files in `apis/` folder for endpoint details
-- **Validate locally**: Run `cli/test_runner.py --local-only` after edits
+- **Compile**: Run `cli/test_runner.py --compile` after edits
 
 ### Why This Matters
 
@@ -240,8 +240,8 @@ python cli/manage_wdl_action.py --create -r requirements.md -t "My Workflow"
 # 2. Check status
 python cli/status.py my-workflow
 
-# 3. Validate locally before testing
-python cli/test_runner.py my-workflow --local-only
+# 3. Compile WDL (MANDATORY before remote testing)
+python cli/test_runner.py my-workflow --compile
 
 # 4. Test remotely
 python cli/test_runner.py my-workflow
@@ -357,16 +357,16 @@ Action adopt_profile.json → Agent → Environment
 | **Batch testing** | `--workspace`, `--agent --all-subactions` |
 | **Via-agent testing** | `--via-agent --subaction` |
 | **Verbose output** | `--verbose` for WDL operations and traces |
-| **Local validation** | `--local-only` for structure validation |
+| **Compilation** | `--compile` for remote WDL compilation check |
 
 ### Single Action
 
 ```bash
+# Compile WDL (MANDATORY before remote testing)
+python cli/test_runner.py my-action --compile
+
 # Test single action
 python cli/test_runner.py my-action
-
-# Local validation only
-python cli/test_runner.py my-action --local-only
 
 # Run all test cases
 python cli/test_runner.py my-action --all
@@ -664,10 +664,10 @@ python cli/discover.py --requirements requirements.md
   ```
 
 #### 2. **Test WDL Workflow** (`cli/test_runner.py`)
-- **Purpose**: Test WDL workflows locally and remotely
+- **Purpose**: Compile and test WDL workflows
 - **Features**:
   - **Step 1**: JSON syntax validation (catches parsing errors)
-  - **Step 2**: Local WDL structure validation (`--local-only`)
+  - **Step 2**: Remote WDL compilation (`--compile`) — MANDATORY before remote testing
   - Remote execution with trace capture
   - **Draft testing**: Automatically detects and tests draft versions
   - **Test case management**: Run specific test case or all test cases
@@ -676,7 +676,7 @@ python cli/discover.py --requirements requirements.md
 - **Menu Option**: 9
 - **Key Options**:
   ```bash
-  --local-only          # Validate JSON syntax and WDL structure only
+  --compile             # Compile WDL via remote compiler (MANDATORY before remote testing)
   --test FILE           # Use specific test case (filename only, not path)
                         # Examples: --test test_1.json, --test test_2.json
                         # NOT: --test test_cases/test_1.json (wrong!)
@@ -1049,7 +1049,7 @@ See these files for AI agent guidance:
 
 #### "I need to test my workflow"
 → **Use Test** (`cli/test_runner.py`)
-- Local validation first (`--local-only`)
+- Compile first (`--compile`) — MANDATORY before remote testing
 - Remote execution
 - Trace capture
 - Run all test cases (`--all`) or specific test (`--test test_N.json`)
@@ -1176,9 +1176,9 @@ workspaces/{env}/agents/
    - Test 2: Different input scenario or parameter combination
    - Test 3: Edge case or alternative scenario
    - Each should include `prompt`, `workflow_params`, and `expected_output` with `similarity` validation
-7. **Test** locally (`cli/test_runner.py workflow-id --local-only`)
+7. **Compile** (`cli/test_runner.py workflow-id --compile`) — **MANDATORY**
    - **Step 1**: JSON syntax validation (catches parsing errors early)
-   - **Step 2**: WDL structure validation (catches logical errors)
+   - **Step 2**: Remote WDL compilation (catches structural and logical errors)
 8. **Test** remotely (`cli/test_runner.py workflow-id --all`) - Runs all 3 test cases
    - Or test specific case: `python cli/test_runner.py workflow-id --test test_2.json`
    - **Note**: Use filename only (e.g., `test_2.json`), not path (`test_cases/test_2.json`)
@@ -1191,10 +1191,10 @@ workspaces/{env}/agents/
 ## Important Notes for Agents
 
 1. **Always ask for confirmation before publishing** - Publishing makes workflows live
-2. **Use local validation first** - Test with `--local-only` before remote execution
+2. **Compile first** - Always run `--compile` before remote execution
    - **Step 1**: JSON syntax validation catches parsing errors (invalid JSON, malformed strings, etc.)
-   - **Step 2**: WDL structure validation catches logical errors (missing fields, invalid references, etc.)
-   - Fix JSON errors first before proceeding to structure validation
+   - **Step 2**: Remote WDL compilation catches structural and logical errors (missing fields, invalid references, etc.)
+   - Fix compilation errors before proceeding to remote testing
 3. **Auto-save drafts** - Tests passing auto-save drafts (safe)
 4. **Automatic remote action creation** - `save_wdl_draft.py` automatically creates remote action and publishes WDL if needed
 5. **Draft testing** - Draft actions can be tested directly without publishing
@@ -1226,10 +1226,9 @@ python cli/manage_wdl_action.py --update --workflow-id abc123 --use-api api-1 --
 python cli/manage_wdl_action.py --workflow-id abc123 --use-api api-1 --use-tool tool-1
 
 # Test WDL workflow (RECOMMENDED: test_runner.py for simpler testing)
-python cli/test_runner.py workflow-id                   # Simple test, always allow_draft=True
-python cli/test_runner.py action1 action2 --parallel 2  # Parallel testing
-python cli/test_runner.py workflow-id --local-only      # Validate JSON syntax + structure
+python cli/test_runner.py workflow-id --compile         # Compile WDL (MANDATORY before remote testing)
 python cli/test_runner.py workflow-id                   # Execute remotely (default test case)
+python cli/test_runner.py action1 action2 --parallel 2  # Parallel testing
 python cli/test_runner.py workflow-id --all             # Run all test cases
 python cli/test_runner.py workflow-id --test test_2.json  # Run specific test case
 python cli/test_runner.py workflow-id --verbose         # Verbose with traces
@@ -1265,12 +1264,12 @@ python cli/publish_wdl_action.py workflow-id
 - **Complex Workflows**: Use for multi-step operations → **See [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
 - **Uber Agents**: Use for multi-action orchestrators → **See [`prompts/system/UBER_AGENT_PROMPT.md`](UBER_AGENT_PROMPT.md)**
 - **Discovery**: Use `--search-apis` / `--search` / `--auto-discover` options
-- **Testing**: Always validate locally first (`--local-only`), then test remotely (`--all`)
+- **Testing**: Always compile first (`--compile`), then test remotely (`--all`)
 - **Publishing**: Only when user explicitly confirms
 
 **Workflow Order**:
 1. Create/Generate WDL
-2. Local validation (`test_runner.py --local-only`)
+2. Compile (`test_runner.py --compile`) — **MANDATORY**
 3. Remote testing (`test_runner.py --all`)
 4. Save draft (`save_wdl_draft.py`)
 5. Publish (`publish_wdl_action.py`)
@@ -1514,8 +1513,8 @@ python cli/validate.py my-workflow --orchestrator --auto-fix
 ### Simplified Testing Commands
 
 ```bash
-# Validate locally (no remote execution)
-python cli/test.py my-workflow --local-only
+# Compile WDL (MANDATORY before remote testing)
+python cli/test.py my-workflow --compile
 
 # Test remotely (auto-detects version)
 python cli/test.py my-workflow
@@ -1552,15 +1551,15 @@ working state. No need to specify `--version` or `--allow-draft`.
 # Check status
 python cli/status.py my-workflow
 
-# Validate locally
+# Validate structure
 python cli/validate.py my-workflow
 python cli/validate.py my-workflow --auto-fix
 python cli/validate.py my-workflow --orchestrator  # For sub-tool use
 
-# Test (always uses allow_draft=True)
-python cli/test_runner.py my-workflow --local-only  # Validate only
-python cli/test_runner.py my-workflow               # Remote test
-python cli/test_runner.py my-workflow --all         # All test cases
+# Compile and test (always uses allow_draft=True)
+python cli/test_runner.py my-workflow --compile    # Compile WDL (MANDATORY first)
+python cli/test_runner.py my-workflow              # Remote test
+python cli/test_runner.py my-workflow --all        # All test cases
 
 # Save draft (auto-creates action if needed)
 python cli/save_wdl_draft.py --workflow-id my-workflow

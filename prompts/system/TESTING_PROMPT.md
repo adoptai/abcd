@@ -15,7 +15,7 @@
 | **Batch** | `test_runner.py --workspace ENV` | Test all in environment |
 | **Agent Batch** | `test_runner.py --agent A --all-subactions` | All sub-actions |
 | **Via-Agent** | `test_runner.py A --via-agent --subaction S` | Through agent |
-| **Local** | `test_runner.py <id> --local-only` | Validate only |
+| **Compile** | `test_runner.py <id> --compile` | Compile WDL (MANDATORY before remote testing) |
 
 ---
 
@@ -34,13 +34,13 @@ python cli/test_runner.py my-action
 4. Captures execution trace
 5. Validates output against expected
 
-### Local Validation Only
+### Compile WDL (MANDATORY Before Remote Testing)
 
 ```bash
-python cli/test_runner.py my-action --local-only
+python cli/test_runner.py my-action --compile
 ```
 
-No remote execution - just validates JSON and WDL structure.
+Compiles WDL via the remote compiler — validates JSON syntax and WDL structure. No remote execution.
 
 ### Specific Test Case
 
@@ -80,10 +80,10 @@ Default: 5 parallel workers.
 python cli/test_runner.py action1 action2 action3 --parallel 3
 ```
 
-### Local-Only Parallel
+### Compile-Only Parallel
 
 ```bash
-python cli/test_runner.py action1 action2 action3 --local-only
+python cli/test_runner.py action1 action2 action3 --compile
 ```
 
 ---
