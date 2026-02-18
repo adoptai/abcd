@@ -12,16 +12,4 @@ repos:
       - id: mypy
         additional_dependencies:
           - types-requests
-        args:
-          - --ignore-missing-imports
-          - --explicit-package-bases
-          - --namespace-packages
-          - --show-error-codes
-          - --no-implicit-reexport
-          - --warn-unused-configs
-          - --disallow-untyped-defs
-          - --disallow-incomplete-defs
-          - --check-untyped-defs
-          - --warn-redundant-casts
-          - --strict-equality
 

@@ -97,26 +97,8 @@ if [ "$RUN_MYPY" = true ]; then
     echo "Clearing mypy cache..."
     rm -rf .mypy_cache
 
-    echo "Running mypy..."
-    poetry run mypy \
-        --warn-unused-configs \
-        --disallow-any-generics \
-        --disallow-subclassing-any \
-        --disallow-untyped-calls \
-        --disallow-untyped-defs \
-        --disallow-incomplete-defs \
-        --check-untyped-defs \
-        --warn-redundant-casts \
-        --warn-unused-ignores \
-        --warn-return-any \
-        --no-implicit-reexport \
-        --strict-equality \
-        --extra-checks \
-        --ignore-missing-imports \
-        --show-error-codes \
-        --explicit-package-bases \
-        --namespace-packages \
-        cli/
+    echo "Running mypy (config from pyproject.toml)..."
+    poetry run mypy cli/
 
     if [ $? -ne 0 ]; then
         echo "Error: mypy check failed."

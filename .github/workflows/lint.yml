@@ -7,28 +7,8 @@ on:
     branches: [main, master]
 
 jobs:
-  ruff:
-    name: Ruff (lint + format)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install ruff
-        run: pip install ruff>=0.9.6
-
-      - name: Run ruff check
-        run: ruff check --output-format=github cli/
-
-      - name: Run ruff format check
-        run: ruff format --check cli/
-
-  mypy:
-    name: Mypy (type check)
+  lint:
+    name: Ruff + Mypy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,31 +36,14 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --no-ansi --with dev
 
-      - name: Install type stubs
-        run: poetry run pip install types-requests
+      - name: Run ruff check
+        run: poetry run ruff check --output-format=github cli/
+
+      - name: Run ruff format check
+        run: poetry run ruff format --check cli/
 
       - name: Clear mypy cache
         run: rm -rf .mypy_cache
 
       - name: Run mypy
-        run: |
-          poetry run mypy \
-            --warn-unused-configs \
-            --disallow-any-generics \
-            --disallow-subclassing-any \
-            --disallow-untyped-calls \
-            --disallow-untyped-defs \
-            --disallow-incomplete-defs \
-            --check-untyped-defs \
-            --warn-redundant-casts \
-            --warn-unused-ignores \
-            --warn-return-any \
-            --no-implicit-reexport \
-            --strict-equality \
-            --extra-checks \
-            --ignore-missing-imports \
-            --show-error-codes \
-            --explicit-package-bases \
-            --namespace-packages \
-            cli/
-
+        run: poetry run mypy cli/
