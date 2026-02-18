@@ -1,0 +1,86 @@
+name: Lint & Type Check
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: [main, master]
+
+jobs:
+  ruff:
+    name: Ruff (lint + format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install ruff
+        run: pip install ruff>=0.9.6
+
+      - name: Run ruff check
+        run: ruff check --output-format=github cli/
+
+      - name: Run ruff format check
+        run: ruff format --check cli/
+
+  mypy:
+    name: Mypy (type check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            venv-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-ansi
+
+      - name: Install type stubs
+        run: poetry run pip install types-requests
+
+      - name: Clear mypy cache
+        run: rm -rf .mypy_cache
+
+      - name: Run mypy
+        run: |
+          poetry run mypy \
+            --warn-unused-configs \
+            --disallow-any-generics \
+            --disallow-subclassing-any \
+            --disallow-untyped-calls \
+            --disallow-untyped-defs \
+            --disallow-incomplete-defs \
+            --check-untyped-defs \
+            --warn-redundant-casts \
+            --warn-unused-ignores \
+            --warn-return-any \
+            --no-implicit-reexport \
+            --strict-equality \
+            --extra-checks \
+            --ignore-missing-imports \
+            --show-error-codes \
+            --explicit-package-bases \
+            --namespace-packages \
+            cli/
+

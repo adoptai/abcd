@@ -11,7 +11,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from time import sleep
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import requests
 
@@ -23,7 +23,7 @@ from cli.auth import get_bearer_token
 class AdoptAPIClient:
     """Client for Adopt API operations."""
 
-    def __init__(self, bearer_token: Optional[str] = None) -> None:
+    def __init__(self, bearer_token: str | None = None) -> None:
         """
         Initialize API client.
 
@@ -31,9 +31,7 @@ class AdoptAPIClient:
             bearer_token: Optional pre-fetched token. Will fetch if not provided.
         """
         self._bearer_token = bearer_token
-        self.actions_endpoint = os.getenv(
-            "ADOPT_ACTIONS_ENDPOINT", "https://api.adopt.ai"
-        )
+        self.actions_endpoint = os.getenv("ADOPT_ACTIONS_ENDPOINT", "https://api.adopt.ai")
         self.api_endpoint = os.getenv("ADOPT_API_ENDPOINT", "https://connect.adopt.ai")
 
     @property
@@ -44,7 +42,7 @@ class AdoptAPIClient:
         return self._bearer_token
 
     @property
-    def headers(self) -> Dict[str, str]:
+    def headers(self) -> dict[str, str]:
         """Get standard headers for API calls."""
         return {
             "Authorization": f"Bearer {self.bearer_token}",
@@ -59,8 +57,8 @@ class AdoptAPIClient:
         self,
         title: str,
         description: str,
-        api_ids: Optional[List[str]] = None,
-    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        api_ids: list[str] | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Create a new action.
 
@@ -78,9 +76,7 @@ class AdoptAPIClient:
         }
 
         try:
-            response = requests.post(
-                url, headers=self.headers, json=payload, timeout=30
-            )
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
 
             if response.status_code not in (200, 201):
                 return False, None, f"Failed: {response.status_code} - {response.text}"
@@ -90,7 +86,7 @@ class AdoptAPIClient:
         except requests.exceptions.RequestException as e:
             return False, None, f"Network error: {e}"
 
-    def get_action(self, action_id: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    def get_action(self, action_id: str) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Fetch action details.
 
@@ -113,9 +109,9 @@ class AdoptAPIClient:
     def publish_wdl(
         self,
         action_id: str,
-        wdl: List[Dict[str, Any]],
-        draft_id: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+        wdl: list[dict[str, Any]],
+        draft_id: str | None = None,
+    ) -> tuple[bool, str]:
         """
         Publish WDL to an action.
 
@@ -126,9 +122,7 @@ class AdoptAPIClient:
         payload = {"action_id": action_id, "draft_id": draft_id, "wdl": wdl}
 
         try:
-            response = requests.post(
-                url, headers=self.headers, json=payload, timeout=30
-            )
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
 
             if response.status_code not in (200, 201):
                 return False, f"Failed: {response.status_code} - {response.text}"
@@ -142,15 +136,13 @@ class AdoptAPIClient:
         self,
         action_id: str,
         new_description: str,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Update action description."""
         url = f"{self.actions_endpoint}/v1/actions/{action_id}/description"
         payload = {"new_description": new_description}
 
         try:
-            response = requests.patch(
-                url, headers=self.headers, json=payload, timeout=30
-            )
+            response = requests.patch(url, headers=self.headers, json=payload, timeout=30)
 
             if response.status_code not in (200, 201, 204):
                 return False, f"Failed: {response.status_code} - {response.text}"
@@ -163,7 +155,7 @@ class AdoptAPIClient:
     def get_deployment_rules(
         self,
         action_id: str,
-    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    ) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Get deployment rules for action including tool mode status.
 
@@ -188,8 +180,8 @@ class AdoptAPIClient:
         action_id: str,
         is_tool_mode: bool = False,
         is_visible_in_list: bool = True,
-        rules: Optional[List[Dict[str, Any]]] = None,
-    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+        rules: list[dict[str, Any]] | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Set deployment rules for action.
 
@@ -210,9 +202,7 @@ class AdoptAPIClient:
         }
 
         try:
-            response = requests.post(
-                url, headers=self.headers, json=payload, timeout=30
-            )
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
 
             if response.status_code not in (200, 201):
                 return False, None, f"Failed: {response.status_code} - {response.text}"
@@ -222,7 +212,7 @@ class AdoptAPIClient:
         except requests.exceptions.RequestException as e:
             return False, None, f"Network error: {e}"
 
-    def populate_instructions(self, action_id: str) -> Tuple[bool, str]:
+    def populate_instructions(self, action_id: str) -> tuple[bool, str]:
         """Trigger instruction population for action."""
         url = f"{self.actions_endpoint}/v1/actions/{action_id}/populate-instructions"
 
@@ -241,21 +231,21 @@ class AdoptAPIClient:
         self,
         action_id: str,
         draft_id: str,
-        change_reason: Optional[str] = None,
-    ) -> Tuple[bool, Optional[str], str]:
+        change_reason: str | None = None,
+    ) -> tuple[bool, str | None, str]:
         """
         Save draft to get version number.
-        
+
         Args:
             action_id: Action ID
             draft_id: Draft ID
             change_reason: Optional description of changes (may not be supported by API)
-        
+
         Returns:
             Tuple of (success, version_number, message)
         """
         url = f"{self.actions_endpoint}/v1/actions/{action_id}/draft/{draft_id}/save"
-        
+
         # Try to send change_reason if provided (API may or may not support it)
         payload = {}
         if change_reason:
@@ -263,10 +253,7 @@ class AdoptAPIClient:
 
         try:
             response = requests.post(
-                url, 
-                headers=self.headers, 
-                json=payload if payload else None,
-                timeout=30
+                url, headers=self.headers, json=payload if payload else None, timeout=30
             )
 
             if response.status_code not in (200, 201):
@@ -274,7 +261,7 @@ class AdoptAPIClient:
 
             data = response.json()
             version = data.get("version_number")
-            
+
             # If version not in response, try to get it from list_versions
             if not version:
                 # Query versions to find the latest one
@@ -285,7 +272,7 @@ class AdoptAPIClient:
                     version = str(latest.get("version_number", ""))
                     if version:
                         return True, version, "Draft saved (version retrieved from list)"
-            
+
             if version:
                 return True, version, "Draft saved"
             else:
@@ -298,21 +285,18 @@ class AdoptAPIClient:
         self,
         action_id: str,
         version_id: str,
-        change_reason: Optional[str] = None,
-    ) -> Tuple[bool, str]:
+        change_reason: str | None = None,
+    ) -> tuple[bool, str]:
         """
         Approve a version of the action.
-        
+
         Args:
             action_id: Action ID
             version_id: Version ID to approve
             change_reason: Optional description of changes (defaults to generic message)
         """
         url = f"{self.actions_endpoint}/v1/actions/{action_id}/version/{version_id}"
-        payload = {
-            "status": "approved",
-            "change_reason": change_reason or "WDL action update"
-        }
+        payload = {"status": "approved", "change_reason": change_reason or "WDL action update"}
 
         try:
             response = requests.put(url, headers=self.headers, json=payload, timeout=30)
@@ -333,14 +317,14 @@ class AdoptAPIClient:
         self,
         action_id: str,
         user_input: str,
-        profile: Dict[str, Any],
-        workflow_params: Optional[Dict[str, Any]] = None,
-        version_number: Optional[int] = None,
+        profile: dict[str, Any],
+        workflow_params: dict[str, Any] | None = None,
+        version_number: int | None = None,
         allow_draft: bool = False,
-    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    ) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Execute an action for testing.
-        
+
         Args:
             action_id: Action to run
             user_input: Natural language input
@@ -374,7 +358,7 @@ class AdoptAPIClient:
             "workflow_params": combined_params,
             "security_params": profile.get("security_params", {}),
         }
-        
+
         # Add profiles_map if present in profile (for per-API/application profiles)
         # This allows different base_url and security_params for different APIs
         # Note: We map security_params -> security_headers for ProjectA3 compatibility
@@ -389,7 +373,7 @@ class AdoptAPIClient:
                     converted_entry["security_headers"] = converted_entry.pop("security_params")
                 converted_profiles_map[key] = converted_entry
             payload["profiles_map"] = converted_profiles_map
-        
+
         # Add mcp_profiles_map if present (for MCP integration profiles)
         # Same conversion: security_params -> security_headers
         mcp_profiles_map = profile.get("mcp_profiles_map")
@@ -401,7 +385,7 @@ class AdoptAPIClient:
                     converted_entry["security_headers"] = converted_entry.pop("security_params")
                 converted_mcp_profiles_map[key] = converted_entry
             payload["mcp_profiles_map"] = converted_mcp_profiles_map
-        
+
         # Add version parameters if provided
         if version_number is not None:
             payload["version_number"] = version_number
@@ -409,9 +393,7 @@ class AdoptAPIClient:
             payload["allow_draft"] = allow_draft
 
         try:
-            response = requests.post(
-                url, headers=self.headers, json=payload, timeout=120
-            )
+            response = requests.post(url, headers=self.headers, json=payload, timeout=120)
 
             if response.status_code != 200:
                 # Try to parse the error response JSON to extract execution trace
@@ -445,7 +427,7 @@ class AdoptAPIClient:
         previous_updated_at: str,
         max_retries: int = 20,
         poll_interval: int = 5,
-    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    ) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Poll until action's updated_at changes.
 
@@ -489,7 +471,7 @@ class AdoptAPIClient:
     def list_versions(
         self,
         action_id: str,
-    ) -> Tuple[bool, Optional[List[Dict[str, Any]]], str]:
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
         """
         List all versions of an action.
 
@@ -521,7 +503,7 @@ class AdoptAPIClient:
     def get_current_version(
         self,
         action_id: str,
-    ) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    ) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Get the current version's details including WDL.
 
@@ -546,7 +528,7 @@ class AdoptAPIClient:
         action_id: str,
         version_id: str,
         workspace: Path,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Checkout a specific version to local workspace.
 
@@ -560,21 +542,28 @@ class AdoptAPIClient:
         success, versions, msg = self.list_versions(action_id)
         if not success:
             return False, f"Failed to list versions: {msg}"
-        
+
         version_number = int(version_id) if isinstance(version_id, str) else version_id
         target_version = None
-        for v in versions:
-            if v.get("version_number") == version_number:
-                target_version = v
-                break
-        
+        if versions:
+            for v in versions:
+                if v.get("version_number") == version_number:
+                    target_version = v
+                    break
+
         if not target_version:
             return False, f"Version {version_id} not found"
-        
+
         if not target_version.get("is_current_version", False):
-            current_version = next((v.get("version_number") for v in versions if v.get("is_current_version")), None)
-            return False, f"Version {version_id} is not current. Current version is {current_version}. Only current version can be checked out."
-        
+            current_version = next(
+                (v.get("version_number") for v in (versions or []) if v.get("is_current_version")),
+                None,
+            )
+            return (
+                False,
+                f"Version {version_id} is not current. Current version is {current_version}. Only current version can be checked out.",
+            )
+
         # Get current version (includes WDL)
         success, version_data, msg = self.get_current_version(action_id)
         if not success or not version_data:
@@ -607,7 +596,7 @@ class AdoptAPIClient:
         self,
         page: int = 1,
         page_size: int = 50,
-    ) -> Tuple[bool, Optional[List[Dict[str, Any]]], str]:
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
         """
         List all APIs.
 
@@ -641,7 +630,7 @@ class AdoptAPIClient:
         except requests.exceptions.RequestException as e:
             return False, None, f"Network error: {e}"
 
-    def get_api(self, api_id: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    def get_api(self, api_id: str) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Get API details.
 
@@ -665,7 +654,7 @@ class AdoptAPIClient:
         self,
         api_id: str,
         new_path: str,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Update API canonical path.
 
@@ -680,9 +669,7 @@ class AdoptAPIClient:
         payload = {"path": new_path}
 
         try:
-            response = requests.patch(
-                url, headers=self.headers, json=payload, timeout=30
-            )
+            response = requests.patch(url, headers=self.headers, json=payload, timeout=30)
 
             if response.status_code not in (200, 201, 204):
                 return False, f"Failed: {response.status_code} - {response.text}"
@@ -700,8 +687,8 @@ class AdoptAPIClient:
         self,
         page: int = 1,
         page_size: int = 100,
-        search: Optional[str] = None,
-    ) -> Tuple[bool, Optional[List[Dict[str, Any]]], str]:
+        search: str | None = None,
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
         """
         Fetch HTTP network logs.
 
@@ -714,14 +701,12 @@ class AdoptAPIClient:
             Tuple of (success, logs_list, message)
         """
         url = f"{self.api_endpoint}/v1/network-logs"
-        params = {"page": page, "page_size": page_size}
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
         if search:
             params["search"] = search
 
         try:
-            response = requests.get(
-                url, headers=self.headers, params=params, timeout=60
-            )
+            response = requests.get(url, headers=self.headers, params=params, timeout=60)
 
             if response.status_code != 200:
                 return False, None, f"Failed: {response.status_code} - {response.text}"
@@ -743,9 +728,9 @@ class AdoptAPIClient:
     def fetch_all_network_logs(
         self,
         max_logs: int = 10000,
-        search: Optional[str] = None,
+        search: str | None = None,
         page_size: int = 100,
-    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+    ) -> tuple[bool, list[dict[str, Any]], str]:
         """
         Fetch all network logs with pagination.
 
@@ -757,7 +742,7 @@ class AdoptAPIClient:
         Returns:
             Tuple of (success, logs_list, message)
         """
-        all_logs = []
+        all_logs: list[Any] = []
         page = 1
 
         while len(all_logs) < max_logs:
@@ -789,7 +774,7 @@ class AdoptAPIClient:
     def list_tools(
         self,
         execution_type: str = "TOOL",
-    ) -> Tuple[bool, Optional[List[Dict[str, Any]]], str]:
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
         """
         List all tools.
 
@@ -803,9 +788,7 @@ class AdoptAPIClient:
         params = {"execution_type": execution_type}
 
         try:
-            response = requests.get(
-                url, headers=self.headers, params=params, timeout=30
-            )
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
 
             if response.status_code != 200:
                 return False, None, f"Failed: {response.status_code} - {response.text}"
@@ -822,32 +805,32 @@ class AdoptAPIClient:
 def get_api_client_for_env(verbose: bool = False) -> AdoptAPIClient:
     """
     Get an API client with credentials from the active environment.
-    
+
     This function:
     1. Uses the active environment
     2. Loads the environment's .env credentials
     3. Returns configured AdoptAPIClient
-    
+
     Args:
         verbose: Print verbose info about credential loading.
-    
+
     Returns:
         AdoptAPIClient configured with environment credentials.
-        
+
     Raises:
         ValueError: If no active environment
     """
     from dotenv import load_dotenv
+
     from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_workspace_manager
 
     manager = get_workspace_manager()
-    
+
     if not manager.active_env:
         raise ValueError(
-            "No active environment. Set one with: "
-            "python cli/workspace.py env use <env-id>"
+            "No active environment. Set one with: python cli/workspace.py env use <env-id>"
         )
-    
+
     env = manager.active_env
     env_path = WORKSPACES_DIR / env
 

@@ -22,7 +22,7 @@ import sys
 from datetime import datetime
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any
 
 import requests
 
@@ -33,29 +33,32 @@ _np = None
 _SentenceTransformer = None
 
 
-def _get_faiss():
+def _get_faiss() -> Any:
     """Lazy load faiss."""
     global _faiss
     if _faiss is None:
         import faiss
+
         _faiss = faiss
     return _faiss
 
 
-def _get_numpy():
+def _get_numpy() -> Any:
     """Lazy load numpy."""
     global _np
     if _np is None:
         import numpy as np
+
         _np = np
     return _np
 
 
-def _get_sentence_transformer():
+def _get_sentence_transformer() -> Any:
     """Lazy load SentenceTransformer."""
     global _SentenceTransformer
     if _SentenceTransformer is None:
         from sentence_transformers import SentenceTransformer
+
         _SentenceTransformer = SentenceTransformer
     return _SentenceTransformer
 
@@ -71,7 +74,7 @@ APIS_CACHE_FILE = "apis_cache.json"
 class DiscoveryCache:
     """Manages cached data with embeddings at environment level."""
 
-    def __init__(self, env_path: Optional[Path] = None):
+    def __init__(self, env_path: Path | None = None):
         """
         Initialize cache manager.
 
@@ -79,7 +82,7 @@ class DiscoveryCache:
             env_path: Path to environment workspace. If None, uses fallback location.
         """
         self.env_path = env_path
-        self._cache_dir: Optional[Path] = None
+        self._cache_dir: Path | None = None
 
     @property
     def cache_dir(self) -> Path:
@@ -90,12 +93,13 @@ class DiscoveryCache:
             else:
                 # Fallback to workspaces root
                 from cli.wdl_common.workspace_manager import WORKSPACES_DIR
+
                 self._cache_dir = WORKSPACES_DIR / CACHE_DIR_NAME
 
             self._cache_dir.mkdir(parents=True, exist_ok=True)
         return self._cache_dir
 
-    def load_cache(self, cache_type: str) -> Dict[str, Any]:
+    def load_cache(self, cache_type: str) -> dict[str, Any]:
         """
         Load cache from file.
 
@@ -112,12 +116,12 @@ class DiscoveryCache:
             return {"items": [], "embeddings": {}, "last_updated": None}
 
         try:
-            with open(cache_file, "r") as f:
+            with open(cache_file) as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return {"items": [], "embeddings": {}, "last_updated": None}
 
-    def save_cache(self, cache_type: str, cache_data: Dict[str, Any]) -> None:
+    def save_cache(self, cache_type: str, cache_data: dict[str, Any]) -> None:
         """Save cache to file."""
         filename = ACTIONS_CACHE_FILE if cache_type == "actions" else APIS_CACHE_FILE
         cache_file = self.cache_dir / filename
@@ -127,10 +131,10 @@ class DiscoveryCache:
         try:
             with open(cache_file, "w") as f:
                 json.dump(cache_data, f, indent=2)
-        except IOError as e:
+        except OSError as e:
             print(f"⚠️  Warning: Could not save cache: {e}", file=sys.stderr)
 
-    def get_item_hash(self, item: Dict[str, Any]) -> str:
+    def get_item_hash(self, item: dict[str, Any]) -> str:
         """Generate hash for item to detect changes."""
         # Use id + title + description for hash
         content = f"{item.get('id', '')}{item.get('title', '')}{item.get('description', '')}"
@@ -140,8 +144,8 @@ class DiscoveryCache:
 class EmbeddingManager:
     """Manages embeddings and FAISS index."""
 
-    def __init__(self):
-        self.model = None  # Lazy loaded SentenceTransformer
+    def __init__(self) -> None:
+        self.model: Any = None  # Lazy loaded SentenceTransformer
         self.dimension = EMBEDDING_DIMENSION
         self._initialized = False
 
@@ -162,29 +166,33 @@ class EmbeddingManager:
             print(f"⚠️  Could not load embedding model: {e}", file=sys.stderr)
             return False
 
-    def embed_text(self, text: str) -> Optional[List[float]]:
+    def embed_text(self, text: str) -> list[float] | None:
         """Embed a single text string."""
         if not self._initialized or not self.model:
             self.initialize()
 
         try:
+            if self.model is None:
+                return None
             embedding = self.model.encode(text, convert_to_numpy=True)
             return embedding.tolist()
         except Exception:
             return None
 
-    def embed_batch(self, texts: List[str]) -> Optional[List[List[float]]]:
+    def embed_batch(self, texts: list[str]) -> list[list[float]] | None:
         """Embed multiple texts efficiently."""
         if not self._initialized or not self.model:
             self.initialize()
 
         try:
+            if self.model is None:
+                return None
             embeddings = self.model.encode(texts, convert_to_numpy=True)
             return embeddings.tolist()
         except Exception:
             return None
 
-    def build_faiss_index(self, embeddings: List[List[float]]) -> Optional[Any]:
+    def build_faiss_index(self, embeddings: list[list[float]]) -> Any | None:
         """Build FAISS index from embeddings."""
         if not embeddings:
             return None
@@ -201,8 +209,8 @@ class EmbeddingManager:
             return None
 
     def search_index(
-        self, index: Any, query_embedding: List[float], top_k: int = 10
-    ) -> List[Tuple[int, float]]:
+        self, index: Any, query_embedding: list[float], top_k: int = 10
+    ) -> list[tuple[int, float]]:
         """
         Search FAISS index.
 
@@ -218,7 +226,9 @@ class EmbeddingManager:
             query_array = np.array([query_embedding], dtype=np.float32)
             faiss.normalize_L2(query_array)
             scores, indices = index.search(query_array, top_k)
-            return [(int(idx), float(score)) for idx, score in zip(indices[0], scores[0]) if idx >= 0]
+            return [
+                (int(idx), float(score)) for idx, score in zip(indices[0], scores[0]) if idx >= 0
+            ]
         except Exception:
             return []
 
@@ -241,20 +251,20 @@ class Discovery:
 
         # Filter by type
         results = discovery.search_actions("inventory", tools_only=True)
-        
+
         # List all actions (not just tools)
         results = discovery.fetch_actions(execution_type="DEFAULT")
-        
+
         # List workflows only
         results = discovery.fetch_actions(execution_type="WORKFLOW")
     """
 
     def __init__(
         self,
-        bearer_token: Optional[str] = None,
-        env_path: Optional[Path] = None,
-        api_endpoint: Optional[str] = None,
-        actions_endpoint: Optional[str] = None,
+        bearer_token: str | None = None,
+        env_path: Path | None = None,
+        api_endpoint: str | None = None,
+        actions_endpoint: str | None = None,
         verbose: bool = False,
     ):
         """
@@ -269,7 +279,7 @@ class Discovery:
         """
         self._verbose = verbose
         self._verbose_print("__init__", "ENTER")
-        
+
         self._bearer_token = bearer_token
         self.env_path = env_path
         self.api_endpoint = api_endpoint or os.getenv(
@@ -283,11 +293,11 @@ class Discovery:
         self.embeddings = EmbeddingManager()
 
         # In-memory caches
-        self._actions: List[Dict[str, Any]] = []
-        self._apis: List[Dict[str, Any]] = []
-        self._actions_index: Optional[Any] = None
-        self._apis_index: Optional[Any] = None
-        
+        self._actions: list[dict[str, Any]] = []
+        self._apis: list[dict[str, Any]] = []
+        self._actions_index: Any | None = None
+        self._apis_index: Any | None = None
+
         self._verbose_print("__init__", "EXIT")
 
     def _verbose_print(self, func_name: str, stage: str, extra: str = "") -> None:
@@ -305,12 +315,13 @@ class Discovery:
         if self._bearer_token is None:
             self._verbose_print("bearer_token", "fetching token")
             from cli.auth import get_bearer_token
+
             self._bearer_token = get_bearer_token()
         self._verbose_print("bearer_token", "EXIT")
         return self._bearer_token
 
     @property
-    def headers(self) -> Dict[str, str]:
+    def headers(self) -> dict[str, str]:
         """Standard headers for API calls."""
         return {
             "Authorization": f"Bearer {self.bearer_token}",
@@ -324,10 +335,10 @@ class Discovery:
     def fetch_actions(
         self,
         tools_only: bool = False,
-        execution_type: Optional[str] = None,
+        execution_type: str | None = None,
         force_refresh: bool = False,
         include_hidden: bool = False,
-    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+    ) -> tuple[bool, list[dict[str, Any]], str]:
         """
         Fetch actions from API, update cache with new items.
 
@@ -344,19 +355,25 @@ class Discovery:
         Returns:
             Tuple of (success, actions, message)
         """
-        self._verbose_print("fetch_actions", "ENTER", f"tools_only={tools_only}, execution_type={execution_type}, force_refresh={force_refresh}")
-        
+        self._verbose_print(
+            "fetch_actions",
+            "ENTER",
+            f"tools_only={tools_only}, execution_type={execution_type}, force_refresh={force_refresh}",
+        )
+
         # Determine execution_type from parameters
         effective_execution_type = execution_type
         if tools_only and not execution_type:
             effective_execution_type = "TOOL"
-        
+
         # Use different cache files for different execution types
-        cache_suffix = (effective_execution_type or "all").lower().replace(" ", "_")
-        
+        (effective_execution_type or "all").lower().replace(" ", "_")
+
         # Load existing cache
         cache_data = self.cache.load_cache("actions")
-        cached_items = {self.cache.get_item_hash(item): item for item in cache_data.get("items", [])}
+        cached_items = {
+            self.cache.get_item_hash(item): item for item in cache_data.get("items", [])
+        }
         cached_embeddings = cache_data.get("embeddings", {})
         self._verbose_print("fetch_actions", "cache loaded", f"{len(cached_items)} cached items")
 
@@ -367,16 +384,24 @@ class Discovery:
             params["execution_type"] = effective_execution_type
 
         try:
-            self._verbose_print("fetch_actions", "making HTTP request", f"url={url}, params={params}")
+            self._verbose_print(
+                "fetch_actions", "making HTTP request", f"url={url}, params={params}"
+            )
             response = requests.get(url, headers=self.headers, params=params, timeout=30)
-            self._verbose_print("fetch_actions", "HTTP response received", f"status={response.status_code}")
+            self._verbose_print(
+                "fetch_actions", "HTTP response received", f"status={response.status_code}"
+            )
 
             if response.status_code != 200:
                 # Fall back to cache
                 if cached_items:
                     self._actions = list(cached_items.values())
                     self._verbose_print("fetch_actions", "EXIT", "using cache after API error")
-                    return True, self._actions, f"Using cached {len(self._actions)} actions (API error)"
+                    return (
+                        True,
+                        self._actions,
+                        f"Using cached {len(self._actions)} actions (API error)",
+                    )
                 self._verbose_print("fetch_actions", "EXIT", "request failed")
                 return False, [], f"Failed: {response.status_code} - {response.text}"
 
@@ -394,7 +419,11 @@ class Discovery:
             if cached_items:
                 self._actions = list(cached_items.values())
                 self._verbose_print("fetch_actions", "EXIT", "using cache after network error")
-                return True, self._actions, f"Using cached {len(self._actions)} actions (network error)"
+                return (
+                    True,
+                    self._actions,
+                    f"Using cached {len(self._actions)} actions (network error)",
+                )
             self._verbose_print("fetch_actions", "EXIT", f"network error: {e}")
             return False, [], f"Network error: {e}"
 
@@ -438,11 +467,11 @@ class Discovery:
             item_label = "workflows"
         else:
             item_label = "actions"
-        
+
         self._verbose_print("fetch_actions", "EXIT", f"fetched {len(actions)} {item_label}")
         return True, actions, f"Fetched {len(actions)} {item_label}"
 
-    def _build_action_text(self, action: Dict[str, Any]) -> str:
+    def _build_action_text(self, action: dict[str, Any]) -> str:
         """Build searchable text from action."""
         parts = []
         if title := action.get("title"):
@@ -454,67 +483,65 @@ class Discovery:
         return " ".join(parts) or "untitled action"
 
     def _fetch_hidden_subactions(
-        self, 
-        actions: List[Dict[str, Any]], 
-        headers: Dict[str, str]
-    ) -> List[Dict[str, Any]]:
+        self, actions: list[dict[str, Any]], headers: dict[str, str]
+    ) -> list[dict[str, Any]]:
         """
         Fetch hidden sub-actions from Uber Agents.
-        
+
         Args:
             actions: List of visible actions
             headers: HTTP headers with auth
-            
+
         Returns:
             Combined list with visible actions + hidden sub-actions
         """
         self._verbose_print("_fetch_hidden_subactions", "ENTER", f"{len(actions)} visible actions")
-        
+
         # Track IDs we already have
         visible_ids = {a.get("id") for a in actions}
         all_actions = list(actions)  # Copy the original list
-        
+
         # Find Uber Agents and their sub-actions
         for action in actions:
             action_id = action.get("id")
             if not action_id:
                 continue
-            
+
             try:
                 # Fetch full action details to check if it's an Uber Agent
                 url = f"{self.actions_endpoint}/v1/actions/{action_id}/current/"
                 response = requests.get(url, headers=headers, timeout=30)
-                
+
                 if response.status_code != 200:
                     continue
-                
+
                 action_data = response.json()
                 wdl = action_data.get("wdl", [])
-                
+
                 if isinstance(wdl, str):
                     wdl = json.loads(wdl)
-                
+
                 # Check for PROMPT_AND_TOOLS_AGENT operation
                 sub_action_ids = []
                 for step in wdl:
                     if isinstance(step, dict) and step.get("operation") == "PROMPT_AND_TOOLS_AGENT":
                         sub_action_ids = step.get("action_ids", [])
                         break
-                
+
                 if not sub_action_ids:
                     continue
-                    
+
                 self._verbose_print(
-                    "_fetch_hidden_subactions", 
-                    "found uber agent", 
-                    f"{action.get('title')}: {len(sub_action_ids)} sub-actions"
+                    "_fetch_hidden_subactions",
+                    "found uber agent",
+                    f"{action.get('title')}: {len(sub_action_ids)} sub-actions",
                 )
-                
+
                 # Mark the parent as an Uber Agent
                 action["is_uber_agent"] = True
                 action["sub_action_ids"] = sub_action_ids
                 action["sub_action_count"] = len(sub_action_ids)
-                
+
                 # Fetch each sub-action that's not already in the list
                 for sub_id in sub_action_ids:
                     if sub_id in visible_ids:
@@ -526,21 +553,21 @@ class Discovery:
                                 a["parent_agent_title"] = action.get("title")
                                 break
                         continue
-                    
+
                     # Fetch the hidden sub-action
                     sub_url = f"{self.actions_endpoint}/v1/actions/{sub_id}/current/"
                     try:
                         sub_response = requests.get(sub_url, headers=headers, timeout=30)
                         if sub_response.status_code != 200:
                             self._verbose_print(
-                                "_fetch_hidden_subactions", 
-                                "failed to fetch sub-action", 
-                                f"{sub_id}: {sub_response.status_code}"
+                                "_fetch_hidden_subactions",
+                                "failed to fetch sub-action",
+                                f"{sub_id}: {sub_response.status_code}",
                             )
                             continue
-                        
+
                         sub_data = sub_response.json()
-                        
+
                         # Create action entry for the sub-action
                         sub_action = {
                             "id": sub_id,
@@ -551,42 +578,40 @@ class Discovery:
                             "parent_agent_id": action_id,
                             "parent_agent_title": action.get("title"),
                         }
-                        
+
                         all_actions.append(sub_action)
                         visible_ids.add(sub_id)
-                        
+
                         self._verbose_print(
-                            "_fetch_hidden_subactions", 
-                            "added hidden sub-action", 
-                            sub_action["title"]
+                            "_fetch_hidden_subactions",
+                            "added hidden sub-action",
+                            sub_action["title"],
                         )
-                        
+
                     except requests.exceptions.RequestException as e:
                         self._verbose_print(
-                            "_fetch_hidden_subactions", 
-                            "network error fetching sub-action", 
-                            f"{sub_id}: {e}"
+                            "_fetch_hidden_subactions",
+                            "network error fetching sub-action",
+                            f"{sub_id}: {e}",
                         )
                         continue
-                        
+
             except Exception as e:
                 self._verbose_print(
-                    "_fetch_hidden_subactions", 
-                    "error processing action", 
-                    f"{action_id}: {e}"
+                    "_fetch_hidden_subactions", "error processing action", f"{action_id}: {e}"
                 )
                 continue
-        
+
         hidden_count = len(all_actions) - len(actions)
         self._verbose_print(
-            "_fetch_hidden_subactions", 
-            "EXIT", 
-            f"added {hidden_count} hidden sub-actions, total {len(all_actions)}"
+            "_fetch_hidden_subactions",
+            "EXIT",
+            f"added {hidden_count} hidden sub-actions, total {len(all_actions)}",
         )
-        
+
         return all_actions
 
-    def _get_actions_index(self) -> Optional[Any]:
+    def _get_actions_index(self) -> Any | None:
         """Get or build FAISS index for actions."""
         if self._actions_index is not None:
             return self._actions_index
@@ -617,7 +642,7 @@ class Discovery:
         tools_only: bool = False,
         top_k: int = 10,
         fuzzy_threshold: float = 0.4,
-    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+    ) -> tuple[bool, list[dict[str, Any]], str]:
         """
         Search actions using semantic and/or fuzzy matching.
 
@@ -637,7 +662,7 @@ class Discovery:
             if not success:
                 return False, [], msg
 
-        results: Dict[str, Tuple[Dict[str, Any], float]] = {}
+        results: dict[str, tuple[dict[str, Any], float]] = {}
 
         # Semantic search with FAISS
         if mode in ("semantic", "hybrid"):
@@ -680,10 +705,7 @@ class Discovery:
 
         # Filter by tools_only if needed
         if tools_only:
-            results = {
-                k: v for k, v in results.items()
-                if v[0].get("execution_type") == "TOOL"
-            }
+            results = {k: v for k, v in results.items() if v[0].get("execution_type") == "TOOL"}
 
         # Sort by score and limit
         sorted_results = sorted(results.values(), key=lambda x: x[1], reverse=True)[:top_k]
@@ -704,7 +726,7 @@ class Discovery:
     def fetch_uber_agents(
         self,
         force_refresh: bool = False,
-    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+    ) -> tuple[bool, list[dict[str, Any]], str]:
         """
         Fetch Uber Agents (actions containing PROMPT_AND_TOOLS_AGENT operation).
 
@@ -724,19 +746,23 @@ class Discovery:
         cached_uber_agents = cache_data.get("uber_agents", [])
 
         if cached_uber_agents and not force_refresh:
-            self._verbose_print("fetch_uber_agents", "using cache", f"{len(cached_uber_agents)} cached uber agents")
+            self._verbose_print(
+                "fetch_uber_agents", "using cache", f"{len(cached_uber_agents)} cached uber agents"
+            )
             return True, cached_uber_agents, f"Found {len(cached_uber_agents)} Uber Agents (cached)"
 
         # Fetch workflows first
-        success, workflows, msg = self.fetch_actions(execution_type="WORKFLOW", force_refresh=force_refresh)
+        success, workflows, msg = self.fetch_actions(
+            execution_type="WORKFLOW", force_refresh=force_refresh
+        )
         if not success:
             return False, [], msg
 
         self._verbose_print("fetch_uber_agents", "fetched workflows", f"{len(workflows)} workflows")
 
         # Check each workflow for PROMPT_AND_TOOLS_AGENT
-        uber_agents: List[Dict[str, Any]] = []
-        
+        uber_agents: list[dict[str, Any]] = []
+
         for workflow in workflows:
             action_id = workflow.get("id")
             if not action_id:
@@ -754,9 +780,10 @@ class Discovery:
 
                 action_data = response.json()
                 wdl = action_data.get("wdl", [])
-                
+
                 if isinstance(wdl, str):
                     import json
+
                     wdl = json.loads(wdl)
 
                 # Check for PROMPT_AND_TOOLS_AGENT operation
@@ -770,13 +797,17 @@ class Discovery:
                     uber_agent = {
                         "id": action_id,
                         "title": action_data.get("title", workflow.get("title")),
-                        "description": action_data.get("action_description", workflow.get("description")),
+                        "description": action_data.get(
+                            "action_description", workflow.get("description")
+                        ),
                         "sub_action_ids": sub_action_ids,
                         "sub_action_count": len(sub_action_ids),
                         "is_uber_agent": True,
                     }
                     uber_agents.append(uber_agent)
-                    self._verbose_print("fetch_uber_agents", "found uber agent", uber_agent["title"])
+                    self._verbose_print(
+                        "fetch_uber_agents", "found uber agent", uber_agent["title"]
+                    )
 
             except Exception as e:
                 self._verbose_print("fetch_uber_agents", "error checking", f"{action_id}: {e}")
@@ -797,7 +828,7 @@ class Discovery:
         self,
         page_size: int = 50,
         force_refresh: bool = False,
-    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+    ) -> tuple[bool, list[dict[str, Any]], str]:
         """
         Fetch APIs from platform, update cache with new items.
 
@@ -808,17 +839,21 @@ class Discovery:
         Returns:
             Tuple of (success, apis, message)
         """
-        self._verbose_print("fetch_apis", "ENTER", f"page_size={page_size}, force_refresh={force_refresh}")
-        
+        self._verbose_print(
+            "fetch_apis", "ENTER", f"page_size={page_size}, force_refresh={force_refresh}"
+        )
+
         # Load existing cache
         cache_data = self.cache.load_cache("apis")
-        cached_items = {self.cache.get_item_hash(item): item for item in cache_data.get("items", [])}
+        cached_items = {
+            self.cache.get_item_hash(item): item for item in cache_data.get("items", [])
+        }
         cached_embeddings = cache_data.get("embeddings", {})
         self._verbose_print("fetch_apis", "cache loaded", f"{len(cached_items)} cached items")
 
         # Fetch from API
         url = f"{self.api_endpoint}/v1/tools/apis"
-        all_apis: List[Dict[str, Any]] = []
+        all_apis: list[dict[str, Any]] = []
         page = 1
 
         try:
@@ -841,7 +876,7 @@ class Discovery:
                 if isinstance(data, list):
                     page_apis = data
                 elif isinstance(data, dict):
-                    page_apis = data.get("apis", data.get("data", data.get("items", [])))
+                    page_apis = data.get("apis", data.get("data", data.get("items", []))) or []
 
                 if not page_apis:
                     break
@@ -890,7 +925,7 @@ class Discovery:
 
         return True, all_apis, f"Fetched {len(all_apis)} APIs"
 
-    def _build_api_text(self, api: Dict[str, Any]) -> str:
+    def _build_api_text(self, api: dict[str, Any]) -> str:
         """Build searchable text from API."""
         parts = []
         if name := api.get("name"):
@@ -903,7 +938,7 @@ class Discovery:
             parts.append(method)
         return " ".join(parts) or "untitled api"
 
-    def _get_apis_index(self) -> Optional[Any]:
+    def _get_apis_index(self) -> Any | None:
         """Get or build FAISS index for APIs."""
         if self._apis_index is not None:
             return self._apis_index
@@ -931,7 +966,7 @@ class Discovery:
         mode: str = "hybrid",
         top_k: int = 10,
         fuzzy_threshold: float = 0.4,
-    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+    ) -> tuple[bool, list[dict[str, Any]], str]:
         """
         Search APIs using semantic and/or fuzzy matching.
 
@@ -949,7 +984,7 @@ class Discovery:
             if not success:
                 return False, [], msg
 
-        results: Dict[str, Tuple[Dict[str, Any], float]] = {}
+        results: dict[str, tuple[dict[str, Any], float]] = {}
 
         # Semantic search
         if mode in ("semantic", "hybrid"):
@@ -1009,7 +1044,7 @@ class Discovery:
     # Convenience Methods
     # =========================================================================
 
-    def get_action_details(self, action_id: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    def get_action_details(self, action_id: str) -> tuple[bool, dict[str, Any] | None, str]:
         """Fetch detailed info for a specific action."""
         url = f"{self.actions_endpoint}/v1/actions/{action_id}/current/"
 
@@ -1021,7 +1056,7 @@ class Discovery:
         except requests.exceptions.RequestException as e:
             return False, None, f"Network error: {e}"
 
-    def get_api_details(self, api_id: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    def get_api_details(self, api_id: str) -> tuple[bool, dict[str, Any] | None, str]:
         """Fetch detailed info for a specific API."""
         url = f"{self.api_endpoint}/v1/tools/apis/{api_id}"
 
@@ -1040,7 +1075,7 @@ class Discovery:
         include_apis: bool = True,
         tools_only: bool = True,
         top_k: int = 10,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Discover relevant actions and APIs for a requirements document.
 
@@ -1054,7 +1089,7 @@ class Discovery:
         Returns:
             Dict with 'actions' and 'apis' lists
         """
-        result = {"actions": [], "apis": []}
+        result: dict[str, list[Any]] = {"actions": [], "apis": []}
 
         if include_actions:
             success, actions, _ = self.search_actions(
@@ -1064,9 +1099,7 @@ class Discovery:
                 result["actions"] = actions
 
         if include_apis:
-            success, apis, _ = self.search_apis(
-                requirements, mode="semantic", top_k=top_k
-            )
+            success, apis, _ = self.search_apis(requirements, mode="semantic", top_k=top_k)
             if success:
                 result["apis"] = apis
 
@@ -1076,15 +1109,15 @@ class Discovery:
     # Backward Compatibility / Helper Methods
     # =========================================================================
 
-    def fetch_tools(self) -> Tuple[bool, List[Dict[str, Any]], str]:
+    def fetch_tools(self) -> tuple[bool, list[dict[str, Any]], str]:
         """Alias for fetch_actions with tools_only=True."""
         return self.fetch_actions(tools_only=True)
 
-    def get_tool_details(self, tool_id: str) -> Tuple[bool, Optional[Dict[str, Any]], str]:
+    def get_tool_details(self, tool_id: str) -> tuple[bool, dict[str, Any] | None, str]:
         """Alias for get_action_details."""
         return self.get_action_details(tool_id)
 
-    def get_tool_context(self, tool_id: str) -> Optional[str]:
+    def get_tool_context(self, tool_id: str) -> str | None:
         """Get WDL context for a tool (for including in prompts)."""
         success, details, _ = self.get_action_details(tool_id)
         if not success or not details:
@@ -1102,19 +1135,19 @@ class Discovery:
 
     def semantic_search_tools(
         self, query: str, top_k: int = 5
-    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+    ) -> tuple[bool, list[dict[str, Any]], str]:
         """Semantic search for tools only."""
         return self.search_actions(query, mode="semantic", tools_only=True, top_k=top_k)
 
     def semantic_search_apis(
         self, query: str, top_k: int = 5
-    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+    ) -> tuple[bool, list[dict[str, Any]], str]:
         """Semantic search for APIs."""
         return self.search_apis(query, mode="semantic", top_k=top_k)
 
     def discover_tools_for_requirements(
         self, requirements: str, top_k: int = 5
-    ) -> Tuple[bool, List[Dict[str, Any]], str]:
+    ) -> tuple[bool, list[dict[str, Any]], str]:
         """
         Discover tools and APIs for requirements.
 
@@ -1142,7 +1175,7 @@ class Discovery:
 
         return True, combined, f"Found {len(combined)} relevant tools and APIs"
 
-    def display_tools(self, tools: List[Dict[str, Any]], limit: Optional[int] = None) -> None:
+    def display_tools(self, tools: list[dict[str, Any]], limit: int | None = None) -> None:
         """Display tools in formatted output."""
         display_list = tools[:limit] if limit else tools
         print(f"\n📦 Found {len(tools)} tools:")
@@ -1157,7 +1190,7 @@ class Discovery:
             if desc:
                 print(f"     {desc}...")
 
-    def display_apis(self, apis: List[Dict[str, Any]], limit: Optional[int] = None) -> None:
+    def display_apis(self, apis: list[dict[str, Any]], limit: int | None = None) -> None:
         """Display APIs in formatted output."""
         display_list = apis[:limit] if limit else apis
         print(f"\n🌐 Found {len(apis)} APIs:")
@@ -1173,7 +1206,7 @@ class Discovery:
             if desc:
                 print(f"     {desc}...")
 
-    def export_search_results_json(self, results: List[Dict[str, Any]]) -> str:
+    def export_search_results_json(self, results: list[dict[str, Any]]) -> str:
         """Export search results as JSON string."""
         return json.dumps({"count": len(results), "results": results}, indent=2, default=str)
 
@@ -1182,32 +1215,32 @@ class Discovery:
 def get_discovery(verbose: bool = False) -> Discovery:
     """
     Get Discovery instance for the active environment.
-    
+
     This function:
     1. Uses the active environment
     2. Loads the environment's .env credentials
     3. Returns Discovery with per-environment caching
-    
+
     Args:
         verbose: Enable verbose debugging output.
-    
+
     Returns:
         Configured Discovery instance
-        
+
     Raises:
         ValueError: If no active environment
     """
     from dotenv import load_dotenv
+
     from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_workspace_manager
 
     manager = get_workspace_manager()
-    
+
     if not manager.active_env:
         raise ValueError(
-            "No active environment. Set one with: "
-            "python cli/workspace.py env use <env-id>"
+            "No active environment. Set one with: python cli/workspace.py env use <env-id>"
         )
-    
+
     env = manager.active_env
     env_path = WORKSPACES_DIR / env
 
@@ -1217,11 +1250,11 @@ def get_discovery(verbose: bool = False) -> Discovery:
         if verbose:
             print(f"[VERBOSE] Loading credentials from: {env_dotenv}", file=sys.stderr)
         load_dotenv(env_dotenv, override=True)
-        
+
         # Check if credentials are properly configured
         client_id = os.getenv("ADOPT_CLIENT_ID", "")
         client_secret = os.getenv("ADOPT_CLIENT_SECRET", "")
-        
+
         if "your-" in client_id.lower() or not client_id:
             print(f"⚠️  Warning: ADOPT_CLIENT_ID not configured in: {env}", file=sys.stderr)
             print(f"   Edit: {env_dotenv}", file=sys.stderr)
@@ -1233,4 +1266,3 @@ def get_discovery(verbose: bool = False) -> Discovery:
         print(f"   Expected: {env_dotenv}", file=sys.stderr)
 
     return Discovery(env_path=env_path, verbose=verbose)
-

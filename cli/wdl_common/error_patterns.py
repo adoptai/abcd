@@ -6,11 +6,9 @@ Translates cryptic API errors into actionable guidance for agents.
 """
 
 import re
-from typing import Dict, List, Optional, Tuple
-
 
 # Error pattern catalog with solutions
-ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
+ERROR_PATTERNS: dict[str, dict[str, str]] = {
     # Issue 2.2: required_inputs format mismatch
     r"required_inputs.*Input should be a valid list": {
         "issue": "required_inputs format mismatch",
@@ -24,13 +22,12 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         "issue": "required_inputs format mismatch",
         "explanation": (
             "The platform expects 'required_inputs' as a list of JSON strings.\n"
-            "   Current format: {\"field\": {...}}\n"
-            "   Required format: [\"{\\\"field\\\": {...}}\"]"
+            '   Current format: {"field": {...}}\n'
+            '   Required format: ["{\\"field\\": {...}}"]'
         ),
         "fix": "Run: python cli/validate.py workflow-id --auto-fix",
         "auto_fixable": "true",
     },
-
     # Issue 2.3: Tool title validation
     r"tool names? have invalid characters": {
         "issue": "Tool title contains invalid characters",
@@ -45,13 +42,10 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
     },
     r"Invalid tool name": {
         "issue": "Tool title contains invalid characters",
-        "explanation": (
-            "Tool names must only contain letters, numbers, hyphens, and underscores."
-        ),
+        "explanation": ("Tool names must only contain letters, numbers, hyphens, and underscores."),
         "fix": "Use --auto-fix flag with validate.py to automatically fix titles",
         "auto_fixable": "true",
     },
-
     # Issue 2.4: Empty WDL field
     r"empty wdl field": {
         "issue": "WDL not saved to remote",
@@ -62,7 +56,6 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         "fix": "Re-save the draft: python cli/save.py workflow-id",
         "auto_fixable": "false",
     },
-
     # Issue 3.3: Session expired
     r"Odoo Session Expired": {
         "issue": "Session cookie expired",
@@ -79,7 +72,6 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         "fix": "Update security_params.cookie in adopt_profile.json with a fresh cookie",
         "auto_fixable": "false",
     },
-
     # Action not found
     r"Action not found|404.*action": {
         "issue": "Action not found on remote",
@@ -94,7 +86,6 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         ),
         "auto_fixable": "false",
     },
-
     # Version not found
     r"Version.*not found|version does not exist": {
         "issue": "Version not found",
@@ -105,7 +96,6 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         ),
         "auto_fixable": "false",
     },
-
     # WDL validation errors
     r"Invalid WDL|WDL validation failed": {
         "issue": "WDL validation failed on platform",
@@ -116,7 +106,6 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         ),
         "auto_fixable": "false",
     },
-
     # JSON syntax errors
     r"JSONDecodeError|Expecting.*line.*column": {
         "issue": "Invalid JSON syntax",
@@ -130,7 +119,6 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         ),
         "auto_fixable": "false",
     },
-
     # Network errors
     r"Network error|ConnectionError|Timeout": {
         "issue": "Network connection failed",
@@ -143,7 +131,6 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         ),
         "auto_fixable": "false",
     },
-
     # Authentication errors
     r"401.*Unauthorized|Invalid token|Token expired": {
         "issue": "Authentication failed",
@@ -155,7 +142,6 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         ),
         "auto_fixable": "false",
     },
-
     # Rate limiting
     r"429.*Too Many Requests|Rate limit": {
         "issue": "Rate limit exceeded",
@@ -163,7 +149,6 @@ ERROR_PATTERNS: Dict[str, Dict[str, str]] = {
         "fix": "Wait a few minutes and try again.",
         "auto_fixable": "false",
     },
-
     # Duplicate action
     r"already exists|duplicate.*action": {
         "issue": "Action already exists",
@@ -201,10 +186,12 @@ def enhance_error_message(raw_error: str) -> str:
             ]
 
             if info.get("auto_fixable") == "true":
-                lines.extend([
-                    "",
-                    "🔧 This issue can be auto-fixed with the --auto-fix flag",
-                ])
+                lines.extend(
+                    [
+                        "",
+                        "🔧 This issue can be auto-fixed with the --auto-fix flag",
+                    ]
+                )
 
             return "\n".join(lines)
 
@@ -212,7 +199,7 @@ def enhance_error_message(raw_error: str) -> str:
     return f"❌ Error: {raw_error}"
 
 
-def detect_error_type(raw_error: str) -> Optional[str]:
+def detect_error_type(raw_error: str) -> str | None:
     """
     Detect the type of error from a raw error message.
 
@@ -244,7 +231,7 @@ def is_auto_fixable(raw_error: str) -> bool:
     return False
 
 
-def get_fix_suggestion(raw_error: str) -> Optional[str]:
+def get_fix_suggestion(raw_error: str) -> str | None:
     """
     Get fix suggestion for an error.
 
@@ -315,16 +302,6 @@ def format_api_error(
                 f"💡 Try again later. If the issue persists, contact support."
             )
         else:
-            enhanced = (
-                f"❌ Error {status_code} during {operation}\n\n"
-                f"Details: {response_text}"
-            )
+            enhanced = f"❌ Error {status_code} during {operation}\n\nDetails: {response_text}"
 
     return enhanced
-
-
-
-
-
-
-

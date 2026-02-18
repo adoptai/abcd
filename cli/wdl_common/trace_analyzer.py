@@ -8,7 +8,7 @@ Analyzes execution traces to identify errors and suggest fixes.
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -19,8 +19,8 @@ class TraceIssue:
     operation_type: str
     issue_type: str  # "error", "warning", "suggestion"
     message: str
-    details: Optional[Dict[str, Any]] = field(default=None)
-    suggested_fix: Optional[str] = field(default=None)
+    details: dict[str, Any] | None = field(default=None)
+    suggested_fix: str | None = field(default=None)
 
 
 class TraceAnalyzer:
@@ -30,15 +30,13 @@ class TraceAnalyzer:
         """Initialize trace analyzer."""
         self.common_error_patterns = self._build_error_patterns()
 
-    def _build_error_patterns(self) -> Dict[str, Dict[str, str]]:
+    def _build_error_patterns(self) -> dict[str, dict[str, str]]:
         """Build mapping of error patterns to fixes."""
         return {
             "401": {
                 "issue_type": "error",
                 "message": "Authentication failed - check security_params",
-                "suggested_fix": (
-                    "Verify API credentials in adopt_profile.json security_params"
-                ),
+                "suggested_fix": ("Verify API credentials in adopt_profile.json security_params"),
             },
             "403": {
                 "issue_type": "error",
@@ -74,7 +72,7 @@ class TraceAnalyzer:
             },
         }
 
-    def analyze_trace(self, trace: Dict[str, Any]) -> List[TraceIssue]:
+    def analyze_trace(self, trace: dict[str, Any]) -> list[TraceIssue]:
         """
         Analyze an execution trace for issues.
 
@@ -84,7 +82,7 @@ class TraceAnalyzer:
         Returns:
             List of identified issues
         """
-        issues: List[TraceIssue] = []
+        issues: list[TraceIssue] = []
 
         # Check overall status
         if trace.get("status") == "error" or not trace.get("status"):
@@ -112,9 +110,9 @@ class TraceAnalyzer:
 
         return issues
 
-    def _analyze_operation(self, op: Dict[str, Any]) -> List[TraceIssue]:
+    def _analyze_operation(self, op: dict[str, Any]) -> list[TraceIssue]:
         """Analyze a single operation from the trace."""
-        issues: List[TraceIssue] = []
+        issues: list[TraceIssue] = []
 
         op_id = op.get("id", "unknown")
         op_type = op.get("operation", "unknown")
@@ -140,9 +138,9 @@ class TraceAnalyzer:
 
         return issues
 
-    def _analyze_rest_response(self, resp: Dict[str, Any]) -> List[TraceIssue]:
+    def _analyze_rest_response(self, resp: dict[str, Any]) -> list[TraceIssue]:
         """Analyze REST response for issues."""
-        issues: List[TraceIssue] = []
+        issues: list[TraceIssue] = []
 
         status_code = resp.get("status_code", 0)
         op_id = resp.get("operation_id", "unknown")
@@ -167,8 +165,8 @@ class TraceAnalyzer:
 
     def generate_fix_suggestions(
         self,
-        issues: List[TraceIssue],
-        wdl: List[Dict[str, Any]],
+        issues: list[TraceIssue],
+        wdl: list[dict[str, Any]],
     ) -> str:
         """
         Generate Cursor-friendly fix suggestions.
@@ -180,15 +178,13 @@ class TraceAnalyzer:
         Returns:
             Markdown-formatted fix suggestions
         """
-        lines: List[str] = []
+        lines: list[str] = []
         lines.append("# WDL Fix Suggestions\n")
         lines.append("Based on trace analysis, the following issues were identified:\n")
 
         for i, issue in enumerate(issues, 1):
             lines.append(f"## Issue {i}: {issue.message}\n")
-            lines.append(
-                f"- **Operation**: `{issue.operation_id}` ({issue.operation_type})"
-            )
+            lines.append(f"- **Operation**: `{issue.operation_id}` ({issue.operation_type})")
             lines.append(f"- **Type**: {issue.issue_type}")
 
             if issue.suggested_fix:
@@ -209,7 +205,7 @@ class TraceAnalyzer:
 
         return "\n".join(lines)
 
-    def load_trace_from_file(self, trace_path: Path) -> Dict[str, Any]:
+    def load_trace_from_file(self, trace_path: Path) -> dict[str, Any]:
         """
         Load a trace from a file.
 
