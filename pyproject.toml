@@ -16,6 +16,14 @@ faiss-cpu = ">=1.7.4"
 numpy = ">=1.24.0"
 sentence-transformers = ">=2.2.0"
 
+[tool.poetry.group.lint]
+optional = true
+
+[tool.poetry.group.lint.dependencies]
+ruff = ">=0.4.0"
+mypy = ">=1.10.0"
+types-requests = ">=2.31.0"
+
 [tool.poetry.group.dev]
 optional = true
 

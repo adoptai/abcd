@@ -89,18 +89,18 @@ The `dev` dependency group contains linting, type-checking, and git-hook tools. 
 
 ### Install dev dependencies
 
+There are two optional groups:
+
+| Group | Install command | Contains |
+|-------|----------------|---------|
+| `lint` | `poetry install --no-root --only lint` | `ruff`, `mypy`, `types-requests` — minimal, used by CI |
+| `dev` | `poetry install --no-root --with dev` | Everything in `lint` + `pre-commit` for git hooks |
+
+For local development (git hooks + checks):
+
 ```bash
 poetry install --no-root --with dev
 ```
-
-This adds:
-
-| Tool | Purpose |
-|------|---------|
-| [`ruff`](https://docs.astral.sh/ruff/) | Fast linter + formatter (replaces flake8/isort/black) |
-| [`mypy`](https://mypy.readthedocs.io/) | Static type checker |
-| [`pre-commit`](https://pre-commit.com/) | Git hook runner |
-| `types-requests` | Type stubs for `requests` (used by mypy) |
 
 ### Enable pre-commit hooks
 

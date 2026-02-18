@@ -33,8 +33,8 @@ jobs:
           restore-keys: |
             venv-${{ runner.os }}-
 
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-ansi --with dev
+      - name: Install lint dependencies
+        run: poetry install --no-root --no-interaction --no-ansi --only lint
 
       - name: Run ruff check
         run: poetry run ruff check --output-format=github cli/
