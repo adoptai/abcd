@@ -91,11 +91,8 @@ if [ "$RUN_MYPY" = true ]; then
         exit 1
     fi
 
-    echo "Ensuring Poetry dependencies are installed..."
-    poetry install --no-interaction --no-ansi
-
-    echo "Installing type stubs..."
-    poetry run pip install types-requests --quiet
+    echo "Ensuring Poetry dependencies are installed (including dev group)..."
+    poetry install --no-interaction --no-ansi --with dev
 
     echo "Clearing mypy cache..."
     rm -rf .mypy_cache
