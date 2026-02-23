@@ -32,13 +32,12 @@ Directory Structure:
 """
 
 import json
-import os
 import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Optional, Set
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -47,53 +46,76 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent
 WORKSPACES_DIR = PROJECT_ROOT / "workspaces"
 
 
+def _write_agent_metadata(meta_file: Path, data: dict[str, Any]) -> None:
+    """
+    Write agent metadata to metadata.json.
+
+    Strips runtime-only keys (path, env_name added by get_agent/list_agents,
+    remote_action_id alias) before persisting so the file stays clean.
+    Ensures agent-mandatory fields are always present.
+    """
+    # Fields added at runtime by get_agent/list_agents — do not persist
+    _RUNTIME_ONLY = {"path", "is_agent"}
+
+    clean = {k: v for k, v in data.items() if k not in _RUNTIME_ONLY}
+
+    # Ensure canonical fields exist
+    clean.setdefault("type", "agent")
+    if not isinstance(clean.get("sub_actions"), list):
+        clean["sub_actions"] = []
+    clean["updated_at"] = datetime.now().isoformat()
+
+    meta_file.write_text(json.dumps(clean, indent=2))
+
+
 @dataclass
 class ActionContext:
     """
     Complete context for an action, ready to use.
-    
+
     This is the primary way to access action data. It includes:
     - Action metadata and paths
     - Environment info
     - Resolved adopt_profile.json with inheritance
     """
+
     action_id: str
     path: Path
     env_name: str
-    agent_name: Optional[str]
+    agent_name: str | None
     metadata: dict[str, Any]
     resolved_profile: dict[str, Any]
-    
+
     @property
     def wdl_path(self) -> Path:
         """Path to widdle.json."""
         return self.path / "widdle.json"
-    
+
     @property
     def metadata_path(self) -> Path:
         """Path to metadata.json."""
         return self.path / "metadata.json"
-    
+
     @property
     def apis_dir(self) -> Path:
         """Path to apis/ directory."""
         return self.path / "apis"
-    
+
     @property
     def tools_dir(self) -> Path:
         """Path to tools/ directory."""
         return self.path / "tools"
-    
+
     @property
     def test_cases_dir(self) -> Path:
         """Path to test_cases/ directory."""
         return self.path / "test_cases"
-    
+
     @property
     def traces_dir(self) -> Path:
         """Path to traces/ directory."""
         return self.path / "traces"
-    
+
     @property
     def adopt_profile_path(self) -> Path:
         """Path to adopt_profile.json."""
@@ -102,9 +124,11 @@ class ActionContext:
 
 class WorkspaceType(Enum):
     """Type of workspace."""
+
     ENVIRONMENT = "environment"
     AGENT = "agent"
     ACTION = "action"
+
 
 # Default environment name
 DEFAULT_ENV = "default"
@@ -128,9 +152,9 @@ class HierarchicalWorkspaceManager:
         """Initialize workspace manager."""
         self._ensure_base_structure()
         self._active_env: str | None = None
-        self._loaded_envs: Set[str] = set()
+        self._loaded_envs: set[str] = set()
         self._load_active_env()
-        
+
         # Auto-activate default env if no active env
         if not self._active_env and self.env_exists(DEFAULT_ENV):
             self._active_env = DEFAULT_ENV
@@ -143,31 +167,30 @@ class HierarchicalWorkspaceManager:
     def ensure_env_loaded(self) -> str:
         """
         Ensure active environment's .env is loaded. Returns environment name.
-        
+
         This is idempotent - safe to call multiple times.
-        
+
         Returns:
             The active environment name
-            
+
         Raises:
             ValueError: If no active environment
         """
         if not self._active_env:
             raise ValueError(
-                "No active environment. Set one with: "
-                "python cli/workspace.py env use <env-id>"
+                "No active environment. Set one with: python cli/workspace.py env use <env-id>"
             )
-        
+
         if self._active_env not in self._loaded_envs:
             self.load_env_vars(self._active_env)
             self._loaded_envs.add(self._active_env)
-        
+
         return self._active_env
 
     def get_env_path(self) -> Path | None:
         """
         Get path to active environment.
-        
+
         Returns:
             Path to active environment directory, or None if no active env
         """
@@ -178,45 +201,45 @@ class HierarchicalWorkspaceManager:
     def get_action_context(self, action_id: str) -> ActionContext | None:
         """
         Get complete action context with environment loaded.
-        
+
         This is the PRIMARY way to access an action. It:
         1. Finds the action in the active environment
         2. Loads the environment's .env file
         3. Resolves the adopt_profile.json with inheritance
         4. Returns everything needed to work with the action
-        
+
         Args:
             action_id: Action identifier to find
-            
+
         Returns:
             ActionContext with all resolved data, or None if not found
         """
         # Always use active environment
         if not self._active_env:
             return None
-        
+
         action_info = self.find_action(action_id, env_name=self._active_env)
         if not action_info:
             return None
-        
+
         env_name = action_info.get("env_name")
         agent_name = action_info.get("agent_name")
         path = Path(action_info["path"])
-        
+
         # Load environment credentials
         self.load_env_vars(env_name)
-        
+
         # Resolve profile with inheritance
         resolved_profile = self.resolve_adopt_profile(
             action_path=path,
             agent_name=agent_name,
             env_name=env_name,
         )
-        
+
         return ActionContext(
             action_id=action_id,
             path=path,
-            env_name=env_name,
+            env_name=env_name or "",
             agent_name=agent_name,
             metadata=action_info.get("metadata", {}),
             resolved_profile=resolved_profile,
@@ -225,18 +248,18 @@ class HierarchicalWorkspaceManager:
     def select_agent_interactive(self) -> str | None:
         """
         Interactively select an agent from the active environment.
-        
+
         Returns:
             Selected agent ID, or None if no agents or user cancels
         """
         if not self._active_env:
             return None
-        
+
         agents = self.list_agents()
-        
+
         if not agents:
             return None
-        
+
         print("\n📦 Available agents:")
         for i, agent in enumerate(agents, 1):
             name = agent.get("name", agent.get("agent_id", "Unknown"))
@@ -245,20 +268,20 @@ class HierarchicalWorkspaceManager:
             print(f"  {i}. {agent_id}")
             if desc:
                 print(f"     {desc}...")
-        
+
         print("  0. Cancel / Use standalone mode")
-        
+
         try:
             choice = input("\nSelect agent (0 to cancel): ").strip()
             if not choice or choice == "0":
                 return None
-            
+
             idx = int(choice) - 1
             if 0 <= idx < len(agents):
                 return agents[idx].get("agent_id")
         except (ValueError, KeyboardInterrupt):
             pass
-        
+
         return None
 
     # =========================================================================
@@ -309,7 +332,7 @@ class HierarchicalWorkspaceManager:
     def get_active_env_info(self) -> dict[str, Any] | None:
         """
         Get full info about the active environment.
-        
+
         Returns:
             Dict with env_id, name, description, domain, allowed_domains, etc.
             Returns None if no active environment.
@@ -321,9 +344,9 @@ class HierarchicalWorkspaceManager:
     def get_active_env_description(self) -> str:
         """
         Get the description of the active environment.
-        
+
         Useful for agents to validate if a request matches the environment's purpose.
-        
+
         Returns:
             Environment description string, or empty string if no active env.
         """
@@ -355,7 +378,7 @@ class HierarchicalWorkspaceManager:
         Args:
             env_id: Unique environment identifier
             name: Human-readable name
-            description: Environment description (IMPORTANT: describes what kind of 
+            description: Environment description (IMPORTANT: describes what kind of
                         actions this env is for - helps agents validate requests)
             target: Target type (staging, production, development)
             client: Optional client identifier
@@ -434,11 +457,13 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                     env_data["is_active"] = item.name == self._active_env
                     envs.append(env_data)
                 except Exception:
-                    envs.append({
-                        "env_id": item.name,
-                        "path": str(item),
-                        "is_active": item.name == self._active_env,
-                    })
+                    envs.append(
+                        {
+                            "env_id": item.name,
+                            "path": str(item),
+                            "is_active": item.name == self._active_env,
+                        }
+                    )
         return envs
 
     def get_env(self, env_name: str) -> dict[str, Any] | None:
@@ -463,11 +488,18 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         env_path = WORKSPACES_DIR / env_name
 
         # Check if env has contents
-        agents_count = len(list((env_path / "agents").iterdir())) if (env_path / "agents").exists() else 0
-        actions_count = len(list((env_path / "actions").iterdir())) if (env_path / "actions").exists() else 0
+        agents_count = (
+            len(list((env_path / "agents").iterdir())) if (env_path / "agents").exists() else 0
+        )
+        actions_count = (
+            len(list((env_path / "actions").iterdir())) if (env_path / "actions").exists() else 0
+        )
 
         if (agents_count > 0 or actions_count > 0) and not force:
-            return False, f"Environment has {agents_count} agents and {actions_count} actions. Use --force to delete."
+            return (
+                False,
+                f"Environment has {agents_count} agents and {actions_count} actions. Use --force to delete.",
+            )
 
         try:
             shutil.rmtree(env_path)
@@ -488,7 +520,19 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         if not env:
             return False
         agent_path = WORKSPACES_DIR / env / "agents" / agent_name
-        return agent_path.exists() and (agent_path / "agent.json").exists()
+        if not agent_path.exists():
+            return False
+        # Primary: metadata.json with type=agent/uber_agent
+        meta_path = agent_path / "metadata.json"
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text())
+                if meta.get("type") in ("agent", "uber_agent"):
+                    return True
+            except Exception:
+                pass
+        # Legacy fallback: agent.json
+        return (agent_path / "agent.json").exists()
 
     def create_agent(
         self,
@@ -532,30 +576,22 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
             (agent_path / "traces").mkdir()
             (agent_path / "versions").mkdir()
 
-            # Create agent.json
-            agent_meta = {
-                "agent_id": agent_id,
-                "name": name,
-                "description": description,
-                "type": "uber_agent",
-                "remote_action_id": None,
-                "sub_actions": [],
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat(),
-            }
-            (agent_path / "agent.json").write_text(json.dumps(agent_meta, indent=2))
-
             # Create uber agent WDL template
             wdl = self._get_uber_agent_template(name, description)
             (agent_path / "widdle.json").write_text(json.dumps(wdl, indent=2))
 
-            # Create metadata.json
-            metadata = {
+            # Create unified metadata.json (single source of truth for agents)
+            metadata: dict[str, Any] = {
                 "workflow_id": agent_id,
                 "title": name,
-                "type": "uber_agent",
+                "description": description,
+                "type": "agent",
                 "env_name": env,
+                "agent_name": None,
                 "action_id": None,
+                "sub_actions": [],
+                "is_tool_mode": False,
+                "is_visible_in_list": True,
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
             }
@@ -579,24 +615,22 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                 "operation": "PROMPT_AND_TOOLS_AGENT",
                 "model_string": "claude-4-5-sonnet",
                 "action_ids": [],
-                "system_prompt": f"You are {name}. {description}\n\nYou have access to the following tools:\n\n{{TOOL_DESCRIPTIONS}}\n\nBased on the user's request:\n1. Determine which tool(s) to call\n2. Ask the user for any missing required inputs\n3. Execute the tools deterministically\n4. Present the results clearly\n5. Ask what the user wants to do next\n\nDo not add reasoning steps - execute tools directly when you have all required inputs."
+                "system_prompt": f"You are {name}. {description}\n\nYou have access to the following tools:\n\n{{TOOL_DESCRIPTIONS}}\n\nBased on the user's request:\n1. Determine which tool(s) to call\n2. Ask the user for any missing required inputs\n3. Execute the tools deterministically\n4. Present the results clearly\n5. Ask what the user wants to do next\n\nDo not add reasoning steps - execute tools directly when you have all required inputs.",
             },
             {
                 "id": "extractAgentMessage",
                 "operation": "EXTRACT",
                 "input": "uberAgent",
-                "field": "message"
+                "field": "message",
             },
             {
                 "id": "outputAgentResponse",
                 "operation": "OUTPUT_TEXT",
                 "format_string": "{}",
                 "values": ["extractAgentMessage"],
-                "raw": True
+                "raw": True,
             },
-            {
-                "required_inputs": []
-            }
+            {"required_inputs": []},
         ]
 
     def _add_agent_to_env(self, env_name: str, agent_id: str) -> None:
@@ -608,6 +642,136 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                 env_data.setdefault("agents", []).append(agent_id)
                 env_data["updated_at"] = datetime.now().isoformat()
                 env_path.write_text(json.dumps(env_data, indent=2))
+
+    def _migrate_agent_workspace(self, agent_path: Path) -> None:
+        """
+        Automatically migrate a legacy agent workspace to the unified metadata.json schema.
+
+        Called transparently the first time a legacy workspace is accessed via
+        get_agent() or list_agents(). Migration is idempotent — re-running on an
+        already-migrated workspace is safe.
+
+        Legacy workspaces are identified by one or more of:
+          - Having agent.json but no metadata.json
+          - Having metadata.json that lacks sub_actions / description / type="agent"
+
+        After migration the workspace only needs metadata.json.  agent.json is
+        left in place (but ignored by all new code) so any user-held references
+        to the file do not immediately break.
+        """
+        meta_path = agent_path / "metadata.json"
+        agent_json_path = agent_path / "agent.json"
+
+        # Load existing metadata (may be incomplete or absent)
+        meta: dict[str, Any] = {}
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text())
+            except Exception:
+                meta = {}
+
+        # Check if migration is needed — only structural fields matter;
+        # description/action_id may legitimately be empty for new/unpublished agents.
+        # Note: use isinstance check so "sub_actions": null also triggers migration.
+        needs_migration = meta.get("type") not in ("agent", "uber_agent") or not isinstance(
+            meta.get("sub_actions"), list
+        )
+
+        if not needs_migration:
+            return  # Already in unified format
+
+        # Pull legacy data from agent.json
+        legacy: dict[str, Any] = {}
+        if agent_json_path.exists():
+            try:
+                legacy = json.loads(agent_json_path.read_text())
+            except Exception:
+                pass
+
+        # Build merged / upgraded metadata
+        merged: dict[str, Any] = {
+            "workflow_id": meta.get("workflow_id") or legacy.get("agent_id") or agent_path.name,
+            "title": meta.get("title") or legacy.get("name") or agent_path.name,
+            "description": meta.get("description") or legacy.get("description", ""),
+            "type": "agent",
+            "env_name": meta.get("env_name") or "",
+            "agent_name": meta.get("agent_name"),
+            "action_id": (
+                meta.get("action_id")
+                or meta.get("remote_action_id")
+                or legacy.get("remote_action_id")
+            ),
+            "sub_actions": meta.get("sub_actions") or legacy.get("sub_actions", []),
+            "is_tool_mode": meta.get("is_tool_mode", False),
+            "is_visible_in_list": meta.get("is_visible_in_list", True),
+            "created_at": meta.get("created_at")
+            or legacy.get("created_at")
+            or datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+        }
+
+        try:
+            meta_path.write_text(json.dumps(merged, indent=2))
+        except Exception:
+            pass  # Migration is best-effort; do not crash callers
+
+    def _load_agent_metadata(self, agent_path: Path) -> dict[str, Any]:
+        """
+        Load agent metadata from the unified metadata.json.
+
+        Automatically migrates legacy workspaces (those with agent.json or an
+        incomplete metadata.json) on first access so every caller always receives
+        a fully-populated dict regardless of the workspace's original format.
+
+        Returns a normalized dict with all agent fields.
+        """
+        # Auto-migrate legacy workspaces on first access
+        self._migrate_agent_workspace(agent_path)
+
+        data: dict[str, Any] = {}
+
+        # Primary: metadata.json (guaranteed to exist and be complete after migration)
+        meta_path = agent_path / "metadata.json"
+        if meta_path.exists():
+            try:
+                data = json.loads(meta_path.read_text())
+            except Exception:
+                pass
+
+        # Safety fallback: if metadata.json is still missing, synthesize from agent.json
+        if not data:
+            agent_json_path = agent_path / "agent.json"
+            if agent_json_path.exists():
+                try:
+                    legacy = json.loads(agent_json_path.read_text())
+                    data = {
+                        "workflow_id": legacy.get("agent_id", agent_path.name),
+                        "title": legacy.get("name", agent_path.name),
+                        "description": legacy.get("description", ""),
+                        "type": "agent",
+                        "sub_actions": legacy.get("sub_actions", []),
+                        "action_id": legacy.get("remote_action_id"),
+                    }
+                except Exception:
+                    pass
+
+        # Normalize canonical fields so callers don't need to know the schema history
+        data.setdefault("workflow_id", agent_path.name)
+        # Always ensure sub_actions is a list — setdefault won't overwrite an
+        # existing `null` value, so we use an explicit isinstance check.
+        if not isinstance(data.get("sub_actions"), list):
+            data["sub_actions"] = []
+        # `name` mirrors `title` — provide both for callers that use either
+        if "name" not in data:
+            data["name"] = data.get("title", agent_path.name)
+        if "title" not in data:
+            data["title"] = data.get("name", agent_path.name)
+        # `agent_id` mirrors `workflow_id`
+        data.setdefault("agent_id", data["workflow_id"])
+        # `remote_action_id` mirrors `action_id` for backward compat
+        data.setdefault("remote_action_id", data.get("action_id"))
+
+        return data
 
     def list_agents(self, env_name: str | None = None) -> list[dict[str, Any]]:
         """List all agents in an environment."""
@@ -621,18 +785,30 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
 
         agents = []
         for item in agents_dir.iterdir():
-            if item.is_dir() and (item / "agent.json").exists():
-                try:
-                    agent_data = json.loads((item / "agent.json").read_text())
-                    agent_data["path"] = str(item)
-                    agent_data["env_name"] = env
-                    agents.append(agent_data)
-                except Exception:
-                    agents.append({
+            if not item.is_dir():
+                continue
+            # Accept directories that have metadata.json (type=agent/uber_agent) or agent.json
+            has_meta = (item / "metadata.json").exists()
+            has_legacy = (item / "agent.json").exists()
+            if not has_meta and not has_legacy:
+                continue
+            try:
+                agent_data = self._load_agent_metadata(item)
+                agent_data["path"] = str(item)
+                agent_data["env_name"] = env
+                agents.append(agent_data)
+            except Exception:
+                agents.append(
+                    {
                         "agent_id": item.name,
+                        "workflow_id": item.name,
+                        "name": item.name,
+                        "title": item.name,
                         "path": str(item),
                         "env_name": env,
-                    })
+                        "sub_actions": [],
+                    }
+                )
         return agents
 
     def get_agent(self, agent_name: str, env_name: str | None = None) -> dict[str, Any] | None:
@@ -645,8 +821,12 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         if not agent_path.exists():
             return None
 
+        # Must have at least metadata.json or agent.json to be a valid agent
+        if not (agent_path / "metadata.json").exists() and not (agent_path / "agent.json").exists():
+            return None
+
         try:
-            agent_data = json.loads((agent_path / "agent.json").read_text())
+            agent_data = self._load_agent_metadata(agent_path)
             agent_data["path"] = str(agent_path)
             agent_data["env_name"] = env
             return agent_data
@@ -683,32 +863,51 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         if not self.agent_exists(agent_name, env):
             return False, f"Agent not found: {agent_name}"
 
-        # Validate title format
+        # Sanitize title for metadata storage — emit a warning if the raw title
+        # contains characters that would be invalid in a WDL function name, but
+        # do NOT hard-fail: the metadata stores a human-readable label while the
+        # remote action_id is what the orchestrator actually uses.
         import re
-        if not re.match(r'^[a-zA-Z0-9_-]{1,128}$', title):
-            return False, f"Invalid title format: {title}. Must match ^[a-zA-Z0-9_-]{{1,128}}$"
+
+        if not re.match(r"^[a-zA-Z0-9_-]{1,128}$", title):
+            import warnings
+
+            warnings.warn(
+                f"add_subaction: title '{title}' contains characters outside "
+                "[a-zA-Z0-9_-]. Storing as-is in metadata.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         agent_path = WORKSPACES_DIR / env / "agents" / agent_name
 
         try:
-            # Update agent.json
-            agent_file = agent_path / "agent.json"
-            agent_data = json.loads(agent_file.read_text())
+            # Load unified metadata (merges agent.json for backward compat)
+            meta_file = agent_path / "metadata.json"
+            agent_data = self._load_agent_metadata(agent_path)
+
+            # Ensure sub_actions is always a list (guards against null in JSON)
+            if not isinstance(agent_data.get("sub_actions"), list):
+                agent_data["sub_actions"] = []
 
             # Check if action already exists
-            existing = [a for a in agent_data.get("sub_actions", []) if a["action_id"] == action_id]
+            existing = [a for a in agent_data["sub_actions"] if a["action_id"] == action_id]
             if existing:
                 return False, f"Action {action_id} already in agent"
 
-            agent_data.setdefault("sub_actions", []).append({
-                "action_id": action_id,
-                "remote_action_id": remote_action_id,
-                "title": title,
-                "description": description,
-                "required": True,
-            })
+            agent_data["sub_actions"].append(
+                {
+                    "action_id": action_id,
+                    "remote_action_id": remote_action_id,
+                    "title": title,
+                    "description": description,
+                    "required": True,
+                }
+            )
             agent_data["updated_at"] = datetime.now().isoformat()
-            agent_file.write_text(json.dumps(agent_data, indent=2))
+
+            # Always write back to metadata.json (unified source of truth)
+            _write_agent_metadata(meta_file, agent_data)
 
             # Update WDL with new action_id
             wdl_file = agent_path / "widdle.json"
@@ -735,72 +934,82 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
     ) -> tuple[bool, str]:
         """
         Move a standalone action to become a sub-action of an agent.
-        
+
         Args:
             action_id: The action to move
             agent_name: Target agent to move action into
             env_name: Environment (uses active if not specified)
             update_wdl: If True, also update agent's WDL to include the action
-            
+
         Returns:
             Tuple of (success, message)
         """
         import shutil
-        
+
         env = env_name or self._active_env
         if not env:
             return False, "No environment specified"
-        
+
         if not self.agent_exists(agent_name, env):
             return False, f"Agent not found: {agent_name}"
-        
+
         # Check for action in standalone actions
         standalone_path = WORKSPACES_DIR / env / "actions" / action_id
         if not standalone_path.exists():
             return False, f"Standalone action not found: {action_id}"
-        
+
         agent_path = WORKSPACES_DIR / env / "agents" / agent_name
         target_path = agent_path / "actions" / action_id
-        
+
         if target_path.exists():
             return False, f"Action already exists in agent: {action_id}"
-        
+
         try:
             # Read action metadata for title and remote ID
             metadata_file = standalone_path / "metadata.json"
             action_title = action_id
             remote_action_id = None
-            
+
             if metadata_file.exists():
                 metadata = json.loads(metadata_file.read_text())
                 action_title = metadata.get("title", action_id)
                 remote_action_id = metadata.get("action_id") or metadata.get("remote_action_id")
-            
+
             # Move the action folder
             target_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.move(str(standalone_path), str(target_path))
-            
-            # Update action metadata to reflect new location
+
+            # Update action metadata to reflect new location and type
             new_metadata_file = target_path / "metadata.json"
             if new_metadata_file.exists():
                 metadata = json.loads(new_metadata_file.read_text())
                 metadata["agent_name"] = agent_name
                 metadata["env_name"] = env
+                # Promote to sub_action: always overwrite these so the schema is
+                # authoritative even if the action previously had different values.
+                metadata["type"] = "sub_action"
+                metadata["is_tool_mode"] = True
+                metadata["is_visible_in_list"] = False
+                metadata.setdefault("sub_actions", None)
                 metadata["moved_to_agent_at"] = datetime.now().isoformat()
                 new_metadata_file.write_text(json.dumps(metadata, indent=2))
-            
-            # Add to agent's sub_actions list
-            agent_file = agent_path / "agent.json"
-            agent_data = json.loads(agent_file.read_text())
-            
-            agent_data.setdefault("sub_actions", []).append({
-                "action_id": action_id,
-                "remote_action_id": remote_action_id,
-                "title": action_title,
-            })
+
+            # Add to agent's sub_actions list in metadata.json
+            meta_file = agent_path / "metadata.json"
+            agent_data = self._load_agent_metadata(agent_path)
+
+            if not isinstance(agent_data.get("sub_actions"), list):
+                agent_data["sub_actions"] = []
+            agent_data["sub_actions"].append(
+                {
+                    "action_id": action_id,
+                    "remote_action_id": remote_action_id,
+                    "title": action_title,
+                }
+            )
             agent_data["updated_at"] = datetime.now().isoformat()
-            agent_file.write_text(json.dumps(agent_data, indent=2))
-            
+            _write_agent_metadata(meta_file, agent_data)
+
             # Update agent's WDL if requested and remote ID is available
             if update_wdl and remote_action_id:
                 wdl_file = agent_path / "widdle.json"
@@ -813,9 +1022,9 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                                 action_ids.append(remote_action_id)
                             break
                     wdl_file.write_text(json.dumps(wdl, indent=2))
-            
+
             return True, f"Moved {action_id} to agent {agent_name}"
-            
+
         except Exception as e:
             return False, f"Failed to move action: {e}"
 
@@ -836,8 +1045,8 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         agent_path = WORKSPACES_DIR / env / "agents" / agent_name
 
         try:
-            agent_file = agent_path / "agent.json"
-            agent_data = json.loads(agent_file.read_text())
+            meta_file = agent_path / "metadata.json"
+            agent_data = self._load_agent_metadata(agent_path)
 
             # Find and remove action
             sub_actions = agent_data.get("sub_actions", [])
@@ -851,7 +1060,9 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                 return False, f"Action {action_id} not found in agent"
 
             agent_data["updated_at"] = datetime.now().isoformat()
-            agent_file.write_text(json.dumps(agent_data, indent=2))
+
+            # Always write back to metadata.json (unified source of truth)
+            _write_agent_metadata(meta_file, agent_data)
 
             # Update WDL
             wdl_file = agent_path / "widdle.json"
@@ -902,11 +1113,15 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         # Require an environment
         env = env_name or self._active_env
         if not env:
-            return False, Path(), "No environment specified. Use --env or set active environment with 'workspace.py env use'"
-        
+            return (
+                False,
+                Path(),
+                "No environment specified. Use --env or set active environment with 'workspace.py env use'",
+            )
+
         if not self.env_exists(env):
             return False, Path(), f"Environment not found: {env}"
-        
+
         # Determine action path
         if agent_name:
             if not self.agent_exists(agent_name, env):
@@ -928,7 +1143,9 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
             (action_path / "tools").mkdir()
 
             # Create requirements.md
-            (action_path / "requirements.md").write_text(requirements or f"# {title}\n\n{description}\n")
+            (action_path / "requirements.md").write_text(
+                requirements or f"# {title}\n\n{description}\n"
+            )
 
             # Create description.txt
             (action_path / "description.txt").write_text(f"Workflow: {title}\n\n{description}")
@@ -947,16 +1164,21 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
             (action_path / "adopt_profile.json").write_text(json.dumps(profile, indent=2))
 
             # Create metadata.json
+            # workspace type is "sub_action" when nested under an agent, "action" when standalone
+            is_sub_action = agent_name is not None
             metadata = {
                 "workflow_id": action_id,
                 "title": title,
                 "description": description,
-                "type": "action",
+                "type": "sub_action" if is_sub_action else "action",
                 "env_name": env_name or self._active_env,
                 "agent_name": agent_name,
                 "action_id": None,
-                "is_tool_mode": False,
-                "is_visible_in_list": True,
+                "sub_actions": None,
+                # sub-actions are tool-mode by default (deterministic, not orchestrated)
+                # and should not appear in the public action list
+                "is_tool_mode": is_sub_action,
+                "is_visible_in_list": not is_sub_action,
                 "created_at": datetime.now().isoformat(),
                 "updated_at": datetime.now().isoformat(),
             }
@@ -969,7 +1191,7 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                 "expected_output": {
                     "description": "Expected output description",
                     "validation": "similarity",
-                }
+                },
             }
             (action_path / "test_cases" / "test_1.json").write_text(json.dumps(test_case, indent=2))
 
@@ -985,17 +1207,43 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         if template == "complex":
             return [
                 {"metadata": {"title": title, "version": "1.0"}},
-                {"id": "apiCall", "operation": "REST", "method": "GET", "url": "", "headers": {}, "body": ""},
+                {
+                    "id": "apiCall",
+                    "operation": "REST",
+                    "method": "GET",
+                    "url": "",
+                    "headers": {},
+                    "body": "",
+                },
                 {"id": "extractData", "operation": "EXTRACT", "input": "apiCall", "field": "data"},
-                {"id": "smartOutput", "operation": "INTELLIGENT_OUTPUT", "input": "extractData", "preferred_llm": "claude-sonnet-4-5", "instructions": "Present the data clearly."},
+                {
+                    "id": "smartOutput",
+                    "operation": "INTELLIGENT_OUTPUT",
+                    "input": "extractData",
+                    "preferred_llm": "claude-sonnet-4-5",
+                    "instructions": "Present the data clearly.",
+                },
                 {"required_inputs": []},
             ]
         else:  # simple
             return [
                 {"metadata": {"title": title, "version": "1.0"}},
-                {"id": "apiCall", "operation": "REST", "method": "GET", "url": "", "headers": {}, "body": ""},
+                {
+                    "id": "apiCall",
+                    "operation": "REST",
+                    "method": "GET",
+                    "url": "",
+                    "headers": {},
+                    "body": "",
+                },
                 {"id": "extractData", "operation": "EXTRACT", "input": "apiCall", "field": "data"},
-                {"id": "output", "operation": "OUTPUT_TEXT", "format_string": "{}", "values": ["extractData"], "raw": True},
+                {
+                    "id": "output",
+                    "operation": "OUTPUT_TEXT",
+                    "format_string": "{}",
+                    "values": ["extractData"],
+                    "raw": True,
+                },
                 {"required_inputs": []},
             ]
 
@@ -1010,7 +1258,7 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         Returns dict with path, env_name, agent_name, and metadata.
         """
         envs_to_search = []
-        
+
         if env_name:
             envs_to_search = [WORKSPACES_DIR / env_name]
         else:
@@ -1019,12 +1267,12 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                 active_path = WORKSPACES_DIR / self._active_env
                 if active_path.exists():
                     envs_to_search.append(active_path)
-            
+
             for env_item in WORKSPACES_DIR.iterdir():
                 if env_item.is_dir() and (env_item / "env.json").exists():
                     if env_item not in envs_to_search:
                         envs_to_search.append(env_item)
-        
+
         # Search environments
         for env_path in envs_to_search:
             if not env_path.exists() or not (env_path / "env.json").exists():
@@ -1038,6 +1286,12 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
             # Check agents
             agents_dir = env_path / "agents"
             if agents_dir.exists():
+                # Check if action_id matches an agent root directly (Uber Agent itself)
+                agent_as_action = agents_dir / action_id
+                if agent_as_action.exists() and (agent_as_action / "widdle.json").exists():
+                    return self._load_action_info(agent_as_action, env_path.name, None)
+
+                # Check sub-actions within each agent
                 for agent_item in agents_dir.iterdir():
                     if not agent_item.is_dir():
                         continue
@@ -1047,13 +1301,59 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
 
         return None
 
+    def _migrate_action_metadata(self, action_path: Path, agent_name: str | None) -> None:
+        """
+        Automatically migrate a legacy action/sub-action metadata.json to the
+        unified schema (adds type, is_tool_mode, is_visible_in_list, sub_actions).
+
+        Idempotent — safe to call repeatedly.
+        """
+        meta_path = action_path / "metadata.json"
+        if not meta_path.exists():
+            return
+
+        try:
+            meta = json.loads(meta_path.read_text())
+        except Exception:
+            return
+
+        # Determine whether migration is needed
+        needs_migration = (
+            "type" not in meta
+            or "is_tool_mode" not in meta
+            or "is_visible_in_list" not in meta
+            or "sub_actions" not in meta
+            or "agent_name" not in meta
+        )
+        if not needs_migration:
+            return
+
+        # Infer type: sub_action when nested under an agent, else action
+        inferred_type = "sub_action" if agent_name else meta.get("type", "action")
+        meta.setdefault("type", inferred_type)
+        meta.setdefault("agent_name", agent_name)
+        meta.setdefault("is_tool_mode", inferred_type == "sub_action")
+        meta.setdefault("is_visible_in_list", inferred_type != "sub_action")
+        meta.setdefault("sub_actions", None)
+
+        # Ensure canonical action_id
+        if not meta.get("action_id") and meta.get("remote_action_id"):
+            meta["action_id"] = meta["remote_action_id"]
+
+        meta["updated_at"] = datetime.now().isoformat()
+
+        try:
+            meta_path.write_text(json.dumps(meta, indent=2))
+        except Exception:
+            pass  # Best-effort
+
     def _load_action_info(
         self,
         action_path: Path,
         env_name: str | None,
         agent_name: str | None,
     ) -> dict[str, Any]:
-        """Load action info from path."""
+        """Load action info from path, auto-migrating legacy metadata if needed."""
         info: dict[str, Any] = {
             "path": action_path,
             "env_name": env_name,
@@ -1061,13 +1361,38 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
             "action_id": action_path.name,
         }
 
-        # Load metadata if exists
+        # Auto-migrate sub-action metadata if legacy format detected
+        self._migrate_action_metadata(action_path, agent_name)
+
+        # Load metadata.json (primary source of truth for all workspace types)
         meta_path = action_path / "metadata.json"
         if meta_path.exists():
             try:
                 info["metadata"] = json.loads(meta_path.read_text())
             except Exception:
                 pass
+
+        # For agent root paths: merge in agent-specific fields from metadata
+        # and synthesize from legacy agent.json if metadata.json is incomplete.
+        agent_json_path = action_path / "agent.json"
+        if agent_json_path.exists():
+            info["is_agent"] = True
+            try:
+                legacy = json.loads(agent_json_path.read_text())
+                metadata = info.setdefault("metadata", {})
+                # Bridge: if metadata.json lacks action_id, pull from agent.json
+                if not metadata.get("action_id"):
+                    remote_id = legacy.get("remote_action_id")
+                    if remote_id:
+                        metadata["action_id"] = remote_id
+                # Bridge: if metadata.json lacks sub_actions (key missing or None),
+                # pull from agent.json. Do NOT overwrite a legitimate empty list [].
+                if metadata.get("sub_actions") is None and legacy.get("sub_actions"):
+                    metadata["sub_actions"] = legacy["sub_actions"]
+            except Exception:
+                pass
+        elif info.get("metadata", {}).get("type") in ("agent", "uber_agent"):
+            info["is_agent"] = True
 
         # Load WDL if exists
         wdl_path = action_path / "widdle.json"
@@ -1087,18 +1412,18 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
     ) -> list[dict[str, Any]]:
         """
         List actions within an environment.
-        
+
         Args:
             env_name: Environment to list from (uses active env if None)
             agent_name: Specific agent to list from
             include_subactions: Include sub-actions from agents
-        
+
         Returns:
             List of action info dicts
         """
-        actions = []
+        actions: list[Any] = []
         env = env_name or self._active_env
-        
+
         if not env:
             # No environment - return empty list
             return actions
@@ -1183,7 +1508,7 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
     def _deep_merge(self, base: dict, override: dict) -> None:
         """
         Deep merge override into base, skipping empty values.
-        
+
         Empty values (empty string, empty dict, empty list, None) in override
         do NOT overwrite existing values in base. This enables fallback:
         action -> agent -> env (only non-empty values override).
@@ -1198,7 +1523,7 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                 continue
             if isinstance(value, list) and len(value) == 0:
                 continue
-            
+
             # Deep merge nested dicts
             if key in base and isinstance(base[key], dict) and isinstance(value, dict):
                 self._deep_merge(base[key], value)
@@ -1243,9 +1568,21 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         """Detect the type of workspace at the given path."""
         if (path / "env.json").exists():
             return WorkspaceType.ENVIRONMENT
-        elif (path / "agent.json").exists():
+        # Check metadata.json type field first (unified schema)
+        meta_path = path / "metadata.json"
+        if meta_path.exists():
+            try:
+                meta = json.loads(meta_path.read_text())
+                if meta.get("type") in ("agent", "uber_agent"):
+                    return WorkspaceType.AGENT
+                if meta.get("type") in ("action", "sub_action", "workflow", "tool"):
+                    return WorkspaceType.ACTION
+            except Exception:
+                pass
+        # Legacy: agent.json presence means AGENT
+        if (path / "agent.json").exists():
             return WorkspaceType.AGENT
-        elif (path / "widdle.json").exists():
+        if (path / "widdle.json").exists():
             return WorkspaceType.ACTION
         return None
 
@@ -1295,5 +1632,3 @@ def get_workspace_manager() -> HierarchicalWorkspaceManager:
 
 # Alias for convenience
 WorkspaceManager = HierarchicalWorkspaceManager
-
-

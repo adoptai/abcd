@@ -30,6 +30,7 @@ Commands:
 import argparse
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 # Add parent to path for imports
@@ -38,14 +39,30 @@ PROJECT_ROOT = CLI_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from cli.wdl_common.workspace_manager import (
-    HierarchicalWorkspaceManager,
-    get_workspace_manager,
     WORKSPACES_DIR,
+    get_workspace_manager,
 )
+
+_verbose = False
+
+
+def _vprint(*args: object) -> None:
+    if _verbose:
+        print("[VERBOSE]", *args)
 
 
 def cmd_env_create(args: argparse.Namespace) -> int:
     """Create a new environment."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(
+            f"DRY RUN: Would create environment '{args.id}' (name={args.name}, target={args.target or 'staging'})"
+        )
+        if args.use:
+            print(f"DRY RUN: Would set '{args.id}' as active environment")
+        return 0
+
     manager = get_workspace_manager()
     success, path, message = manager.create_env(
         env_id=args.id,
@@ -63,7 +80,7 @@ def cmd_env_create(args: argparse.Namespace) -> int:
             print(f"   Description: {args.description}")
         if args.use:
             manager.active_env = args.id
-            print(f"   Set as active environment")
+            print("   Set as active environment")
         return 0
     else:
         print(f"❌ {message}")
@@ -90,11 +107,13 @@ def cmd_env_list(args: argparse.Namespace) -> int:
         description = env.get("description", "")[:60]
         domain = env.get("domain", "")
         active = " ✓ ACTIVE" if env.get("is_active") else ""
-        
+
         print(f"\n  {env_id}{active}")
         print(f"    Name: {name} | Target: {target}" + (f" | Domain: {domain}" if domain else ""))
         if description:
-            print(f"    Description: {description}{'...' if len(env.get('description', '')) > 60 else ''}")
+            print(
+                f"    Description: {description}{'...' if len(env.get('description', '')) > 60 else ''}"
+            )
 
     print("\n" + "=" * 90)
     print("💡 To switch: python cli/workspace.py env use <env-id>")
@@ -156,11 +175,17 @@ def cmd_env_use(args: argparse.Namespace) -> int:
 
 def cmd_env_delete(args: argparse.Namespace) -> int:
     """Delete an environment."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would delete environment '{args.id}'" + (" (force)" if args.force else ""))
+        return 0
+
     manager = get_workspace_manager()
 
     if not args.force:
         confirm = input(f"Are you sure you want to delete '{args.id}'? [y/N]: ")
-        if confirm.lower() != 'y':
+        if confirm.lower() != "y":
             print("Cancelled.")
             return 0
 
@@ -175,6 +200,12 @@ def cmd_env_delete(args: argparse.Namespace) -> int:
 
 def cmd_agent_create(args: argparse.Namespace) -> int:
     """Create a new agent."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would create agent '{args.id}' (name={args.name}, env={args.env})")
+        return 0
+
     manager = get_workspace_manager()
 
     success, path, message = manager.create_agent(
@@ -254,6 +285,14 @@ def cmd_agent_show(args: argparse.Namespace) -> int:
 
 def cmd_agent_add_subaction(args: argparse.Namespace) -> int:
     """Add sub-action to agent."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(
+            f"DRY RUN: Would add sub-action '{args.action}' to agent '{args.agent}' (remote_id={args.remote_id})"
+        )
+        return 0
+
     manager = get_workspace_manager()
 
     success, message = manager.add_subaction(
@@ -275,6 +314,12 @@ def cmd_agent_add_subaction(args: argparse.Namespace) -> int:
 
 def cmd_agent_remove_subaction(args: argparse.Namespace) -> int:
     """Remove sub-action from agent."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would remove sub-action '{args.action}' from agent '{args.agent}'")
+        return 0
+
     manager = get_workspace_manager()
 
     success, message = manager.remove_subaction(
@@ -293,34 +338,43 @@ def cmd_agent_remove_subaction(args: argparse.Namespace) -> int:
 
 def cmd_agent_move_action(args: argparse.Namespace) -> int:
     """Move a standalone action to become part of an agent."""
+    dry_run = getattr(args, "dry_run", False)
     manager = get_workspace_manager()
-    
+
     env = args.env or manager.active_env
     if not env:
         print("❌ No environment specified. Use --env or set active environment first.")
         return 1
-    
-    print(f"\n{'='*70}")
+
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(
+            f"DRY RUN: Would move standalone action '{args.action}' into agent '{args.agent}' (env={env})"
+        )
+        if not args.no_wdl_update:
+            print("DRY RUN: Would update agent WDL with action reference")
+        return 0
+
+    print(f"\n{'=' * 70}")
     print("📦 MOVE ACTION TO AGENT")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print(f"   Action: {args.action}")
     print(f"   Target Agent: {args.agent}")
     print(f"   Environment: {env}")
-    
+
     # Check if the action exists
-    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
     standalone_path = WORKSPACES_DIR / env / "actions" / args.action
-    
+
     if not standalone_path.exists():
         print(f"\n❌ Standalone action not found: {args.action}")
         print(f"   Expected path: {standalone_path}")
         return 1
-    
+
     # Check if agent exists
     if not manager.agent_exists(args.agent, env):
         print(f"\n❌ Agent not found: {args.agent}")
         return 1
-    
+
     # Perform the move
     success, message = manager.move_action_to_agent(
         action_id=args.action,
@@ -328,21 +382,27 @@ def cmd_agent_move_action(args: argparse.Namespace) -> int:
         env_name=env,
         update_wdl=not args.no_wdl_update,
     )
-    
+
     if success:
         print(f"\n✅ {message}")
         agent_path = WORKSPACES_DIR / env / "agents" / args.agent / "actions" / args.action
         print(f"   New location: {agent_path}")
-        
+
         if not args.no_wdl_update:
-            print(f"   Agent WDL updated with action reference")
+            print("   Agent WDL updated with action reference")
         else:
-            print(f"   ⚠️  Agent WDL NOT updated (--no-wdl-update flag)")
-        
-        print(f"\n💡 Next steps:")
-        print(f"   1. Ensure the action is published: python cli/publish_wdl_action.py --workflow-id {args.action}")
-        print(f"   2. Enable tool mode: python cli/deployment_rules.py {args.action} --enable-tool-mode")
-        print(f"   3. Push the updated agent: python cli/save_wdl_draft.py --workflow-id {args.agent}")
+            print("   ⚠️  Agent WDL NOT updated (--no-wdl-update flag)")
+
+        print("\n💡 Next steps:")
+        print(
+            f"   1. Ensure the action is published: python cli/publish_wdl_action.py --workflow-id {args.action}"
+        )
+        print(
+            f"   2. Enable tool mode: python cli/deployment_rules.py {args.action} --enable-tool-mode"
+        )
+        print(
+            f"   3. Push the updated agent: python cli/save_wdl_draft.py --workflow-id {args.agent}"
+        )
         return 0
     else:
         print(f"\n❌ {message}")
@@ -351,13 +411,12 @@ def cmd_agent_move_action(args: argparse.Namespace) -> int:
 
 def cmd_agent_checkout(args: argparse.Namespace) -> int:
     """Checkout agent from remote with all sub-actions."""
-    from dotenv import load_dotenv
-    from cli.wdl_common.api_client import AdoptAPIClient
-    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
+    dry_run = getattr(args, "dry_run", False)
     manager = get_workspace_manager()
 
     env = args.env or manager.active_env
+    _vprint(f"Target environment: {env}")
     if not env:
         print("❌ No environment specified. Use --env or set active environment first.")
         return 1
@@ -368,18 +427,28 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
 
     # Use environment-specific credentials
     from cli.wdl_common.context import get_client
-    
+
     # Temporarily set active env if different
     original_env = manager.active_env
     if env != manager.active_env:
         manager.active_env = env
-    
+
     try:
+        _vprint("Initialising API client")
         client = get_client()
     finally:
         # Restore original active env if changed
         if original_env != env:
             manager.active_env = original_env
+
+    _vprint(f"API call: get_action({args.remote_id})")
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would fetch agent from remote: {args.remote_id}")
+        print(f"DRY RUN: Would create agent workspace in env '{env}'")
+        if args.include_subactions:
+            print("DRY RUN: Would download all sub-actions")
+        return 0
 
     print(f"\n⏳ Fetching agent from remote: {args.remote_id}")
 
@@ -403,13 +472,16 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
             sub_action_ids = step.get("action_ids", [])
             break
 
-    agent_title = action_data.get("title", args.remote_id)
+    agent_title = action_data.get("title") or args.remote_id
     agent_id = args.id or agent_title.lower().replace(" ", "-")[:50]
 
     print(f"   Title: {agent_title}")
     print(f"   Found {len(sub_action_ids)} sub-actions")
+    _vprint(f"Agent local ID: {agent_id}")
+    _vprint(f"Sub-action IDs: {sub_action_ids}")
 
     # Create agent workspace
+    _vprint(f"Creating agent workspace: {WORKSPACES_DIR / env / 'agents' / agent_id}")
     success, agent_path, msg = manager.create_agent(
         agent_id=agent_id,
         name=agent_title,
@@ -421,26 +493,33 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
         print(f"❌ {msg}")
         return 1
     elif "already exists" in msg:
-        print(f"   ⚠️  Agent already exists locally, updating...")
+        print("   ⚠️  Agent already exists locally, updating...")
         agent_path = WORKSPACES_DIR / env / "agents" / agent_id
 
     # Save agent WDL
     (agent_path / "widdle.json").write_text(json.dumps(wdl, indent=2))
 
-    # Update agent metadata with remote ID
-    agent_json = agent_path / "agent.json"
-    agent_data = json.loads(agent_json.read_text())
-    agent_data["remote_action_id"] = args.remote_id
-    agent_json.write_text(json.dumps(agent_data, indent=2))
-
-    # Update metadata.json
+    # Update unified metadata.json with remote ID and agent details
     meta_path = agent_path / "metadata.json"
     if meta_path.exists():
         metadata = json.loads(meta_path.read_text())
     else:
-        metadata = {}
+        metadata = {
+            "created_at": datetime.now().isoformat(),
+        }
+    metadata["workflow_id"] = agent_id
+    metadata["title"] = agent_title
+    metadata["description"] = action_data.get("action_description", metadata.get("description", ""))
+    metadata["type"] = "agent"
+    metadata["env_name"] = env
+    metadata["agent_name"] = None
     metadata["action_id"] = args.remote_id
-    metadata["remote_action_id"] = args.remote_id
+    if not isinstance(metadata.get("sub_actions"), list):
+        metadata["sub_actions"] = []
+    metadata.setdefault("is_tool_mode", False)
+    metadata.setdefault("is_visible_in_list", True)
+    metadata["updated_at"] = datetime.now().isoformat()
+    _vprint(f"Writing agent metadata to: {meta_path}")
     meta_path.write_text(json.dumps(metadata, indent=2))
 
     print(f"   ✅ Agent workspace created: {agent_path}")
@@ -474,15 +553,18 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
                 sub_wdl = []
             (sub_path / "widdle.json").write_text(json.dumps(sub_wdl, indent=2))
 
-            # Save metadata
+            # Save sub-action metadata (unified schema with type indicator)
             sub_meta = {
                 "workflow_id": sub_action_id,
                 "title": sub_title,
                 "description": sub_data.get("action_description", ""),
-                "action_id": sub_id,
-                "remote_action_id": sub_id,
-                "agent_name": agent_id,
+                "type": "sub_action",
                 "env_name": env,
+                "agent_name": agent_id,
+                "action_id": sub_id,
+                "sub_actions": None,
+                "is_tool_mode": True,
+                "is_visible_in_list": False,
                 "created_at": sub_data.get("created_at"),
                 "updated_at": sub_data.get("updated_at"),
             }
@@ -500,29 +582,27 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
 
             print(f"      ✅ {sub_title}")
 
-    print(f"\n✅ Agent checkout complete!")
+    print("\n✅ Agent checkout complete!")
     print(f"   Path: {agent_path}")
     return 0
 
 
 def cmd_agent_sync(args: argparse.Namespace) -> int:
     """Sync agent with remote."""
-    from dotenv import load_dotenv
-    from cli.wdl_common.api_client import AdoptAPIClient
-    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
+    dry_run = getattr(args, "dry_run", False)
     manager = get_workspace_manager()
 
     env = args.env or manager.active_env
-    
+
     # Use environment-specific credentials
     from cli.wdl_common.context import get_client
-    
+
     # Temporarily set active env if different
     original_env = manager.active_env
     if env and env != manager.active_env:
         manager.active_env = env
-    
+
     try:
         client = get_client()
     finally:
@@ -535,13 +615,14 @@ def cmd_agent_sync(args: argparse.Namespace) -> int:
         print(f"❌ Agent not found: {args.id}")
         return 1
 
-    remote_id = agent.get("remote_action_id")
+    remote_id = agent.get("action_id") or agent.get("remote_action_id")
     if not remote_id:
-        print(f"❌ Agent not linked to remote. Use agent checkout first.")
+        print("❌ Agent not linked to remote. Use agent checkout first.")
         return 1
 
     print(f"\n⏳ Syncing agent: {args.id}")
     print(f"   Remote ID: {remote_id}")
+    _vprint(f"API call: get_action({remote_id})")
 
     # Fetch latest from remote
     success, action_data, message = client.get_action(remote_id)
@@ -586,9 +667,19 @@ def cmd_agent_sync(args: argparse.Namespace) -> int:
             print(f"      - {sub_id}")
 
     if args.pull:
+        if dry_run:
+            print("\n--- DRY RUN MODE ---")
+            for sub_id in new_subs:
+                print(f"   DRY RUN: Would download sub-action: {sub_id}")
+            for sub_id in removed_subs:
+                print(f"   DRY RUN: Would note removal of sub-action: {sub_id}")
+            print("DRY RUN: No files written.")
+            return 0
+
         # Download new sub-actions
         from cli.wdl_common.workspace_manager import WORKSPACES_DIR
-        agent_path = WORKSPACES_DIR / env / "agents" / args.id
+
+        agent_path = WORKSPACES_DIR / (env or "") / "agents" / (args.id or "")
 
         for sub_id in new_subs:
             print(f"\n   ⏳ Downloading: {sub_id}")
@@ -597,8 +688,8 @@ def cmd_agent_sync(args: argparse.Namespace) -> int:
                 print(f"      ⚠️  Failed: {msg}")
                 continue
 
-            sub_title = sub_data.get("title", sub_id)
-            sub_action_id = sub_title.lower().replace(" ", "-")[:50]
+            sub_title = sub_data.get("title") or sub_id
+            sub_action_id = sub_title.lower().replace(" ", "-")[:50] if sub_title else sub_id[:50]
 
             sub_path = agent_path / "actions" / sub_action_id
             sub_path.mkdir(parents=True, exist_ok=True)
@@ -616,10 +707,16 @@ def cmd_agent_sync(args: argparse.Namespace) -> int:
             sub_meta = {
                 "workflow_id": sub_action_id,
                 "title": sub_title,
-                "action_id": sub_id,
-                "remote_action_id": sub_id,
-                "agent_name": args.id,
+                "description": sub_data.get("action_description", ""),
+                "type": "sub_action",
                 "env_name": env,
+                "agent_name": args.id,
+                "action_id": sub_id,
+                "sub_actions": None,
+                "is_tool_mode": True,
+                "is_visible_in_list": False,
+                "created_at": sub_data.get("created_at", datetime.now().isoformat()),
+                "updated_at": sub_data.get("updated_at", datetime.now().isoformat()),
             }
             (sub_path / "metadata.json").write_text(json.dumps(sub_meta, indent=2))
 
@@ -628,19 +725,27 @@ def cmd_agent_sync(args: argparse.Namespace) -> int:
                 action_id=sub_action_id,
                 remote_action_id=sub_id,
                 title=sub_title,
+                description=sub_data.get("action_description", ""),
                 env_name=env,
             )
-            print(f"      ✅ Downloaded")
+            print("      ✅ Downloaded")
 
-        print(f"\n✅ Sync complete!")
+        print("\n✅ Sync complete!")
     else:
-        print(f"\n   Run with --pull to download new sub-actions")
+        print("\n   Run with --pull to download new sub-actions")
 
     return 0
 
 
 def cmd_action_create(args: argparse.Namespace) -> int:
     """Create a new action."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        loc = f"agent '{args.agent}'" if args.agent else f"env '{args.env}'"
+        print(f"DRY RUN: Would create action '{args.id}' (title={args.title or args.id}) in {loc}")
+        return 0
+
     manager = get_workspace_manager()
 
     # Load requirements if file provided
@@ -713,10 +818,12 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
     """
     import json
     import shutil
-    from dotenv import load_dotenv
-    from cli.wdl_common.api_client import get_api_client_for_env
-    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
+    from dotenv import load_dotenv
+
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    dry_run = getattr(args, "dry_run", False)
     manager = get_workspace_manager()
 
     env = args.env or manager.active_env
@@ -736,17 +843,21 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
     else:
         print(f"⚠️  Warning: No .env file found in environment: {env}")
 
-    print(f"\n{'='*80}")
-    print(f"📥 BULK ACTION CHECKOUT")
-    print(f"{'='*80}")
+    print(f"\n{'=' * 80}")
+    print("📥 BULK ACTION CHECKOUT")
+    print(f"{'=' * 80}")
     print(f"Environment: {env}")
 
     # Use discovery module for fetching actions (uses correct API)
     from cli.wdl_common.discovery import get_discovery
-    discovery = get_discovery(env)
+
+    discovery = get_discovery()
 
     # Fetch all actions
-    print(f"\n⏳ Fetching actions from remote...")
+    _vprint(
+        f"Bulk checkout: env={env}, uber_agents_only={args.uber_agents_only}, include_subactions={args.include_subactions}"
+    )
+    print("\n⏳ Fetching actions from remote...")
     if args.uber_agents_only:
         success, actions, msg = discovery.fetch_uber_agents(force_refresh=True)
         action_type = "Uber Agents"
@@ -754,14 +865,16 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
         success, actions, msg = discovery.fetch_actions(execution_type="TOOL", force_refresh=True)
         action_type = "tools"
     elif args.workflows_only:
-        success, actions, msg = discovery.fetch_actions(execution_type="WORKFLOW", force_refresh=True)
+        success, actions, msg = discovery.fetch_actions(
+            execution_type="WORKFLOW", force_refresh=True
+        )
         action_type = "workflows"
     else:
         success, actions, msg = discovery.fetch_actions(execution_type=None, force_refresh=True)
         action_type = "all actions"
-    
+
     # Get API client for action fetching (after discovery loaded credentials)
-    client = get_api_client_for_env(env)
+    client = get_api_client_for_env()
 
     if not success:
         print(f"❌ Failed to fetch actions: {msg}")
@@ -771,7 +884,7 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
 
     # Apply limit
     if args.limit and args.limit < len(actions):
-        actions = actions[:args.limit]
+        actions = actions[: args.limit]
         print(f"   Limited to first {args.limit} actions")
 
     if not actions:
@@ -799,7 +912,7 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
         try:
             # Fetch full action details
             fetch_success, action_data, fetch_msg = client.get_action(action_id)
-            if not fetch_success:
+            if not fetch_success or not action_data:
                 print(f"   ⚠️  Failed to fetch: {fetch_msg}")
                 error_count += 1
                 continue
@@ -808,6 +921,7 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
             wdl = action_data.get("wdl", [])
             if isinstance(wdl, str):
                 import json
+
                 wdl = json.loads(wdl)
 
             is_uber_agent = False
@@ -826,19 +940,28 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
                 agent_id = title.lower().replace(" ", "-")[:50] if title else action_id[:50]
                 agent_path = WORKSPACES_DIR / env / "agents" / agent_id
 
+                if dry_run:
+                    print(f"   DRY RUN: Would create agent workspace '{agent_id}' in env '{env}'")
+                    if args.include_subactions and sub_action_ids:
+                        for sub_id in sub_action_ids:
+                            print(f"   DRY RUN:   Would download sub-action: {sub_id}")
+                    success_count += 1
+                    continue
+
                 if agent_path.exists() and not args.force:
-                    print(f"   ⏭️  Skipped: Already exists (use --force to overwrite)")
+                    print("   ⏭️  Skipped: Already exists (use --force to overwrite)")
                     skip_count += 1
                     continue
 
                 if agent_path.exists() and args.force:
                     import shutil
+
                     shutil.rmtree(agent_path)
 
                 # Create agent structure
                 agent_success, agent_path, agent_msg = manager.create_agent(
                     agent_id=agent_id,
-                    name=title,
+                    name=title or agent_id,
                     description=action_data.get("action_description", ""),
                     env_name=env,
                 )
@@ -851,27 +974,47 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
                 # Save WDL
                 (agent_path / "widdle.json").write_text(json.dumps(wdl, indent=2))
 
-                # Save metadata
-                agent_json = agent_path / "agent.json"
-                agent_data = json.loads(agent_json.read_text())
-                agent_data["remote_action_id"] = action_id
-                agent_json.write_text(json.dumps(agent_data, indent=2))
+                # Update unified metadata.json with remote action_id
+                meta_path = agent_path / "metadata.json"
+                if meta_path.exists():
+                    agent_meta = json.loads(meta_path.read_text())
+                else:
+                    agent_meta = {
+                        "workflow_id": agent_id,
+                        "title": title,
+                        "description": action_data.get("action_description", ""),
+                        "type": "agent",
+                        "env_name": env,
+                        "agent_name": None,
+                        "sub_actions": [],
+                        "is_tool_mode": False,
+                        "is_visible_in_list": True,
+                        "created_at": datetime.now().isoformat(),
+                    }
+                agent_meta["action_id"] = action_id
+                agent_meta["type"] = "agent"
+                agent_meta["updated_at"] = datetime.now().isoformat()
+                meta_path.write_text(json.dumps(agent_meta, indent=2))
 
                 # Download sub-actions if requested
                 if args.include_subactions and sub_action_ids:
                     print(f"   ⏳ Downloading {len(sub_action_ids)} sub-actions...")
                     for sub_id in sub_action_ids:
                         sub_success, sub_data, sub_msg = client.get_action(sub_id)
-                        if not sub_success:
+                        if not sub_success or not sub_data:
                             print(f"      ⚠️  {sub_id}: {sub_msg}")
                             continue
 
                         sub_title = sub_data.get("title", sub_id)
-                        sub_action_id = sub_title.lower().replace(" ", "-")[:50] if sub_title else sub_id[:50]
+                        sub_action_id = (
+                            sub_title.lower().replace(" ", "-")[:50] if sub_title else sub_id[:50]
+                        )
 
                         sub_path = agent_path / "actions" / sub_action_id
                         sub_path.mkdir(parents=True, exist_ok=True)
                         (sub_path / "test_cases").mkdir(exist_ok=True)
+                        (sub_path / "traces").mkdir(exist_ok=True)
+                        (sub_path / "versions").mkdir(exist_ok=True)
 
                         sub_wdl = sub_data.get("wdl", [])
                         if isinstance(sub_wdl, str):
@@ -881,12 +1024,28 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
                         sub_meta = {
                             "workflow_id": sub_action_id,
                             "title": sub_title,
-                            "action_id": sub_id,
-                            "remote_action_id": sub_id,
-                            "agent_name": agent_id,
+                            "description": sub_data.get("action_description", ""),
+                            "type": "sub_action",
                             "env_name": env,
+                            "agent_name": agent_id,
+                            "action_id": sub_id,
+                            "sub_actions": None,
+                            "is_tool_mode": True,
+                            "is_visible_in_list": False,
+                            "created_at": sub_data.get("created_at", datetime.now().isoformat()),
+                            "updated_at": sub_data.get("updated_at", datetime.now().isoformat()),
                         }
                         (sub_path / "metadata.json").write_text(json.dumps(sub_meta, indent=2))
+
+                        # Register sub-action in agent's metadata.json sub_actions list
+                        manager.add_subaction(
+                            agent_name=agent_id,
+                            action_id=sub_action_id,
+                            remote_action_id=sub_id,
+                            title=str(sub_title) if sub_title else sub_action_id,
+                            description=sub_data.get("action_description", ""),
+                            env_name=env,
+                        )
 
                         print(f"      ✅ {sub_title}")
 
@@ -898,19 +1057,27 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
                 action_local_id = title.lower().replace(" ", "-")[:50] if title else action_id[:50]
                 action_path = WORKSPACES_DIR / env / "actions" / action_local_id
 
+                if dry_run:
+                    print(
+                        f"   DRY RUN: Would create action workspace '{action_local_id}' in env '{env}'"
+                    )
+                    success_count += 1
+                    continue
+
                 if action_path.exists() and not args.force:
-                    print(f"   ⏭️  Skipped: Already exists (use --force to overwrite)")
+                    print("   ⏭️  Skipped: Already exists (use --force to overwrite)")
                     skip_count += 1
                     continue
 
                 if action_path.exists() and args.force:
                     import shutil
+
                     shutil.rmtree(action_path)
 
                 # Create action workspace
                 action_success, action_path, action_msg = manager.create_action(
                     action_id=action_local_id,
-                    title=title,
+                    title=title or action_local_id,
                     description=action_data.get("action_description", ""),
                     env_name=env,
                 )
@@ -942,15 +1109,15 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
             continue
 
     # Summary
-    print(f"\n{'='*80}")
-    print(f"📊 CHECKOUT SUMMARY")
-    print(f"{'='*80}")
+    print(f"\n{'=' * 80}")
+    print("📊 CHECKOUT SUMMARY")
+    print(f"{'=' * 80}")
     print(f"   ✅ Success: {success_count}")
     print(f"   ⏭️  Skipped: {skip_count}")
     print(f"   ❌ Errors: {error_count}")
     if uber_agent_count:
         print(f"   🤖 Uber Agents: {uber_agent_count}")
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
 
     return 0 if error_count == 0 else 1
 
@@ -986,10 +1153,10 @@ def cmd_profile_show(args: argparse.Namespace) -> int:
 
 def cmd_profile_update(args: argparse.Namespace) -> int:
     """Update profile at specified level."""
+    dry_run = getattr(args, "dry_run", False)
     manager = get_workspace_manager()
 
     # Determine profile path
-    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
     if args.action:
         action_info = manager.find_action(args.action)
@@ -1037,6 +1204,12 @@ def cmd_profile_update(args: argparse.Namespace) -> int:
 
     deep_update(profile, updates)
 
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would update profile at: {profile_path}")
+        print(f"DRY RUN: Updates: {updates}")
+        return 0
+
     # Save
     profile_path.parent.mkdir(parents=True, exist_ok=True)
     profile_path.write_text(json.dumps(profile, indent=2))
@@ -1060,13 +1233,24 @@ def main() -> int:
 
     # env create
     env_create = env_subparsers.add_parser("create", help="Create environment")
-    env_create.add_argument("--id", required=True, help="Environment ID (e.g., 'clientx-marketing')")
+    env_create.add_argument(
+        "--id", required=True, help="Environment ID (e.g., 'clientx-marketing')"
+    )
     env_create.add_argument("--name", required=True, help="Human-readable name")
-    env_create.add_argument("--description", help="Description of what this env is for (helps agents validate requests)")
-    env_create.add_argument("--target", choices=["development", "staging", "production"], default="staging")
+    env_create.add_argument(
+        "--description", help="Description of what this env is for (helps agents validate requests)"
+    )
+    env_create.add_argument(
+        "--target", choices=["development", "staging", "production"], default="staging"
+    )
     env_create.add_argument("--client", help="Client identifier")
-    env_create.add_argument("--domain", help="Primary business domain (e.g., 'marketing', 'inventory')")
+    env_create.add_argument(
+        "--domain", help="Primary business domain (e.g., 'marketing', 'inventory')"
+    )
     env_create.add_argument("--use", action="store_true", help="Set as active")
+    env_create.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     env_create.set_defaults(func=cmd_env_create)
 
     # env list
@@ -1087,6 +1271,9 @@ def main() -> int:
     env_delete = env_subparsers.add_parser("delete", help="Delete environment")
     env_delete.add_argument("id", help="Environment ID")
     env_delete.add_argument("--force", action="store_true", help="Force delete")
+    env_delete.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     env_delete.set_defaults(func=cmd_env_delete)
 
     # =========================================================================
@@ -1102,6 +1289,9 @@ def main() -> int:
     agent_create.add_argument("--description", help="Description")
     agent_create.add_argument("--env", help="Environment (uses active if not specified)")
     agent_create.add_argument("--template", choices=["uber_agent"], default="uber_agent")
+    agent_create.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     agent_create.set_defaults(func=cmd_agent_create)
 
     # agent list
@@ -1123,6 +1313,7 @@ def main() -> int:
     agent_add.add_argument("--title", help="Action title")
     agent_add.add_argument("--description", help="Description")
     agent_add.add_argument("--env", help="Environment")
+    agent_add.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
     agent_add.set_defaults(func=cmd_agent_add_subaction)
 
     # agent remove-subaction
@@ -1130,6 +1321,9 @@ def main() -> int:
     agent_remove.add_argument("--agent", required=True, help="Agent ID")
     agent_remove.add_argument("--action", required=True, help="Action ID")
     agent_remove.add_argument("--env", help="Environment")
+    agent_remove.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     agent_remove.set_defaults(func=cmd_agent_remove_subaction)
 
     # agent move-action (move standalone action to agent)
@@ -1141,7 +1335,7 @@ def main() -> int:
 Examples:
   # Move action 'my-tool' to agent 'my-agent'
   python cli/workspace.py agent move-action --action my-tool --agent my-agent
-  
+
   # Move without updating agent WDL (manual update later)
   python cli/workspace.py agent move-action --action my-tool --agent my-agent --no-wdl-update
         """,
@@ -1150,6 +1344,9 @@ Examples:
     agent_move.add_argument("--agent", required=True, help="Target agent ID")
     agent_move.add_argument("--env", help="Environment")
     agent_move.add_argument("--no-wdl-update", action="store_true", help="Don't update agent's WDL")
+    agent_move.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     agent_move.set_defaults(func=cmd_agent_move_action)
 
     # agent checkout
@@ -1157,7 +1354,12 @@ Examples:
     agent_checkout.add_argument("--remote-id", required=True, help="Remote action ID")
     agent_checkout.add_argument("--env", required=True, help="Environment to checkout into")
     agent_checkout.add_argument("--id", help="Local agent ID (auto-generated if not provided)")
-    agent_checkout.add_argument("--include-subactions", action="store_true", help="Download all sub-actions")
+    agent_checkout.add_argument(
+        "--include-subactions", action="store_true", help="Download all sub-actions"
+    )
+    agent_checkout.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     agent_checkout.set_defaults(func=cmd_agent_checkout)
 
     # agent sync
@@ -1165,6 +1367,11 @@ Examples:
     agent_sync.add_argument("id", help="Agent ID")
     agent_sync.add_argument("--env", help="Environment")
     agent_sync.add_argument("--pull", action="store_true", help="Download new sub-actions")
+    agent_sync.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate without making changes (requires --pull to show effect)",
+    )
     agent_sync.set_defaults(func=cmd_agent_sync)
 
     # =========================================================================
@@ -1182,6 +1389,9 @@ Examples:
     action_create.add_argument("--env", help="Environment")
     action_create.add_argument("--agent", help="Agent (creates as sub-action)")
     action_create.add_argument("--template", choices=["simple", "complex"], default="simple")
+    action_create.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     action_create.set_defaults(func=cmd_action_create)
 
     # action list
@@ -1212,12 +1422,29 @@ Examples:
         """,
     )
     action_checkout_all.add_argument("--env", help="Environment (uses active if not specified)")
-    action_checkout_all.add_argument("--limit", type=int, help="Limit number of actions to checkout")
-    action_checkout_all.add_argument("--force", action="store_true", help="Overwrite existing local actions")
-    action_checkout_all.add_argument("--tools-only", action="store_true", help="Only checkout tool-type actions")
-    action_checkout_all.add_argument("--workflows-only", action="store_true", help="Only checkout workflow-type actions")
-    action_checkout_all.add_argument("--uber-agents-only", action="store_true", help="Only checkout Uber Agents")
-    action_checkout_all.add_argument("--include-subactions", action="store_true", help="Also download sub-actions for Uber Agents")
+    action_checkout_all.add_argument(
+        "--limit", type=int, help="Limit number of actions to checkout"
+    )
+    action_checkout_all.add_argument(
+        "--force", action="store_true", help="Overwrite existing local actions"
+    )
+    action_checkout_all.add_argument(
+        "--tools-only", action="store_true", help="Only checkout tool-type actions"
+    )
+    action_checkout_all.add_argument(
+        "--workflows-only", action="store_true", help="Only checkout workflow-type actions"
+    )
+    action_checkout_all.add_argument(
+        "--uber-agents-only", action="store_true", help="Only checkout Uber Agents"
+    )
+    action_checkout_all.add_argument(
+        "--include-subactions",
+        action="store_true",
+        help="Also download sub-actions for Uber Agents",
+    )
+    action_checkout_all.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     action_checkout_all.set_defaults(func=cmd_action_checkout_all)
 
     # =========================================================================
@@ -1241,10 +1468,26 @@ Examples:
     profile_update.add_argument("--base-url", help="Base URL")
     profile_update.add_argument("--app-url", help="Application base URL")
     profile_update.add_argument("--cookie", help="Session cookie")
+    profile_update.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     profile_update.set_defaults(func=cmd_profile_update)
+
+    # Global verbose flag
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed debug information (workspace resolution, API calls, file operations)",
+    )
 
     # Parse and execute
     args = parser.parse_args()
+
+    global _verbose
+    _verbose = getattr(args, "verbose", False)
+    if _verbose:
+        print("[VERBOSE] Verbose mode enabled", file=sys.stderr)
 
     if not args.command:
         parser.print_help()
@@ -1267,4 +1510,3 @@ Examples:
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -26,43 +26,54 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
 from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.version_tracker import (
+    set_current_version,
     update_current_version,
     update_metadata_version,
-    set_current_version,
-    read_metadata,
 )
-from cli.wdl_common.workspace_manager import WorkspaceManager, get_workspace_manager, HierarchicalWorkspaceManager
+from cli.wdl_common.workspace_manager import (
+    HierarchicalWorkspaceManager,
+    get_workspace_manager,
+)
+
+_verbose = False
+
+
+def _vprint(*args: object) -> None:
+    if _verbose:
+        print("[VERBOSE]", *args)
 
 
 @dataclass
 class PublishResult:
     """Result of a single publish operation."""
+
     workflow_id: str
     success: bool
     message: str
-    version: Optional[int] = None
-    action_id: Optional[str] = None
-    error: Optional[str] = None
+    version: int | None = None
+    action_id: str | None = None
+    error: str | None = None
 
 
 def publish_single_action(
     workflow_id: str,
     manager: HierarchicalWorkspaceManager,
     client: AdoptAPIClient,
-    version_id: Optional[str] = None,
-    description: Optional[str] = None,
+    version_id: str | None = None,
+    description: str | None = None,
     verbose: bool = True,
+    dry_run: bool = False,
 ) -> PublishResult:
     """
     Publish a single action.
-    
+
     Args:
         workflow_id: The workflow/action ID
         manager: Workspace manager instance
@@ -70,25 +81,30 @@ def publish_single_action(
         version_id: Specific version to publish (default: latest draft)
         description: Version description
         verbose: Print progress messages
-        
+
     Returns:
         PublishResult with outcome
     """
+
     def log(msg: str) -> None:
         if verbose:
             print(msg)
-    
+
     # Find workspace
+    _vprint(f"Searching for workspace: {workflow_id} (env={manager.active_env})")
     action_info = manager.find_action(workflow_id)
     workspace = None
     meta_manager = None
     action_id = None
-    
+
     if action_info:
         workspace = Path(action_info["path"])
+        _vprint(f"Found workspace at: {workspace}")
+        _vprint(f"Loading metadata from: {workspace / 'metadata.json'}")
         meta_manager = MetadataManager(workspace)
         action_id = meta_manager.get_action_id()
-        
+        _vprint(f"Action ID from metadata: {action_id}")
+
         # Try to recover action_id by title if not found
         if not action_id:
             meta_data = meta_manager.load()
@@ -101,9 +117,10 @@ def publish_single_action(
                         if tool.get("title") == title:
                             action_id = tool.get("action_id") or tool.get("id")
                             log(f"   ✅ Found action: {action_id}")
-                            meta_manager.set_action_id(action_id)
+                            if action_id:
+                                meta_manager.set_action_id(str(action_id))
                             break
-    
+
     if not action_id:
         return PublishResult(
             workflow_id=workflow_id,
@@ -111,15 +128,16 @@ def publish_single_action(
             message="No action_id found",
             error="Action not linked to remote. Save draft first.",
         )
-    
+
     log(f"📁 Workspace: {workspace}")
     log(f"🔑 Action ID: {action_id}")
-    
+
     # Find latest draft version if not specified
     if not version_id:
         log("\n📋 Finding latest draft version...")
+        _vprint(f"API call: list_versions({action_id})")
         success, versions, msg = client.list_versions(action_id)
-        
+
         if not success or not versions:
             return PublishResult(
                 workflow_id=workflow_id,
@@ -128,13 +146,13 @@ def publish_single_action(
                 action_id=action_id,
                 error=msg,
             )
-        
+
         # Find latest draft/pending_approval version
         for v in versions:
             if v.get("status") == "pending_approval":
                 version_id = v.get("version_number", v.get("id"))
                 break
-        
+
         if not version_id:
             return PublishResult(
                 workflow_id=workflow_id,
@@ -143,44 +161,66 @@ def publish_single_action(
                 action_id=action_id,
                 error="No pending_approval version to publish",
             )
-        
+
         log(f"   Found version: {version_id}")
-    
+
     # Use default description if not provided
     if not description:
         description = "WDL action update"
-    
+
+    if dry_run:
+        log("\n🔍 [DRY-RUN] Would publish:")
+        log(f"   Workflow ID : {workflow_id}")
+        log(f"   Action ID   : {action_id}")
+        log(f"   Version     : {version_id}")
+        log(f"   Description : {description}")
+        log("\n   ✅ Validation passed — run without --dry-run to approve/publish")
+        return PublishResult(
+            workflow_id=workflow_id,
+            success=True,
+            message=f"[DRY-RUN] Would publish v{version_id}",
+            version=int(version_id) if str(version_id).isdigit() else None,
+            action_id=action_id,
+        )
+
     # Approve version
     log(f"\n✅ Approving version {version_id}...")
     success, msg = client.approve_version(action_id, version_id, change_reason=description)
-    
+
+    def _safe_int(v: Any) -> int | None:
+        """Convert to int safely; returns None if conversion is not possible."""
+        try:
+            return int(v) if v is not None else None
+        except (ValueError, TypeError):
+            return None
+
     if not success:
         return PublishResult(
             workflow_id=workflow_id,
             success=False,
             message="Failed to approve",
             action_id=action_id,
-            version=int(version_id) if version_id else None,
+            version=_safe_int(version_id),
             error=msg,
         )
-    
-    version_number = int(version_id) if version_id else None
-    
+
+    version_number = _safe_int(version_id)
+
     # Update local version files if workspace exists
     if workspace and workspace.exists() and version_number:
         versions_dir = workspace / "versions"
         versions_dir.mkdir(exist_ok=True)
         version_wdl_path = versions_dir / f"v{version_number}_widdle.json"
-        
+
         # Try to get WDL from local sources
         wdl_to_save = None
-        
+
         if version_wdl_path.exists():
             try:
                 wdl_to_save = json.loads(version_wdl_path.read_text())
             except Exception:
                 pass
-        
+
         if not wdl_to_save:
             wdl_path = workspace / "widdle.json"
             if wdl_path.exists():
@@ -188,11 +228,11 @@ def publish_single_action(
                     wdl_to_save = json.loads(wdl_path.read_text())
                 except Exception:
                     pass
-        
+
         if wdl_to_save:
             version_wdl_path.write_text(json.dumps(wdl_to_save, indent=2))
             log(f"   💾 Saved WDL locally: {version_wdl_path.name}")
-        
+
         # Update tracking
         update_current_version(
             workspace=workspace,
@@ -201,9 +241,9 @@ def publish_single_action(
             is_published=True,
             description=description,
         )
-        
+
         set_current_version(workspace, version_number)
-        
+
         update_metadata_version(
             workspace=workspace,
             version_number=version_number,
@@ -213,7 +253,7 @@ def publish_single_action(
             created_at=datetime.now().isoformat(),
             updated_at=datetime.now().isoformat(),
         )
-    
+
     return PublishResult(
         workflow_id=workflow_id,
         success=True,
@@ -224,29 +264,33 @@ def publish_single_action(
 
 
 def publish_parallel_actions(
-    workflow_ids: List[str],
+    workflow_ids: list[str],
     manager: HierarchicalWorkspaceManager,
     max_workers: int = 5,
-    description: Optional[str] = None,
-) -> List[PublishResult]:
+    description: str | None = None,
+    dry_run: bool = False,
+) -> list[PublishResult]:
     """
     Publish multiple actions in parallel.
-    
+
     Args:
         workflow_ids: List of workflow/action IDs
         manager: Workspace manager instance
         max_workers: Maximum parallel workers
         description: Version description for all
-        
+
     Returns:
         List of PublishResults
     """
-    results: List[PublishResult] = []
+    results: list[PublishResult] = []
     client = get_api_client_for_env()
-    
-    print(f"\n🚀 Publishing {len(workflow_ids)} actions in parallel (max {max_workers} workers)...")
+
+    dry_label = " [DRY-RUN]" if dry_run else ""
+    print(
+        f"\n🚀{dry_label} Publishing {len(workflow_ids)} actions in parallel (max {max_workers} workers)..."
+    )
     print("=" * 80)
-    
+
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_workflow = {
             executor.submit(
@@ -257,10 +301,11 @@ def publish_parallel_actions(
                 None,  # version_id - auto-detect
                 description,
                 False,  # verbose=False for parallel
+                dry_run,
             ): wid
             for wid in workflow_ids
         }
-        
+
         for future in as_completed(future_to_workflow):
             workflow_id = future_to_workflow[future]
             try:
@@ -269,14 +314,16 @@ def publish_parallel_actions(
                 status = "✅" if result.success else "❌"
                 print(f"   {status} {workflow_id}: {result.message}")
             except Exception as e:
-                results.append(PublishResult(
-                    workflow_id=workflow_id,
-                    success=False,
-                    message="Exception",
-                    error=str(e),
-                ))
+                results.append(
+                    PublishResult(
+                        workflow_id=workflow_id,
+                        success=False,
+                        message="Exception",
+                        error=str(e),
+                    )
+                )
                 print(f"   ❌ {workflow_id}: {e}")
-    
+
     return results
 
 
@@ -284,45 +331,48 @@ def publish_agent_with_subactions(
     agent_id: str,
     manager: HierarchicalWorkspaceManager,
     max_workers: int = 5,
-    description: Optional[str] = None,
-) -> List[PublishResult]:
+    description: str | None = None,
+    dry_run: bool = False,
+) -> list[PublishResult]:
     """
     Publish an agent and all its subactions.
-    
+
     Subactions are published first (in parallel), then the agent.
-    
+
     Args:
         agent_id: Agent ID
         manager: Workspace manager instance
         max_workers: Maximum parallel workers
         description: Version description
-        
+
     Returns:
         List of PublishResults (subactions + agent)
     """
     env = manager.active_env
     agent = manager.get_agent(agent_id, env)
-    
+
     if not agent:
-        return [PublishResult(
-            workflow_id=agent_id,
-            success=False,
-            message="Agent not found",
-            error=f"Agent '{agent_id}' not found in environment '{env}'",
-        )]
-    
+        return [
+            PublishResult(
+                workflow_id=agent_id,
+                success=False,
+                message="Agent not found",
+                error=f"Agent '{agent_id}' not found in environment '{env}'",
+            )
+        ]
+
     print(f"\n🤖 Publishing agent: {agent_id}")
     print(f"📁 Path: {agent.get('path')}")
-    
+
     client = get_api_client_for_env()
-    
+
     # Collect subactions with draft versions
-    subaction_ids: List[str] = []
+    subaction_ids: list[str] = []
     for sa in agent.get("sub_actions", []):
         sa_id = sa.get("action_id") or sa.get("id")
         if not sa_id:
             continue
-        
+
         # Check if subaction has draft version
         sa_info = manager.find_action(sa_id)
         if sa_info:
@@ -332,96 +382,98 @@ def publish_agent_with_subactions(
                 subaction_ids.append(sa_id)
             else:
                 print(f"   ⏭️  {sa_id}: No draft to publish (status: {remote_status})")
-    
+
     print(f"\n📋 Subactions to publish: {len(subaction_ids)}")
-    
-    results: List[PublishResult] = []
-    
+
+    results: list[PublishResult] = []
+
     # Publish subactions in parallel FIRST
     if subaction_ids:
-        print("\n📦 Publishing subactions first...")
+        print(f"\n📦 {'[DRY-RUN] Would publish' if dry_run else 'Publishing'} subactions first...")
         subaction_results = publish_parallel_actions(
-            subaction_ids, manager, max_workers, description
+            subaction_ids, manager, max_workers, description, dry_run
         )
         results.extend(subaction_results)
-        
+
         # Check if all subactions succeeded
         failed = [r for r in subaction_results if not r.success]
         if failed:
             print(f"\n⚠️  {len(failed)} subaction(s) failed to publish")
-    
+
     # Publish agent itself (if it has draft version)
     agent_path = Path(agent.get("path", ""))
     if (agent_path / "widdle.json").exists():
         meta_manager = MetadataManager(agent_path)
         remote_status = meta_manager.get_remote_status()
-        
+
         if remote_status in ["draft", "draft_with_published"]:
-            print(f"\n📦 Publishing agent...")
-            agent_result = publish_single_action(agent_id, manager, client, None, description, True)
+            print(f"\n📦 {'[DRY-RUN] Would publish' if dry_run else 'Publishing'} agent...")
+            agent_result = publish_single_action(
+                agent_id, manager, client, None, description, True, dry_run
+            )
             results.append(agent_result)
         else:
             print(f"\n⏭️  Agent has no draft to publish (status: {remote_status})")
     else:
-        print(f"\n⏭️  Agent has no WDL, skipping")
-    
+        print("\n⏭️  Agent has no WDL, skipping")
+
     return results
 
 
-def print_results(results: List[PublishResult]) -> None:
+def print_results(results: list[PublishResult]) -> None:
     """Print summary of publish results."""
     passed = [r for r in results if r.success]
     failed = [r for r in results if not r.success]
-    
+
     print("\n" + "=" * 80)
     print("📊 PUBLISH RESULTS SUMMARY")
     print("=" * 80)
     print(f"Total: {len(results)} | Published: {len(passed)} ✅ | Failed: {len(failed)} ❌")
     print("-" * 80)
-    
+
     if passed:
         print("\n✅ PUBLISHED:")
         for r in passed:
             version_str = f"v{r.version}" if r.version else ""
             print(f"   {r.workflow_id} {version_str} - {r.message}")
-    
+
     if failed:
         print("\n❌ FAILED:")
         for r in failed:
             print(f"   {r.workflow_id} - {r.message}")
             if r.error:
                 print(f"      Error: {r.error[:100]}")
-    
+
     print("=" * 80)
 
 
 # Legacy function for backward compatibility
 def publish_wdl_action(
-    action_id: Optional[str] = None,
-    version_id: Optional[str] = None,
+    action_id: str | None = None,
+    version_id: str | None = None,
     skip_confirm: bool = False,
-    description: Optional[str] = None,
-    workflow_id: Optional[str] = None,
+    description: str | None = None,
+    workflow_id: str | None = None,
     standalone: bool = False,
 ) -> bool:
     """
     Approve and publish the action (legacy interface).
-    
+
     For new code, use publish_single_action() instead.
     """
     print("\n" + "=" * 80)
     print("🚀 PUBLISH WDL ACTION")
     print("=" * 80)
     print("⚠️  This will make the action LIVE")
-    
+
     manager = get_workspace_manager()
     client = get_api_client_for_env()
-    
+
     wid = workflow_id or action_id
     if not wid:
         print("❌ Must provide either action_id or workflow_id")
         return False
-    
+
     # Confirm with user if not skipped
     if not skip_confirm:
         print(f"\n⚠️  About to publish: {wid}")
@@ -429,9 +481,9 @@ def publish_wdl_action(
         if confirm != "yes":
             print("❌ Cancelled")
             return False
-    
+
     result = publish_single_action(wid, manager, client, version_id, description, verbose=True)
-    
+
     if result.success:
         print("\n" + "=" * 80)
         print("🎉 ACTION PUBLISHED!")
@@ -443,7 +495,7 @@ def publish_wdl_action(
         if description:
             print(f"   Description: {description}")
         print("=" * 80)
-    
+
     return result.success
 
 
@@ -456,16 +508,16 @@ def main() -> None:
 Examples:
   # Single action (by workflow_id)
   python publish_wdl_action.py my-workflow
-  
+
   # Multiple actions in parallel
   python publish_wdl_action.py action1 action2 action3 --parallel 3
-  
+
   # Agent + all draft subactions
   python publish_wdl_action.py --agent my-agent
-  
+
   # Legacy: using --workflow-id flag
   python publish_wdl_action.py --workflow-id my-workflow
-  
+
   # Skip confirmation
   python publish_wdl_action.py my-workflow --yes
 
@@ -475,61 +527,56 @@ TRANSPARENT BEHAVIOR (default):
   - Agent: Auto-detected from workspace location
 
 USE FLAGS ONLY when automatic behavior doesn't work.
-        """
+        """,
     )
-    
+
     # Positional arguments (multiple actions)
     parser.add_argument(
-        "actions", nargs="*",
-        help="Action/workflow ID(s) to publish (supports multiple)"
+        "actions", nargs="*", help="Action/workflow ID(s) to publish (supports multiple)"
     )
-    
+
     # Agent mode
-    parser.add_argument(
-        "--agent", "-a",
-        help="Publish agent and all its draft subactions"
-    )
-    
+    parser.add_argument("--agent", "-a", help="Publish agent and all its draft subactions")
+
     # Parallel execution
     parser.add_argument(
-        "--parallel", "-p", type=int, default=5,
-        help="Max parallel workers (default: 5)"
+        "--parallel", "-p", type=int, default=5, help="Max parallel workers (default: 5)"
     )
-    
+
     # Confirmation
-    parser.add_argument(
-        "--yes", "-y", action="store_true",
-        help="Skip confirmation prompt"
-    )
-    
+    parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
+
     # Legacy flags
+    parser.add_argument("--workflow-id", "-w", help="(legacy) Workflow ID")
     parser.add_argument(
-        "--workflow-id", "-w",
-        help="(legacy) Workflow ID"
+        "--version", "-v", help="Specific version to publish (default: latest draft)"
     )
-    parser.add_argument(
-        "--version", "-v",
-        help="Specific version to publish (default: latest draft)"
-    )
-    parser.add_argument(
-        "--standalone", "-s", action="store_true",
-        help="(legacy) Standalone mode"
-    )
-    
+    parser.add_argument("--standalone", "-s", action="store_true", help="(legacy) Standalone mode")
+
     # Common options
+    parser.add_argument("--description", "-d", help="Description for this version")
+    parser.add_argument("--env", "-e", help="Environment to use")
     parser.add_argument(
-        "--description", "-d",
-        help="Description for this version"
+        "--dry-run",
+        action="store_true",
+        help="Simulate the publish — shows which version would be approved without making any changes",
     )
     parser.add_argument(
-        "--env", "-e",
-        help="Environment to use"
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed debug information (workspace resolution, API calls, version lookup)",
     )
-    
+
     args = parser.parse_args()
-    
+
+    global _verbose
+    _verbose = args.verbose
+    if _verbose:
+        print("[VERBOSE] Verbose mode enabled", file=sys.stderr)
+
     manager = get_workspace_manager()
-    
+
     # Set environment if provided
     if args.env:
         if manager.env_exists(args.env):
@@ -537,41 +584,63 @@ USE FLAGS ONLY when automatic behavior doesn't work.
         else:
             print(f"❌ Environment not found: {args.env}")
             sys.exit(1)
-    
+
+    dry_run: bool = args.dry_run
+
     # Determine what to publish
     if args.agent:
-        # Confirm before agent publish
-        if not args.yes:
+        # Skip confirmation in dry-run mode; otherwise confirm
+        if not args.yes and not dry_run:
             print(f"\n⚠️  About to publish agent '{args.agent}' and all its draft subactions")
             confirm = input("   Type 'yes' to confirm: ").strip().lower()
             if confirm != "yes":
                 print("❌ Cancelled")
                 sys.exit(0)
-        
+
         results = publish_agent_with_subactions(
             agent_id=args.agent,
             manager=manager,
             max_workers=args.parallel,
             description=args.description,
+            dry_run=dry_run,
         )
         print_results(results)
         success = all(r.success for r in results)
         sys.exit(0 if success else 1)
-    
+
     elif args.actions:
         # Multiple actions from positional args
         if len(args.actions) == 1:
             # Single action - use verbose mode with confirmation
-            success = publish_wdl_action(
-                workflow_id=args.actions[0],
+            if not args.yes and not dry_run:
+                print(f"\n⚠️  About to publish: {args.actions[0]}")
+                confirm = input("   Type 'yes' to confirm: ").strip().lower()
+                if confirm != "yes":
+                    print("❌ Cancelled")
+                    sys.exit(0)
+            client = get_api_client_for_env()
+            result = publish_single_action(
+                args.actions[0],
+                manager,
+                client,
                 version_id=args.version,
-                skip_confirm=args.yes,
                 description=args.description,
+                verbose=True,
+                dry_run=dry_run,
             )
-            sys.exit(0 if success else 1)
+            if result.success and not dry_run:
+                print("\n" + "=" * 80)
+                print("🎉 ACTION PUBLISHED!")
+                print("=" * 80)
+                print(f"   Version: {result.version}")
+                print(f"   Action ID: {result.action_id}")
+                print("=" * 80)
+            elif not result.success:
+                print(f"\n❌ {result.message}: {result.error}")
+            sys.exit(0 if result.success else 1)
         else:
             # Multiple actions - confirm first
-            if not args.yes:
+            if not args.yes and not dry_run:
                 print(f"\n⚠️  About to publish {len(args.actions)} actions:")
                 for a in args.actions:
                     print(f"     - {a}")
@@ -579,28 +648,47 @@ USE FLAGS ONLY when automatic behavior doesn't work.
                 if confirm != "yes":
                     print("❌ Cancelled")
                     sys.exit(0)
-            
+
             results = publish_parallel_actions(
                 workflow_ids=args.actions,
                 manager=manager,
                 max_workers=args.parallel,
                 description=args.description,
+                dry_run=dry_run,
             )
             print_results(results)
             success = all(r.success for r in results)
             sys.exit(0 if success else 1)
-    
+
     elif args.workflow_id:
         # Legacy mode
-        success = publish_wdl_action(
-            workflow_id=args.workflow_id,
+        if not args.yes and not dry_run:
+            print(f"\n⚠️  About to publish: {args.workflow_id}")
+            confirm = input("   Type 'yes' to confirm: ").strip().lower()
+            if confirm != "yes":
+                print("❌ Cancelled")
+                sys.exit(0)
+        client = get_api_client_for_env()
+        result = publish_single_action(
+            args.workflow_id,
+            manager,
+            client,
             version_id=args.version,
-            skip_confirm=args.yes,
             description=args.description,
-            standalone=args.standalone,
+            verbose=True,
+            dry_run=dry_run,
         )
-        sys.exit(0 if success else 1)
-    
+        if result.success and not dry_run:
+            print("\n" + "=" * 80)
+            print("🎉 ACTION PUBLISHED!")
+            print("=" * 80)
+            print(f"   Version: {result.version}")
+            print(f"   Action ID: {result.action_id}")
+            print("=" * 80)
+        elif not result.success:
+            print(f"\n❌ {result.message}: {result.error}")
+        sys.exit(0 if result.success else 1)
+
     else:
         parser.print_help()
         print("\n❌ Error: Must provide action(s), --agent, or --workflow-id", file=sys.stderr)

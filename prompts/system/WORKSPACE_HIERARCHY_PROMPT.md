@@ -199,6 +199,30 @@ To list available: python cli/workspace.py env list
 
 ## CLI Commands Reference
 
+### Global Flags
+
+All workspace CLI scripts support the following universal flags:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--verbose` | `-v` | Show detailed debug output: workspace resolution paths, API calls made, files read/written, action ID resolution. Useful when troubleshooting. |
+| `--dry-run` | — | Simulate the operation without making changes (no file writes, no API calls). Prints what *would* happen. |
+
+```bash
+# Example: debug why an action can't be found
+python cli/status.py my-action --verbose
+
+# Example: check what save would do before committing
+python cli/save_wdl_draft.py my-action --dry-run
+
+# Example: combine both
+python cli/save_wdl_draft.py my-action --dry-run --verbose
+```
+
+> **Note**: Read-only scripts (`status.py`, `validate.py`, `list_wdl_versions.py`, `discover.py`) accept both flags for CLI consistency — `--dry-run` is a no-op on them.
+
+---
+
 ### Environment Commands
 
 ```bash
@@ -341,42 +365,63 @@ python cli/workspace.py profile update --agent my-agent --cookie "session=xyz"
 }
 ```
 
-### agent.json (Agent)
+### metadata.json (Unified — All Workspace Types)
 
+`metadata.json` is the **single source of truth** for all workspace types (agents, sub-actions, standalone actions). The `type` field distinguishes them.
+
+**Agent (`type: "agent"`):**
 ```json
 {
-  "agent_id": "inventory-agent",
-  "name": "Inventory Agent",
+  "workflow_id": "inventory-agent",
+  "title": "Inventory Agent",
   "description": "Manages inventory operations",
-  "type": "uber_agent",
-  "remote_action_id": "abc-123-def",
+  "type": "agent",
+  "action_id": "abc-123-def",
+  "env_name": "production-client-a",
+  "is_tool_mode": false,
+  "is_visible_in_list": true,
   "sub_actions": [
     {
       "action_id": "get-orderpoints",
       "remote_action_id": "111-222-333",
-      "title": "get-orderpoints",
-      "description": "Fetch orderpoints",
-      "required": true
+      "title": "get-orderpoints"
     }
   ],
-  "created_at": "2026-01-29T10:00:00Z"
+  "created_at": "2026-01-29T10:00:00Z",
+  "updated_at": "2026-01-29T10:00:00Z"
 }
 ```
 
-### metadata.json (Action)
-
+**Sub-action (`type: "sub_action"`):**
 ```json
 {
   "workflow_id": "get-orderpoints",
   "title": "get-orderpoints",
+  "type": "sub_action",
   "action_id": "111-222-333",
   "agent_name": "inventory-agent",
+  "env_name": "production-client-a",
+  "is_tool_mode": true,
+  "is_visible_in_list": false,
+  "created_at": "2026-01-29T10:00:00Z"
+}
+```
+
+**Standalone action (`type: "action"`):**
+```json
+{
+  "workflow_id": "quick-lookup",
+  "title": "Quick Lookup",
+  "type": "action",
+  "action_id": "xyz-987",
   "env_name": "production-client-a",
   "is_tool_mode": true,
   "is_visible_in_list": true,
   "created_at": "2026-01-29T10:00:00Z"
 }
 ```
+
+> **Legacy `agent.json`**: Older workspaces may still have `agent.json`. The workspace manager auto-migrates these to `metadata.json` on first access — no manual action needed.
 
 ---
 

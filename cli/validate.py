@@ -23,18 +23,27 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.workspace_manager import WorkspaceManager
-from cli.wdl_common.validator import validate_wdl_file, WDLValidator
+from cli.wdl_common.validator import validate_wdl_file
+from cli.wdl_common.workspace_manager import get_workspace_manager
+
+_verbose = False
+
+
+def _vprint(*args: object) -> None:
+    if _verbose:
+        print("[VERBOSE]", *args)
 
 
 def find_workspace(workflow_id: str) -> Path:
     """Find workspace by workflow_id, auto-detecting agent vs standalone."""
-    manager = WorkspaceManager()
+    manager = get_workspace_manager()
+    _vprint(f"Searching for workspace: {workflow_id} (env={manager.active_env})")
     action_info = manager.find_action(workflow_id)
-    
+
     if action_info:
+        _vprint(f"Found workspace at: {action_info['path']}")
         return Path(action_info["path"])
-    
+
     raise ValueError(f"Workspace not found: {workflow_id}")
 
 
@@ -45,12 +54,12 @@ def validate_workflow(
 ) -> bool:
     """
     Validate WDL workflow.
-    
+
     Args:
         workflow_id: Workflow ID
         auto_fix: Auto-fix issues where possible
         orchestrator_context: Validate for orchestrator use
-        
+
     Returns:
         True if valid (no errors)
     """
@@ -60,22 +69,23 @@ def validate_workflow(
     print(f"Workflow: {workflow_id}")
     if orchestrator_context:
         print("Context: Orchestrator (stricter title validation)")
-    
+
     # Find workspace
     try:
         workspace = find_workspace(workflow_id)
     except ValueError as e:
         print(f"\n❌ {e}")
         return False
-    
+
     print(f"📁 Workspace: {workspace}")
-    
+
     # Check for WDL file
     wdl_path = workspace / "widdle.json"
+    _vprint(f"WDL file path: {wdl_path} (exists={wdl_path.exists()})")
     if not wdl_path.exists():
         print("\n❌ widdle.json not found")
         return False
-    
+
     # Step 1: JSON syntax validation
     print("\n📋 Step 1: Validating JSON syntax...")
     try:
@@ -90,46 +100,47 @@ def validate_workflow(
         print("   - Unescaped quotes in strings")
         print("   - Mismatched brackets [ ] or braces { }")
         return False
-    
+
     # Step 2: WDL structure validation
     print("\n📋 Step 2: Validating WDL structure...")
-    
+
     context = "orchestrator" if orchestrator_context else "action"
+    _vprint(f"Calling validate_wdl_file(context={context!r}, auto_fix={auto_fix})")
     result = validate_wdl_file(wdl_path, context=context, auto_fix=auto_fix)
-    
+
     # Show results
     print(f"\n{result}")
-    
+
     # Additional info
     if result.is_valid:
         # Count operations
         op_count = len([op for op in wdl if isinstance(op, dict) and op.get("operation")])
-        print(f"\n📊 Summary:")
+        print("\n📊 Summary:")
         print(f"   Total operations: {op_count}")
-        
+
         # Show operation types
-        op_types = {}
+        op_types: dict[str, int] = {}
         for op in wdl:
             if isinstance(op, dict) and op.get("operation"):
                 op_type = op["operation"]
                 op_types[op_type] = op_types.get(op_type, 0) + 1
-        
+
         if op_types:
             print("   Operation types:")
             for op_type, count in sorted(op_types.items()):
                 print(f"      - {op_type}: {count}")
-        
+
         print("\n" + "=" * 80)
         print("✅ VALIDATION PASSED")
         print("=" * 80)
     else:
         if not auto_fix:
             print("\n💡 Tip: Run with --auto-fix to automatically fix some issues")
-        
+
         print("\n" + "=" * 80)
         print("❌ VALIDATION FAILED")
         print("=" * 80)
-    
+
     return result.is_valid
 
 
@@ -154,7 +165,7 @@ Validations performed:
   7. Operation references
         """,
     )
-    
+
     parser.add_argument("workflow_id", help="Workflow ID")
     parser.add_argument(
         "--auto-fix",
@@ -162,25 +173,38 @@ Validations performed:
         help="Auto-fix issues where possible",
     )
     parser.add_argument(
-        "--orchestrator", "-o",
+        "--orchestrator",
+        "-o",
         action="store_true",
         help="Validate for orchestrator use (stricter title validation)",
     )
-    
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="No-op for read-only script (accepted for consistency)",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed debug information (workspace resolution, validation steps, etc.)",
+    )
+
     args = parser.parse_args()
-    
+
+    global _verbose
+    _verbose = args.verbose
+    if _verbose:
+        print("[VERBOSE] Verbose mode enabled", file=sys.stderr)
+
     success = validate_workflow(
         workflow_id=args.workflow_id,
         auto_fix=args.auto_fix,
         orchestrator_context=args.orchestrator,
     )
-    
+
     sys.exit(0 if success else 1)
 
 
 if __name__ == "__main__":
     main()
-
-
-
-

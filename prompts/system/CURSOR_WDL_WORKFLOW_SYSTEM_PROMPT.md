@@ -438,6 +438,33 @@ python cli/publish_wdl_action.py {workflow_id}
 
 ## CLI Reference
 
+### Universal Flags
+
+All CLI scripts accept these flags:
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--verbose` | `-v` | Extra debug output: workspace path resolution, API calls, file reads/writes, action ID lookup chain. Use when troubleshooting "not found" or unexpected behaviour. |
+| `--dry-run` | — | Show what *would* happen without actually writing files or calling APIs. Safe to run at any time. |
+
+```bash
+# Debug workspace lookup for an action
+python cli/status.py my-action --verbose
+
+# Check what save-draft would do before making remote changes
+python cli/save_wdl_draft.py my-action --dry-run --verbose
+
+# Simulate a full publish
+python cli/publish_wdl_action.py my-action --dry-run
+
+# Simulate agent checkout from remote
+python cli/workspace.py agent checkout --remote-id <uuid> --env staging --dry-run --verbose
+```
+
+> **Tip**: Combine `--dry-run --verbose` to see the full resolution chain without side effects.
+
+---
+
 ### Discovery Commands (`cli/discover.py`)
 
 **Listing by Type:**

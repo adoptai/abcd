@@ -14,22 +14,28 @@ USE FLAGS ONLY when automatic behavior doesn't work.
 import argparse
 import sys
 from pathlib import Path
-from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.api_client import AdoptAPIClient, get_api_client_for_env
+from cli.wdl_common.api_client import get_api_client_for_env
 from cli.wdl_common.metadata_manager import MetadataManager
 from cli.wdl_common.version_tracker import (
-    sync_versions_from_api,
     read_metadata,
+    sync_versions_from_api,
 )
-from cli.wdl_common.workspace_manager import WorkspaceManager
+from cli.wdl_common.workspace_manager import get_workspace_manager
+
+_verbose = False
+
+
+def _vprint(*args: object) -> None:
+    if _verbose:
+        print("[VERBOSE]", *args)
 
 
 def list_wdl_versions(
-    action_id: Optional[str] = None,
-    workflow_id: Optional[str] = None,
+    action_id: str | None = None,
+    workflow_id: str | None = None,
     standalone: bool = False,
 ) -> bool:
     """
@@ -54,10 +60,12 @@ def list_wdl_versions(
     meta_manager = None
 
     if workflow_id:
-        workspace_manager = WorkspaceManager()
+        workspace_manager = get_workspace_manager()
+        _vprint(f"Searching for workspace: {workflow_id} (env={workspace_manager.active_env})")
         action_info = workspace_manager.find_action(workflow_id)
         if action_info:
             workspace = Path(action_info["path"])
+            _vprint(f"Found workspace at: {workspace}")
 
     # If workspace found, use MetadataManager for action_id
     if workspace and workspace.exists():
@@ -80,27 +88,31 @@ def list_wdl_versions(
                         if tool.get("title") == title:
                             action_id = tool.get("action_id") or tool.get("id")
                             print(f"   ✅ Found action: {action_id}")
-                            meta_manager.set_action_id(action_id)
+                            if action_id:
+                                meta_manager.set_action_id(str(action_id))
                             break
 
     # Fallback to active environment's actions folder if no workspace
     if not workspace and action_id:
-        from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_active_environment
-        env = get_active_environment()
-        if env:
-            workspace = WORKSPACES_DIR / env / "actions" / action_id
-        else:
-            workspace = WORKSPACES_DIR / "default" / "actions" / action_id
+        from cli.wdl_common.workspace_manager import WORKSPACES_DIR
+
+        _mgr = get_workspace_manager()
+        env = _mgr.active_env or "default"
+        workspace = WORKSPACES_DIR / env / "actions" / action_id
 
     if not action_id:
-        print("❌ No action_id found. Provide action_id or use --workflow-id with linked workspace.")
+        print(
+            "❌ No action_id found. Provide action_id or use --workflow-id with linked workspace."
+        )
         return False
 
     print(f"Action ID: {action_id}")
+    _vprint(f"Action ID resolved: {action_id}")
 
     # Load API client with environment credentials
+    _vprint("Initialising API client for active environment")
     client = get_api_client_for_env()
-
+    _vprint(f"API call: list_versions({action_id})")
     success, versions, msg = client.list_versions(action_id)
 
     if not success:
@@ -114,9 +126,10 @@ def list_wdl_versions(
     # Sync all versions from API to metadata.json
     if workspace and workspace.exists():
         print("\n💾 Syncing versions to metadata.json...")
+        _vprint(f"Writing version data to: {workspace / 'metadata.json'}")
         sync_versions_from_api(workspace, versions)
         print("   ✅ Versions synced")
-        
+
         # Get current and checked-out versions from metadata
         metadata = read_metadata(workspace)
         current_version = metadata.get("current_version")
@@ -151,7 +164,7 @@ def list_wdl_versions(
         print(f"   {marker:<15} {version_id:<8} {status:<12} {created:<20} {description}")
 
     print("   " + "-" * 70)
-    
+
     if current_version or checked_out_version:
         version_info = []
         if current_version:
@@ -159,10 +172,12 @@ def list_wdl_versions(
         if checked_out_version:
             version_info.append(f"Checked out: {checked_out_version}")
         print(f"\n   {' | '.join(version_info)}")
-    
+
     print("\n   To checkout a version:")
     if workflow_id:
-        print(f"   python cli/checkout_wdl_version.py {action_id} --version <VERSION> --workflow-id {workflow_id}")
+        print(
+            f"   python cli/checkout_wdl_version.py {action_id} --version <VERSION> --workflow-id {workflow_id}"
+        )
     else:
         print(f"   python cli/checkout_wdl_version.py {action_id} --version <VERSION>")
     print("=" * 80)
@@ -191,18 +206,34 @@ USE FLAGS ONLY when automatic behavior doesn't work.
 """,
     )
     parser.add_argument(
-        "action_id", nargs="?", default=None,
-        help="Action ID (optional if --workflow-id provided)"
+        "action_id", nargs="?", default=None, help="Action ID (optional if --workflow-id provided)"
     )
     parser.add_argument(
-        "--workflow-id", "-w",
-        help="Workflow ID (RECOMMENDED - auto-detects action_id)"
+        "--workflow-id", "-w", help="Workflow ID (RECOMMENDED - auto-detects action_id)"
     )
     parser.add_argument(
-        "--standalone", "-s", action="store_true",
-        help="Override agent detection with standalone mode"
+        "--standalone",
+        "-s",
+        action="store_true",
+        help="Override agent detection with standalone mode",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="No-op for read-only script (accepted for consistency)",
+    )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show detailed debug information (workspace resolution, API calls, etc.)",
     )
     args = parser.parse_args()
+
+    global _verbose
+    _verbose = args.verbose
+    if _verbose:
+        print("[VERBOSE] Verbose mode enabled", file=sys.stderr)
 
     # Require either action_id or workflow_id
     if not args.action_id and not args.workflow_id:

@@ -13,8 +13,6 @@ The key insight: Cursor is intelligent enough to:
 
 import os
 from pathlib import Path
-from typing import List, Optional
-
 
 # Remote documentation URL (GitHub Pages)
 WDL_DOCS_BASE_URL = "https://adoptai.github.io/widdle_docs/operations/"
@@ -23,7 +21,7 @@ WDL_DOCS_BASE_URL = "https://adoptai.github.io/widdle_docs/operations/"
 class WDLDocumentationProvider:
     """Provides URLs/paths to WDL operation documentation for Cursor to roam."""
 
-    def __init__(self, docs_path: Optional[Path] = None, use_remote: bool = True) -> None:
+    def __init__(self, docs_path: Path | None = None, use_remote: bool = True) -> None:
         """
         Initialize the documentation provider.
 
@@ -36,13 +34,13 @@ class WDLDocumentationProvider:
         self._docs_path = docs_path
 
     @property
-    def docs_path(self) -> Optional[Path]:
+    def docs_path(self) -> Path | None:
         """Get local docs path (for fallback only)."""
         if self._docs_path:
             return self._docs_path
         return self._find_local_docs_path()
 
-    def _find_local_docs_path(self) -> Optional[Path]:
+    def _find_local_docs_path(self) -> Path | None:
         """Find the local WDL docs path (fallback)."""
         search_paths = [
             # Symlink in abcd repo
@@ -66,7 +64,7 @@ class WDLDocumentationProvider:
         return f"{self.base_url}index.md"
 
     @property
-    def system_index_path(self) -> Optional[Path]:
+    def system_index_path(self) -> Path | None:
         """Path to local SYSTEM.md (fallback only)."""
         if self.docs_path:
             return self.docs_path / "SYSTEM.md"
@@ -91,7 +89,7 @@ class WDLDocumentationProvider:
         # Default to the most common pattern
         return f"{self.base_url}{patterns[0]}"
 
-    def get_operation_doc_path(self, operation_name: str) -> Optional[Path]:
+    def get_operation_doc_path(self, operation_name: str) -> Path | None:
         """
         Get local path to documentation for a specific operation (fallback).
 
@@ -117,7 +115,7 @@ class WDLDocumentationProvider:
 
         return None
 
-    def list_all_doc_files(self) -> List[Path]:
+    def list_all_doc_files(self) -> list[Path]:
         """List all local documentation files (fallback)."""
         if not self.docs_path:
             return []
@@ -151,6 +149,6 @@ Based on the task, fetch only the operations you need:
 ### Step 3: Generate WDL
 Use the fetched documentation to generate valid WDL.
 
-**Do NOT fetch all files at once** - fetch the index first, then selectively 
+**Do NOT fetch all files at once** - fetch the index first, then selectively
 fetch only what's needed for the current task.
 """
