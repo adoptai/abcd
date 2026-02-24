@@ -324,11 +324,11 @@ Make the required changes to `widdle.json`:
 - Follow WDL patterns from `prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`
 - Check `prompts/guidelines/WDL_ISSUE_PATTERNS.md` for common issues to avoid
 
-### Step 4: Validate Locally
+### Step 4: Compile WDL (MANDATORY)
 
 ```bash
-# JSON syntax + WDL structure validation
-python cli/test_runner.py <action-id> --local-only
+# Compile WDL — JSON syntax + structure validation via remote compiler
+python cli/test_runner.py <action-id> --compile
 ```
 
 ---
@@ -353,11 +353,11 @@ Ensure test cases exist in `test_cases/` directory:
 }
 ```
 
-### Step 2: Test Locally First
+### Step 2: Compile WDL (MANDATORY Before Remote Testing)
 
 ```bash
-# Validate structure
-python cli/test_runner.py <action-id> --local-only
+# Compile WDL via remote compiler
+python cli/test_runner.py <action-id> --compile
 ```
 
 ### Step 3: Test Remotely
@@ -449,7 +449,7 @@ Remote Action Workflow
 │   ├─ Get requirements from user
 │   ├─ Review current WDL
 │   ├─ Make changes
-│   └─ Validate locally: `test_runner.py <id> --local-only`
+│   └─ Compile: `test_runner.py <id> --compile` ← MANDATORY
 │
 ├─ 5. Test
 │   ├─ Create/update test cases

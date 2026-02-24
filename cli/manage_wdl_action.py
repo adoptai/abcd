@@ -692,7 +692,7 @@ def create_simple_tool(
     print(f"   1. 📖 Read: {workspace}/cursor_roaming_instructions.md")
     print(f"   2. 📋 Review API spec: {workspace}/apis/")
     print(f"   3. ✏️  Refine the placeholder WDL in: {workspace}/widdle.json")
-    print("   4. 🧪 Test locally: python cli/test_runner.py {workflow_id} --local-only")
+    print("   4. 🔨 Compile: python cli/test_runner.py {workflow_id} --compile")
     print("   5. 💾 Save draft: python cli/save_wdl_draft.py --workflow-id {workflow_id}")
     print("=" * 80)
 

@@ -3,6 +3,7 @@
 Enhanced Test Runner - Parallel and batch test execution with LLM-integrated output.
 
 Features:
+- Remote compilation check via --compile (MANDATORY before remote testing)
 - Parallel test execution for multiple actions
 - Batch testing (--workspace, --agent flags)
 - Via-agent testing for sub-actions through uber agents
@@ -12,7 +13,10 @@ Features:
 - Direct LLM/Cursor-friendly output for automated evaluation
 
 Usage:
-    # Test single action
+    # Compile WDL (MANDATORY before remote testing)
+    python test_runner.py my-action --compile
+
+    # Test single action (remote execution)
     python test_runner.py my-action
 
     # Test multiple actions in parallel
@@ -234,19 +238,26 @@ def get_all_test_files(test_cases_dir: Path) -> list[str]:
 def run_single_test(
     action_id: str,
     manager: HierarchicalWorkspaceManager,
-    local_only: bool = False,
+    compile_only: bool = False,
     test_file: str | None = None,
     verbose: bool = False,
+    validate: bool = False,
 ) -> TestResult:
     """
     Run test for a single action with full context for LLM evaluation.
 
+    Modes (mutually exclusive):
+    - compile_only: Compile WDL via remote compiler API (no remote execution)
+    - validate: Run compiler validation before remote execution
+    - default: Skip validation, go straight to remote execution (remote already compiles)
+
     Args:
         action_id: Action/workflow ID
         manager: Workspace manager instance
-        local_only: Only validate WDL locally
+        compile_only: Compile WDL via remote compiler (no remote execution)
         test_file: Specific test file to run
         verbose: Include WDL operations in output for debugging
+        validate: Run compiler validation before remote execution
 
     Returns:
         TestResult with full context for LLM/Cursor evaluation
@@ -315,11 +326,48 @@ def run_single_test(
                     }
                 )
 
-        if local_only:
+        # Compiler validation via API (only when --compile or --validate is set)
+        # Skipped by default since remote execution already compiles the WDL.
+        if compile_only or validate:
+            try:
+                api_client = get_api_client_for_env()
+                success_val, val_data, val_msg = api_client.validate_wdl(wdl)
+                if success_val and val_data and val_data.get("status") == "FAILURE":
+                    error_lines = []
+                    for err in val_data.get("errors", []):
+                        line = f"[{err['error_code']}] {err['error_msg']}"
+                        if err.get("block_id"):
+                            line += f" (block: {err['block_id']})"
+                        if err.get("suggestion"):
+                            line += f" | Suggestion: {err['suggestion']}"
+                        error_lines.append(line)
+                    error_summary = "\n".join(error_lines) if error_lines else "Compilation failed"
+                    return TestResult(
+                        action_id=action_id,
+                        success=False,
+                        message="WDL compilation failed",
+                        duration_ms=int((time.time() - start_time) * 1000),
+                        error=error_summary,
+                        workspace_path=str(workspace),
+                    )
+            except Exception:
+                if compile_only:
+                    return TestResult(
+                        action_id=action_id,
+                        success=False,
+                        message="Compilation endpoint unreachable",
+                        duration_ms=int((time.time() - start_time) * 1000),
+                        error="Could not reach WDL compilation endpoint. Check ADOPT_API_ENDPOINT.",
+                        workspace_path=str(workspace),
+                    )
+                # --validate mode: log warning but continue to remote execution
+                pass
+
+        if compile_only:
             return TestResult(
                 action_id=action_id,
                 success=True,
-                message="WDL valid (local only)",
+                message="Compilation successful",
                 duration_ms=int((time.time() - start_time) * 1000),
                 wdl_operations=wdl_operations if verbose else None,
                 workspace_path=str(workspace),
@@ -606,8 +654,9 @@ def run_parallel_tests(
     action_ids: list[str],
     manager: HierarchicalWorkspaceManager,
     max_workers: int = 5,
-    local_only: bool = False,
+    compile_only: bool = False,
     verbose: bool = False,
+    validate: bool = False,
 ) -> list[TestResult]:
     """
     Run tests for multiple actions in parallel.
@@ -616,8 +665,9 @@ def run_parallel_tests(
         action_ids: List of action IDs to test
         manager: Workspace manager
         max_workers: Maximum parallel workers
-        local_only: Only validate locally
+        compile_only: Only compile via remote compiler (no remote execution)
         verbose: Include WDL operations for debugging
+        validate: Run compiler validation before remote execution
 
     Returns:
         List of TestResults
@@ -626,7 +676,9 @@ def run_parallel_tests(
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_action = {
-            executor.submit(run_single_test, aid, manager, local_only, None, verbose): aid
+            executor.submit(
+                run_single_test, aid, manager, compile_only, None, verbose, validate
+            ): aid
             for aid in action_ids
         }
 
@@ -694,7 +746,18 @@ def print_results(results: list[TestResult], start_time: datetime, verbose: bool
     if passed:
         print("\n✅ PASSED:")
         for r in passed:
-            print(f"\n   ✅ {r.action_id} ({r.duration_ms}ms) - {r.test_name}")
+            suffix = f" - {r.test_name}" if r.test_name else ""
+            print(f"\n   ✅ {r.action_id} ({r.duration_ms}ms){suffix}")
+            if r.message:
+                print(f"      💬 {r.message}")
+            if r.workspace_path:
+                print(f"      📁 Workspace: {r.workspace_path}")
+
+            # Show WDL operations when verbose
+            if verbose and r.wdl_operations:
+                print(f"      📦 WDL Operations ({len(r.wdl_operations)} blocks):")
+                for op in r.wdl_operations:
+                    print(f"         • {op.get('id')}: {op.get('operation')}")
 
             # Show test criteria (what was expected) - always show for LLM to verify
             if r.test_criteria:
@@ -858,7 +921,10 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Test single action
+  # Compile WDL (MANDATORY before remote testing)
+  %(prog)s my-action --compile
+
+  # Test single action (remote execution)
   %(prog)s my-action
 
   # Test with verbose output (shows WDL operations, full traces)
@@ -877,6 +943,7 @@ Examples:
   %(prog)s my-agent --via-agent --subaction get-orderpoints
 
 Key Features:
+  - Remote compilation check via --compile (MANDATORY before remote testing)
   - Always uses allow_draft=True (no metadata version tracking issues)
   - Robust trace extraction from success and error responses
   - LLM/Cursor-friendly output for automated evaluation
@@ -904,7 +971,15 @@ Key Features:
     )
 
     # Test options
-    parser.add_argument("--local-only", "-l", action="store_true", help="Only validate WDL locally")
+    parser.add_argument(
+        "--compile",
+        "-c",
+        action="store_true",
+        help="Compile WDL via remote compiler (no remote execution). MANDATORY before remote testing.",
+    )
+    parser.add_argument(
+        "--validate", action="store_true", help="Run compiler validation before remote execution"
+    )
     parser.add_argument("--test", "-t", help="Specific test file to run")
     parser.add_argument(
         "--all", action="store_true", help="Run all test cases in test_cases/ directory"
@@ -998,7 +1073,7 @@ Key Features:
             return 0
         print(f"   Found {len(action_ids)} actions")
         results = run_parallel_tests(
-            action_ids, manager, args.parallel, args.local_only, args.verbose
+            action_ids, manager, args.parallel, args.compile, args.verbose, args.validate
         )
 
     elif args.agent and args.all_subactions:
@@ -1022,7 +1097,7 @@ Key Features:
             return 0
         print(f"   Found {len(action_ids)} sub-actions")
         results = run_parallel_tests(
-            action_ids, manager, args.parallel, args.local_only, args.verbose
+            action_ids, manager, args.parallel, args.compile, args.verbose, args.validate
         )
 
     elif args.actions:
@@ -1069,7 +1144,12 @@ Key Features:
                         print(f"   Running {len(test_files)} test cases: {', '.join(test_files)}")
                         for test_file in test_files:
                             result = run_single_test(
-                                action_id, manager, args.local_only, test_file, args.verbose
+                                action_id,
+                                manager,
+                                args.compile,
+                                test_file,
+                                args.verbose,
+                                args.validate,
                             )
                             results.append(result)
                     else:
@@ -1096,14 +1176,14 @@ Key Features:
             else:
                 # Single test case
                 result = run_single_test(
-                    action_id, manager, args.local_only, args.test, args.verbose
+                    action_id, manager, args.compile, args.test, args.verbose, args.validate
                 )
                 results = [result]
         else:
             # Multiple actions - parallel test
             print(f"\n🧪 Testing {len(action_ids)} actions in parallel")
             results = run_parallel_tests(
-                action_ids, manager, args.parallel, args.local_only, args.verbose
+                action_ids, manager, args.parallel, args.compile, args.verbose, args.validate
             )
 
     else:

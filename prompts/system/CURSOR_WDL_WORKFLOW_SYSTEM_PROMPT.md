@@ -326,10 +326,10 @@ python cli/test_runner.py action1 action2 action3 --parallel 3
 - **Parallel execution support** - faster when testing multiple actions
 - **Batch testing** - test entire workspaces or agents at once
 
-#### Local Testing (Structure Validation)
+#### Compilation (MANDATORY Before Remote Testing)
 ```bash
-# Validate WDL structure only (no remote execution)
-python cli/test_runner.py {workflow_id} --local-only
+# Compile WDL via remote compiler (no remote execution)
+python cli/test_runner.py {workflow_id} --compile
 ```
 
 **What this does** (runs in two steps):
@@ -338,9 +338,10 @@ python cli/test_runner.py {workflow_id} --local-only
 - Validates that `widdle.json` is valid JSON syntax
 - Checks for JSON parsing errors (invalid characters, malformed strings, etc.)
 - Provides clear error messages with line/column numbers
-- **Must pass before proceeding to structure validation**
+- **Must pass before proceeding to compilation**
 
-**Step 2: WDL Structure Validation**
+**Step 2: Remote WDL Compilation**
+- Compiles WDL via the remote compiler API
 - Checks for required fields (id, operation)
 - Validates operation-specific requirements
 - Checks for duplicate IDs
@@ -348,10 +349,10 @@ python cli/test_runner.py {workflow_id} --local-only
 - **Does NOT** execute the workflow remotely
 
 **Use this for**:
-- Quick validation during development
-- Checking JSON syntax and structure before remote testing
+- Catching structural and logical errors early
+- Checking JSON syntax and WDL structure before remote testing
 - Debugging syntax and structure issues
-- **Always run this before remote testing** to catch JSON errors early
+- **⚠️ MANDATORY: Always run this before remote testing**
 
 #### Remote Testing (Full Execution)
 ```bash
@@ -401,10 +402,10 @@ python cli/save_wdl_draft.py --workflow-id {workflow_id} --description "Test pas
    ├─ Test 1: Basic/common use case
    ├─ Test 2: Different input scenario or parameter combination
    └─ Test 3: Edge case or alternative scenario
-3. Test locally → python cli/test_runner.py {id} --local-only
+3. Compile → python cli/test_runner.py {id} --compile  ← **MANDATORY**
    ├─ Step 1: JSON syntax validation (catches JSON parsing errors)
-   └─ Step 2: WDL structure validation (catches logical errors)
-4. Fix any JSON syntax or structure issues
+   └─ Step 2: Remote WDL compilation (catches structural and logical errors)
+4. Fix any compilation errors
 5. Save draft → python cli/save_wdl_draft.py --workflow-id {id} --standalone
    (Automatically creates remote action and publishes WDL if needed)
 6. Test remotely → python cli/test_runner.py {id} --all
@@ -555,8 +556,8 @@ python cli/manage_wdl_action.py --workflow-id {workflow_id} --create-remote
 
 ### Testing Commands
 ```bash
-# Validate WDL structure only (no remote execution)
-python cli/test_runner.py {workflow_id} --local-only
+# Compile WDL (MANDATORY before remote testing)
+python cli/test_runner.py {workflow_id} --compile
 
 # Full remote test (requires action_id in metadata.json)
 # - Automatically detects remote action from metadata.action_id
@@ -1013,7 +1014,7 @@ If you update only one side, the tool **WILL** break.
 8. **Roaming RAG**: Don't fetch all docs at once. Fetch the index first, then fetch specific operation docs as needed from `https://adoptai.github.io/widdle_docs/operations/`.
 9. **Remote Action Detection**: The test script detects remote actions by checking `metadata.json` for `action_id`, not by checking the workflow_id string. Once created remotely, the `action_id` is stored in metadata and used automatically.
 10. **Creating Remote Actions**: `save_wdl_draft.py` automatically creates remote action if it doesn't exist. No need to manually create it first. Use `--create-remote` only if you want to create action without saving draft.
-11. **Testing Flow**: Always test locally first (`--local-only`), then save draft (which auto-creates remote action and publishes WDL), then test remotely. Draft versions can be tested immediately after saving.
+11. **Testing Flow**: Always compile first (`--compile`), then save draft (which auto-creates remote action and publishes WDL), then test remotely. Compilation is MANDATORY before remote testing. Draft versions can be tested immediately after saving.
 12. **Version Iteration**: You can checkout any version, modify it, save as new draft, test the draft, and switch back to previous versions seamlessly.
 13. **Parameter Changes**: `save_wdl_draft.py` supports `--description` but no longer has `--yes` parameter. `publish_wdl_action.py` supports both `--description` and `--yes` (skip confirmation).
 14. **Version Comparison**: Use `versions/` folder to compare versions locally: `diff versions/v4_widdle.json versions/v10_widdle.json` or `grep "operation" versions/*.json`.
@@ -1052,10 +1053,10 @@ As Cursor, you should:
      - **Test 3**: Edge case or alternative scenario
    - Create all 3 test cases → Then proceed to testing
 5. **Testing workflow**:
-   - **Always test locally first** (`--local-only`) to validate JSON syntax and structure
+   - **⚠️ MANDATORY: Always compile first** (`--compile`) to validate JSON syntax and WDL structure
      - **Step 1**: JSON syntax validation (catches parsing errors early)
-     - **Step 2**: WDL structure validation (catches logical errors)
-   - **Fix JSON errors first** before proceeding to structure validation
+     - **Step 2**: Remote WDL compilation (catches structural and logical errors)
+   - **Fix compilation errors** before proceeding to remote testing
    - **Create remote action** when user requests: `--create-remote`
    - **Save draft** when user requests: Use `save_wdl_draft.py` (automatically creates remote action and publishes WDL if needed)
    - **Test remotely** after action is created and draft is saved
@@ -1126,10 +1127,10 @@ When a user provides requirements, follow these steps:
    
    **Note**: No need to manually create remote action first. `save_wdl_draft.py` handles it automatically.
 
-8. **Test Locally vs Remotely**:
-   - **Local**: `python cli/test_runner.py {workflow_id} --local-only`
+8. **Compile vs Remote Testing**:
+   - **Compile (MANDATORY)**: `python cli/test_runner.py {workflow_id} --compile`
      - **Step 1**: Validates JSON syntax (catches parsing errors)
-     - **Step 2**: Validates WDL structure (catches logical errors)
+     - **Step 2**: Compiles WDL via remote compiler (catches structural and logical errors)
      - No remote execution
      - Fast feedback during development
      - **Always run this first** to catch JSON syntax errors before structure validation

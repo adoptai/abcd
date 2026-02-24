@@ -9,6 +9,7 @@ Validates:
 - Tool titles for orchestrator use
 - Operation references
 - OUTPUT_TEXT references
+- Server-side compiler validation via API
 
 Usage:
     python cli/validate.py my-workflow
@@ -51,6 +52,7 @@ def validate_workflow(
     workflow_id: str,
     auto_fix: bool = False,
     orchestrator_context: bool = False,
+    verbose: bool = False,
 ) -> bool:
     """
     Validate WDL workflow.
@@ -59,6 +61,7 @@ def validate_workflow(
         workflow_id: Workflow ID
         auto_fix: Auto-fix issues where possible
         orchestrator_context: Validate for orchestrator use
+        verbose: Show detailed debug info and raw structured API response
 
     Returns:
         True if valid (no errors)
@@ -101,7 +104,7 @@ def validate_workflow(
         print("   - Mismatched brackets [ ] or braces { }")
         return False
 
-    # Step 2: WDL structure validation
+    # Step 2: WDL structure validation (includes API-based compiler checks)
     print("\n📋 Step 2: Validating WDL structure...")
 
     context = "orchestrator" if orchestrator_context else "action"
@@ -110,6 +113,21 @@ def validate_workflow(
 
     # Show results
     print(f"\n{result}")
+
+    # Verbose mode: show raw structured API response
+    if verbose:
+        print("\n📋 Step 3: Raw API validation response...")
+        try:
+            from cli.wdl_common.api_client import get_api_client_for_env
+
+            client = get_api_client_for_env()
+            success, data, msg = client.validate_wdl(wdl)
+            if success and data:
+                print(json.dumps(data, indent=2))
+            else:
+                print(f"   API unavailable: {msg}")
+        except Exception as e:
+            print(f"   API call failed: {e}")
 
     # Additional info
     if result.is_valid:
@@ -163,6 +181,7 @@ Validations performed:
   5. Tool titles for orchestrator (only letters, numbers, - and _)
   6. Duplicate operation IDs
   7. Operation references
+  8. Server-side compiler validation (pydantic + deep logic)
         """,
     )
 
@@ -187,7 +206,7 @@ Validations performed:
         "--verbose",
         "-v",
         action="store_true",
-        help="Show detailed debug information (workspace resolution, validation steps, etc.)",
+        help="Show detailed debug information and raw structured API validation response",
     )
 
     args = parser.parse_args()
@@ -201,6 +220,7 @@ Validations performed:
         workflow_id=args.workflow_id,
         auto_fix=args.auto_fix,
         orchestrator_context=args.orchestrator,
+        verbose=args.verbose,
     )
 
     sys.exit(0 if success else 1)
