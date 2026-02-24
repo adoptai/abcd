@@ -17,64 +17,69 @@ import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
 class RemoteState:
     """Remote action state."""
-    action_id: Optional[str] = None
-    linked_at: Optional[str] = None
-    last_synced_at: Optional[str] = None
+
+    action_id: str | None = None
+    linked_at: str | None = None
+    last_synced_at: str | None = None
     sync_status: str = "unknown"  # synced, pending_save, pending_publish, conflict, unknown
 
 
 @dataclass
 class WorkingVersion:
     """Currently active version being worked on."""
-    number: Optional[int] = None
+
+    number: int | None = None
     status: str = "draft"  # draft, approved
     is_published: bool = False
-    local_wdl_hash: Optional[str] = None
-    remote_wdl_hash: Optional[str] = None
+    local_wdl_hash: str | None = None
+    remote_wdl_hash: str | None = None
     has_local_changes: bool = False
-    description: Optional[str] = None
-    checked_out_at: Optional[str] = None
+    description: str | None = None
+    checked_out_at: str | None = None
 
 
 @dataclass
 class RemoteVersions:
     """Summary of remote version state."""
-    latest_draft: Optional[int] = None
-    latest_published: Optional[int] = None
-    current: Optional[int] = None
+
+    latest_draft: int | None = None
+    latest_published: int | None = None
+    current: int | None = None
 
 
 @dataclass
 class VersionInfo:
     """Information about a specific version."""
+
     version_number: int
     status: str = "draft"
     is_published: bool = False
-    description: Optional[str] = None
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    checked_out_at: Optional[str] = None
+    description: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    checked_out_at: str | None = None
     has_local_copy: bool = False
 
 
 @dataclass
 class WorkspaceMetadata:
     """Complete workspace metadata."""
+
     workflow_id: str
     title: str = ""
-    agent_name: Optional[str] = None
+    agent_name: str | None = None
     remote: RemoteState = field(default_factory=RemoteState)
     working_version: WorkingVersion = field(default_factory=WorkingVersion)
     remote_versions: RemoteVersions = field(default_factory=RemoteVersions)
-    versions: Dict[str, VersionInfo] = field(default_factory=dict)
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
+    versions: dict[str, VersionInfo] = field(default_factory=dict)
+    created_at: str | None = None
+    updated_at: str | None = None
 
 
 class MetadataManager:
@@ -99,7 +104,7 @@ class MetadataManager:
         self.metadata_path = self.workspace / "metadata.json"
         self.action_id_path = self.workspace / ".action_id"
         self.wdl_path = self.workspace / "widdle.json"
-        self._metadata: Optional[WorkspaceMetadata] = None
+        self._metadata: WorkspaceMetadata | None = None
 
     # =========================================================================
     # Core Metadata Operations
@@ -130,7 +135,7 @@ class MetadataManager:
                 self._save_protected_action_id(self._metadata.remote.action_id)
 
             return self._metadata
-        except (json.JSONDecodeError, Exception) as e:
+        except (json.JSONDecodeError, Exception):
             # Return minimal metadata on error
             self._metadata = WorkspaceMetadata(
                 workflow_id=self.workspace.name,
@@ -139,7 +144,7 @@ class MetadataManager:
             )
             return self._metadata
 
-    def save(self, metadata: Optional[WorkspaceMetadata] = None) -> None:
+    def save(self, metadata: WorkspaceMetadata | None = None) -> None:
         """
         Save metadata to disk.
 
@@ -162,7 +167,7 @@ class MetadataManager:
         if self._metadata.remote.action_id:
             self._save_protected_action_id(self._metadata.remote.action_id)
 
-    def _migrate_and_parse(self, raw_data: Dict[str, Any]) -> WorkspaceMetadata:
+    def _migrate_and_parse(self, raw_data: dict[str, Any]) -> WorkspaceMetadata:
         """
         Parse raw metadata dict, migrating from old format if necessary.
 
@@ -179,7 +184,7 @@ class MetadataManager:
         # Migrate from old format
         return self._migrate_from_old_format(raw_data)
 
-    def _parse_new_format(self, data: Dict[str, Any]) -> WorkspaceMetadata:
+    def _parse_new_format(self, data: dict[str, Any]) -> WorkspaceMetadata:
         """Parse metadata in new format."""
         remote_data = data.get("remote", {})
         remote = RemoteState(
@@ -233,7 +238,7 @@ class MetadataManager:
             updated_at=data.get("updated_at"),
         )
 
-    def _migrate_from_old_format(self, data: Dict[str, Any]) -> WorkspaceMetadata:
+    def _migrate_from_old_format(self, data: dict[str, Any]) -> WorkspaceMetadata:
         """
         Migrate from old metadata format.
 
@@ -333,7 +338,7 @@ class MetadataManager:
             updated_at=data.get("updated_at"),
         )
 
-    def _to_dict(self, metadata: WorkspaceMetadata) -> Dict[str, Any]:
+    def _to_dict(self, metadata: WorkspaceMetadata) -> dict[str, Any]:
         """Convert WorkspaceMetadata to dict for JSON serialization."""
         versions_dict = {}
         for v_num, v_info in metadata.versions.items():
@@ -348,7 +353,7 @@ class MetadataManager:
                 "has_local_copy": v_info.has_local_copy,
             }
 
-        return {
+        data = {
             "workflow_id": metadata.workflow_id,
             "title": metadata.title,
             "agent_name": metadata.agent_name,
@@ -379,21 +384,53 @@ class MetadataManager:
             # Keep backward compatibility fields
             "action_id": metadata.remote.action_id,
             "current_version": metadata.working_version.number,
-            "checked_out_version": metadata.working_version.number if metadata.working_version.checked_out_at else None,
+            "checked_out_version": metadata.working_version.number
+            if metadata.working_version.checked_out_at
+            else None,
         }
+
+        # ── Preserve unified-schema fields ────────────────────────────────────
+        # MetadataManager only manages version/remote state, not workspace-type
+        # classification.  Fields like "type", "sub_actions", "is_tool_mode",
+        # "is_visible_in_list", "env_name", and "description" are written by
+        # workspace_manager and must be round-tripped verbatim so that a
+        # MetadataManager.save() call (from save_wdl_draft, publish, status,
+        # list_versions, checkout_wdl_version …) never silently strips them.
+        _PASSTHROUGH_KEYS = (
+            "type",
+            "sub_actions",
+            "is_tool_mode",
+            "is_visible_in_list",
+            "env_name",
+            "description",
+        )
+        if self.metadata_path.exists():
+            try:
+                on_disk = json.loads(self.metadata_path.read_text())
+                for key in _PASSTHROUGH_KEYS:
+                    if key in on_disk:
+                        data[key] = on_disk[key]
+            except (json.JSONDecodeError, OSError):
+                pass  # Best-effort; never block a save due to read error
+
+        return data
 
     # =========================================================================
     # Action ID Protection & Recovery
     # =========================================================================
 
-    def get_action_id(self) -> Optional[str]:
+    def get_action_id(self) -> str | None:
         """
         Get action_id with fallback chain.
 
         Priority:
         1. .action_id file (protected)
-        2. metadata.json remote.action_id
+        2. metadata.json remote.action_id (covers all workspace types including agents)
         3. None (caller should attempt recovery)
+
+        For agent workspaces, action_id is now stored directly in metadata.json
+        (unified schema). Legacy agent.json is no longer consulted here since
+        workspace_manager._load_action_info already bridges it into metadata.
 
         Returns:
             Action ID or None
@@ -403,7 +440,7 @@ class MetadataManager:
         if protected_id:
             return protected_id
 
-        # Check metadata
+        # Check metadata (works for both action and agent workspaces)
         metadata = self.load()
         if metadata.remote.action_id:
             # Also save to protected file
@@ -427,7 +464,7 @@ class MetadataManager:
         metadata.remote.sync_status = "synced"
         self.save(metadata)
 
-    def _load_protected_action_id(self) -> Optional[str]:
+    def _load_protected_action_id(self) -> str | None:
         """Load action_id from protected .action_id file."""
         if self.action_id_path.exists():
             action_id = self.action_id_path.read_text().strip()
@@ -443,7 +480,7 @@ class MetadataManager:
     # WDL Hash & Change Detection
     # =========================================================================
 
-    def calculate_wdl_hash(self, wdl: Optional[List[Dict[str, Any]]] = None) -> str:
+    def calculate_wdl_hash(self, wdl: list[dict[str, Any]] | None = None) -> str:
         """
         Calculate SHA256 hash of WDL content.
 
@@ -459,7 +496,7 @@ class MetadataManager:
             wdl = json.loads(self.wdl_path.read_text())
 
         # Normalize JSON for consistent hashing
-        normalized = json.dumps(wdl, sort_keys=True, separators=(',', ':'))
+        normalized = json.dumps(wdl, sort_keys=True, separators=(",", ":"))
         return f"sha256:{hashlib.sha256(normalized.encode()).hexdigest()}"
 
     def check_local_changes(self) -> bool:
@@ -492,13 +529,13 @@ class MetadataManager:
             - "draft_with_published": Has published version AND newer draft
         """
         metadata = self.load()
-        
+
         if not metadata.remote.action_id:
             return "local_only"
-        
+
         latest_draft = metadata.remote_versions.latest_draft
         latest_published = metadata.remote_versions.latest_published
-        
+
         # Also check versions dict as fallback (for when remote_versions not synced)
         if not latest_draft and not latest_published and metadata.versions:
             for v_num_str, v_info in metadata.versions.items():
@@ -506,22 +543,22 @@ class MetadataManager:
                     v_num = int(v_num_str)
                 except ValueError:
                     continue
-                is_published = v_info.is_published if hasattr(v_info, 'is_published') else False
+                is_published = v_info.is_published if hasattr(v_info, "is_published") else False
                 if is_published:
                     if latest_published is None or v_num > latest_published:
                         latest_published = v_num
                 else:
                     if latest_draft is None or v_num > latest_draft:
                         latest_draft = v_num
-        
+
         if latest_published:
             if latest_draft and latest_draft > latest_published:
                 return "draft_with_published"
             return "published"
-        
+
         if latest_draft:
             return "draft"
-        
+
         return "local_only"
 
     def update_wdl_hashes(self, is_saved: bool = False) -> None:
@@ -559,7 +596,7 @@ class MetadataManager:
         version_number: int,
         status: str = "draft",
         is_published: bool = False,
-        description: Optional[str] = None,
+        description: str | None = None,
     ) -> None:
         """
         Set the current working version.
@@ -587,11 +624,11 @@ class MetadataManager:
     def update_version_info(
         self,
         version_number: int,
-        status: Optional[str] = None,
-        is_published: Optional[bool] = None,
-        description: Optional[str] = None,
-        created_at: Optional[str] = None,
-        updated_at: Optional[str] = None,
+        status: str | None = None,
+        is_published: bool | None = None,
+        description: str | None = None,
+        created_at: str | None = None,
+        updated_at: str | None = None,
     ) -> None:
         """
         Update information for a specific version.
@@ -635,7 +672,7 @@ class MetadataManager:
 
         self.save(metadata)
 
-    def sync_versions_from_api(self, versions_from_api: List[Dict[str, Any]]) -> None:
+    def sync_versions_from_api(self, versions_from_api: list[dict[str, Any]]) -> None:
         """
         Sync all versions from API response.
 
@@ -700,7 +737,8 @@ class MetadataManager:
     @dataclass
     class TestTarget:
         """Test target information."""
-        version: Optional[int]
+
+        version: int | None
         allow_draft: bool
         reason: str
 
@@ -732,7 +770,7 @@ class MetadataManager:
                 version=working.number,
                 allow_draft=not working.is_published,
                 reason=f"Testing working version {working.number} ({working.status})"
-                       + (" - has local changes" if working.has_local_changes else ""),
+                + (" - has local changes" if working.has_local_changes else ""),
             )
 
         # Fallback to remote latest
@@ -769,21 +807,24 @@ class MetadataManager:
                 except ValueError:
                     continue
                 # v_info is a VersionInfo object
-                is_published = v_info.is_published if hasattr(v_info, 'is_published') else False
+                is_published = v_info.is_published if hasattr(v_info, "is_published") else False
                 if is_published:
-                    if latest_published_from_versions is None or v_num > latest_published_from_versions:
+                    if (
+                        latest_published_from_versions is None
+                        or v_num > latest_published_from_versions
+                    ):
                         latest_published_from_versions = v_num
                 else:
                     if latest_draft_from_versions is None or v_num > latest_draft_from_versions:
                         latest_draft_from_versions = v_num
-            
+
             if latest_draft_from_versions:
                 return self.TestTarget(
                     version=latest_draft_from_versions,
                     allow_draft=True,
                     reason=f"Testing latest draft version {latest_draft_from_versions} (from versions)",
                 )
-            
+
             if latest_published_from_versions:
                 return self.TestTarget(
                     version=latest_published_from_versions,
@@ -820,13 +861,14 @@ class MetadataManager:
 # Helper Functions (for backward compatibility)
 # =========================================================================
 
+
 def load_metadata(workspace: Path) -> WorkspaceMetadata:
     """Load metadata from workspace (convenience function)."""
     manager = MetadataManager(workspace)
     return manager.load()
 
 
-def get_action_id(workspace: Path) -> Optional[str]:
+def get_action_id(workspace: Path) -> str | None:
     """Get action_id from workspace (convenience function)."""
     manager = MetadataManager(workspace)
     return manager.get_action_id()
@@ -836,7 +878,3 @@ def set_action_id(workspace: Path, action_id: str) -> None:
     """Set action_id for workspace (convenience function)."""
     manager = MetadataManager(workspace)
     manager.set_action_id(action_id)
-
-
-
-

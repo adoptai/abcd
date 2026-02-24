@@ -36,11 +36,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.wdl_common.discovery import Discovery, get_discovery
+from cli.wdl_common.discovery import get_discovery
 
 # Global verbose flag
 _verbose = False
@@ -55,7 +56,7 @@ def _verbose_print(func_name: str, stage: str, extra: str = "") -> None:
         print(msg, file=sys.stderr)
 
 
-def main():
+def main() -> int:
     global _verbose
 
     parser = argparse.ArgumentParser(
@@ -65,10 +66,10 @@ def main():
 Examples:
   # List all tools
   python cli/discover.py --list-tools
-  
+
   # List all actions (includes non-tool actions)
   python cli/discover.py --list-all
-  
+
   # List workflows only
   python cli/discover.py --list-workflows
 
@@ -86,7 +87,7 @@ Examples:
 
   # Tools only, hybrid mode
   python cli/discover.py --actions "fetch data" --tools-only --mode hybrid
-  
+
   # Verbose mode for debugging
   python cli/discover.py --list-tools --verbose
         """,
@@ -195,6 +196,11 @@ Examples:
         action="store_true",
         help="Enable verbose debugging output",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="No-op for read-only script (accepted for consistency)",
+    )
 
     args = parser.parse_args()
 
@@ -204,12 +210,16 @@ Examples:
         print("[VERBOSE] Verbose mode enabled", file=sys.stderr)
 
     # Validate arguments
-    has_list_cmd = any([args.list_tools, args.list_all, args.list_workflows, args.list_apis, args.list_uber_agents])
+    has_list_cmd = any(
+        [args.list_tools, args.list_all, args.list_workflows, args.list_apis, args.list_uber_agents]
+    )
     has_search_cmd = any([args.actions, args.apis, args.requirements])
-    
+
     if not has_list_cmd and not has_search_cmd:
         parser.print_help()
-        print("\n❌ Error: Specify a list command (--list-tools, --list-all, --list-workflows, --list-apis, --list-uber-agents)")
+        print(
+            "\n❌ Error: Specify a list command (--list-tools, --list-all, --list-workflows, --list-apis, --list-uber-agents)"
+        )
         print("   or a search command (--actions, --apis, --requirements)")
         sys.exit(1)
 
@@ -219,14 +229,16 @@ Examples:
     _verbose_print("main", "getting discovery instance")
     discovery = get_discovery(verbose=_verbose)
 
-    results = {"actions": [], "apis": []}
+    results: dict[str, list[Any]] = {"actions": [], "apis": []}
 
     # Handle list commands
     if has_list_cmd:
         if args.list_tools:
             _verbose_print("main", "listing tools (execution_type=TOOL)")
             print("⏳ Fetching tools...", file=sys.stderr)
-            success, items, msg = discovery.fetch_actions(execution_type="TOOL", force_refresh=args.refresh)
+            success, items, msg = discovery.fetch_actions(
+                execution_type="TOOL", force_refresh=args.refresh
+            )
             if not success:
                 print(f"❌ {msg}")
                 sys.exit(1)
@@ -237,7 +249,7 @@ Examples:
             _verbose_print("main", "listing all actions (including hidden sub-actions)")
             print("⏳ Fetching all actions (including hidden)...", file=sys.stderr)
             success, items, msg = discovery.fetch_actions(
-                execution_type=None, 
+                execution_type=None,
                 force_refresh=args.refresh,
                 include_hidden=True,  # Fetch hidden sub-actions from Uber Agents
             )
@@ -250,7 +262,9 @@ Examples:
         elif args.list_workflows:
             _verbose_print("main", "listing workflows (execution_type=WORKFLOW)")
             print("⏳ Fetching workflows...", file=sys.stderr)
-            success, items, msg = discovery.fetch_actions(execution_type="WORKFLOW", force_refresh=args.refresh)
+            success, items, msg = discovery.fetch_actions(
+                execution_type="WORKFLOW", force_refresh=args.refresh
+            )
             if not success:
                 print(f"❌ {msg}")
                 sys.exit(1)
@@ -364,19 +378,21 @@ Examples:
                 action_id = action.get("id", "")[:20]
                 exec_type = action.get("execution_type", "")
                 desc = (action.get("description") or "")[:60]
-                
+
                 # Build status indicators
                 status_flags = []
                 if action.get("is_uber_agent"):
-                    status_flags.append(f"🤖 UBER ({action.get('sub_action_count', 0)} sub-actions)")
+                    status_flags.append(
+                        f"🤖 UBER ({action.get('sub_action_count', 0)} sub-actions)"
+                    )
                 if action.get("is_subaction"):
                     parent = action.get("parent_agent_title", "unknown")
                     status_flags.append(f"🔗 Sub-action of {parent}")
                 if action.get("is_hidden"):
                     status_flags.append("👁️ Hidden")
-                
+
                 status_str = " | ".join(status_flags) if status_flags else ""
-                
+
                 print(f"\n{i}. {title} [{score}%]")
                 print(f"   ID: {action_id}... | Type: {exec_type}")
                 if status_str:
@@ -404,8 +420,8 @@ Examples:
 
         print()
 
+    return 0
+
 
 if __name__ == "__main__":
     main()
-
-

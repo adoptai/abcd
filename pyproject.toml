@@ -16,17 +16,76 @@ faiss-cpu = ">=1.7.4"
 numpy = ">=1.24.0"
 sentence-transformers = ">=2.2.0"
 
+[tool.poetry.group.lint]
+optional = true
+
+[tool.poetry.group.lint.dependencies]
+ruff = ">=0.4.0"
+mypy = ">=1.10.0"
+types-requests = ">=2.31.0"
+
+[tool.poetry.group.dev]
+optional = true
+
+[tool.poetry.group.dev.dependencies]
+ruff = ">=0.4.0"
+mypy = ">=1.10.0"
+pre-commit = ">=3.7.0"
+types-requests = ">=2.31.0"
+
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+# ---------------------------------------------------------------------------
+# Ruff
+# ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
 target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "B", "C4", "SIM", "UP"]
-ignore = ["E501"]
+ignore = [
+    "E501",    # line too long — handled by formatter
+    "SIM102",  # nested if → single if (style preference)
+    "SIM105",  # contextlib.suppress — verbose for CLI scripts
+    "SIM108",  # ternary operator — readability preference
+    "N806",    # uppercase variable in function — used for constants
+    "B905",    # zip() strict= — Python 3.10+ only at call sites we don't control
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Top-level scripts add parent to sys.path before importing project modules
+"cli/*.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ---------------------------------------------------------------------------
+# Mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = false
+warn_return_any = false
+no_implicit_reexport = true
+strict_equality = true
+show_error_codes = true
+explicit_package_bases = true
+namespace_packages = true
+# Exclude workspaces (JSON/config dirs) and __pycache__
+exclude = [
+    "workspaces/",
+    "prompts/",
+]
 
 
 

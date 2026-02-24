@@ -1,0 +1,49 @@
+name: Lint & Type Check
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: [main, master]
+
+jobs:
+  lint:
+    name: Ruff + Mypy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            venv-${{ runner.os }}-
+
+      - name: Install lint dependencies
+        run: poetry install --no-root --no-interaction --no-ansi --only lint
+
+      - name: Run ruff check
+        run: poetry run ruff check --output-format=github cli/
+
+      - name: Run ruff format check
+        run: poetry run ruff format --check cli/
+
+      - name: Clear mypy cache
+        run: rm -rf .mypy_cache
+
+      - name: Run mypy
+        run: poetry run mypy cli/

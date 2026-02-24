@@ -16,7 +16,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ValidationResult:
     """Result of WDL validation."""
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    auto_fixes_applied: List[str] = field(default_factory=list)
+
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    auto_fixes_applied: list[str] = field(default_factory=list)
 
     @property
     def is_valid(self) -> bool:
@@ -83,29 +84,76 @@ class WDLValidator:
     """
 
     # Anthropic tool name pattern
-    TOOL_NAME_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,128}$')
+    TOOL_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
 
     # Valid operation types — sourced from generated pydantic models + block compilers
     VALID_OPERATIONS = {
-        "ADD_META_TO_CONTEXT", "ARITHMETIC", "ASK_USER_FOR_INPUT",
-        "BYO_SYSTEM_PROMPT", "CONDITION", "CONDITIONAL_ASSIGNMENT",
-        "CONVERSATIONAL_INPUT", "CREATE_MAP", "CRYPTOGRAPHIC_OPERATION",
-        "DATA_SOURCE_LOOKUP", "DOWNLOAD_ENABLED", "EDIT_VALUE", "END",
-        "EXECUTE_PLAN", "EXTRACT", "EXTRACT_AND_FLATTEN_UUID_MAP",
-        "EXTRACT_STRUCTURED_CONTEXT_FROM_ARRAY", "EXTRACT_TRANSFORMED",
-        "FETCH_META_FROM_CONTEXT", "FILTER", "FIRST_ELEMENT", "FLATTEN",
-        "GREETING", "GROUP", "INTELLIGENT_FILTER", "INTELLIGENT_OUTPUT",
-        "INTELLIGENT_OUTPUT_V2", "JQ_FILTER", "JUMP", "M365_EMAIL_OPS",
-        "MERGE", "OUTPUT_KEY_VALUE_TABLE", "OUTPUT_TABLE", "OUTPUT_TEXT",
-        "PAGINATION", "PAYLOAD", "PAYLOAD_GENERATION", "POST_ACTION_URL",
-        "PRE_ACTION_PAYLOAD_GENERATION", "PROJECT", "PROMPT",
-        "PROMPT_AND_TOOLS_AGENT", "REASONING_METADATA", "REQUIRED_INPUTS",
-        "REST", "REST_DELAY", "REST_LOOP", "SORT", "STATEMENT",
-        "SUGGESTIONS", "TEXT_TO_SQL", "TOOL_EXECUTION", "UI_FORMAT_HINT",
+        "ADD_META_TO_CONTEXT",
+        "AGGREGATE",
+        "ARITHMETIC",
+        "ASK_USER_FOR_INPUT",
+        "BYO_SYSTEM_PROMPT",
+        "CONDITION",
+        "CONDITIONAL_ASSIGNMENT",
+        "CONVERSATIONAL_INPUT",
+        "CREATE_MAP",
+        "CRYPTOGRAPHIC_OPERATION",
+        "DATA_SOURCE_LOOKUP",
+        "DOWNLOAD_ENABLED",
+        "EDIT_VALUE",
+        "END",
+        "EXECUTE_PLAN",
+        "EXTRACT",
+        "EXTRACT_AND_FLATTEN_UUID_MAP",
+        "EXTRACT_STRUCTURED_CONTEXT_FROM_ARRAY",
+        "EXTRACT_TRANSFORMED",
+        "FETCH_META_FROM_CONTEXT",
+        "FILTER",
+        "FIRST_ELEMENT",
+        "FLATTEN",
+        "FOR_EACH",
+        "GET_VARIABLE",
+        "GREETING",
+        "GROUP",
+        "INTELLIGENT_FILTER",
+        "INTELLIGENT_OUTPUT",
+        "INTELLIGENT_OUTPUT_V2",
+        "JQ_FILTER",
+        "JUMP",
+        "M365_EMAIL_OPS",
+        "MERGE",
+        "OUTPUT_KEY_VALUE_TABLE",
+        "OUTPUT_TABLE",
+        "OUTPUT_TEXT",
+        "PAGINATE",
+        "PAGINATION",
+        "PARALLEL",
+        "PAYLOAD",
+        "PAYLOAD_GENERATION",
+        "POST_ACTION_URL",
+        "PRE_ACTION_PAYLOAD_GENERATION",
+        "PROJECT",
+        "PROMPT",
+        "PROMPT_AND_TOOLS_AGENT",
+        "REASONING_METADATA",
+        "REQUIRED_INPUTS",
+        "REST",
+        "REST_DELAY",
+        "REST_LOOP",
+        "SET_VARIABLE",
+        "SORT",
+        "SPLIT",
+        "STATEMENT",
+        "SUGGESTIONS",
+        "TEXT_TO_SQL",
+        "TOOL_EXECUTION",
+        "TRANSFORM",
+        "UI_FORMAT_HINT",
         "VISUALISATION",
+        "WAIT",
     }
 
-    def __init__(self, workspace: Optional[Path] = None):
+    def __init__(self, workspace: Path | None = None):
         """
         Initialize validator.
 
@@ -116,7 +164,7 @@ class WDLValidator:
 
     def validate(
         self,
-        wdl: List[Dict[str, Any]],
+        wdl: list[dict[str, Any]],
         context: str = "action",
         auto_fix: bool = False,
     ) -> ValidationResult:
@@ -150,9 +198,7 @@ class WDLValidator:
         req_errors = self._validate_required_inputs_format(wdl)
         if req_errors and auto_fix:
             self._auto_fix_required_inputs(wdl)
-            result.auto_fixes_applied.append(
-                "Converted required_inputs from dict to list format"
-            )
+            result.auto_fixes_applied.append("Converted required_inputs from dict to list format")
         else:
             result.errors.extend(req_errors)
 
@@ -184,9 +230,7 @@ class WDLValidator:
 
         return result
 
-    def _validate_via_api(
-        self, wdl: List[Dict[str, Any]], result: ValidationResult
-    ) -> None:
+    def _validate_via_api(self, wdl: list[dict[str, Any]], result: ValidationResult) -> None:
         """Call the external-apis WDL validation endpoint and merge results."""
         try:
             from .api_client import get_api_client_for_env
@@ -195,10 +239,12 @@ class WDLValidator:
             success, data, msg = client.validate_wdl(wdl)
 
             if not success or not data:
-                logger.debug("Validation API unavailable (%s), continuing with local checks only", msg)
+                logger.debug(
+                    "Validation API unavailable (%s), continuing with local checks only", msg
+                )
                 return
 
-            existing_msgs = {e for e in result.errors} | {w for w in result.warnings}
+            existing_msgs = set(result.errors) | set(result.warnings)
 
             for err in data.get("errors", []):
                 formatted = f"[{err['error_code']}] {err['error_msg']}"
@@ -219,7 +265,9 @@ class WDLValidator:
                     result.warnings.append(formatted)
 
         except Exception:
-            logger.debug("Validation API call failed, continuing with local checks only", exc_info=True)
+            logger.debug(
+                "Validation API call failed, continuing with local checks only", exc_info=True
+            )
 
     def validate_file(
         self,
@@ -264,7 +312,7 @@ class WDLValidator:
     # Validation Methods
     # =========================================================================
 
-    def _validate_structure(self, wdl: Any) -> List[str]:
+    def _validate_structure(self, wdl: Any) -> list[str]:
         """Validate basic WDL structure."""
         errors = []
 
@@ -282,7 +330,7 @@ class WDLValidator:
 
         return errors
 
-    def _validate_required_fields(self, wdl: List[Dict[str, Any]]) -> List[str]:
+    def _validate_required_fields(self, wdl: list[dict[str, Any]]) -> list[str]:
         """Validate required fields for each operation."""
         errors = []
 
@@ -320,9 +368,7 @@ class WDLValidator:
 
             elif operation == "JQ_FILTER":
                 if "input" not in op and "inputs" not in op:
-                    errors.append(
-                        f"Operation {i} (JQ_FILTER) missing 'input' or 'inputs' field"
-                    )
+                    errors.append(f"Operation {i} (JQ_FILTER) missing 'input' or 'inputs' field")
                 if "filter" not in op:
                     errors.append(f"Operation {i} (JQ_FILTER) missing 'filter' field")
 
@@ -338,12 +384,12 @@ class WDLValidator:
 
         return errors
 
-    def _validate_references(self, wdl: List[Dict[str, Any]]) -> List[str]:
+    def _validate_references(self, wdl: list[dict[str, Any]]) -> list[str]:
         """Validate that input references point to valid IDs."""
         warnings = []
 
         # Collect all defined IDs (operations are referenced by their id field)
-        defined_ids: Set[str] = set()
+        defined_ids: set[str] = set()
         for op in wdl:
             if isinstance(op, dict):
                 op_id = op.get("id")
@@ -384,7 +430,7 @@ class WDLValidator:
 
         return warnings
 
-    def _validate_required_inputs_format(self, wdl: List[Dict[str, Any]]) -> List[str]:
+    def _validate_required_inputs_format(self, wdl: list[dict[str, Any]]) -> list[str]:
         """
         Validate required_inputs is a list of JSON strings, not a dict.
 
@@ -407,13 +453,13 @@ class WDLValidator:
                 if isinstance(req_inputs, dict):
                     errors.append(
                         "required_inputs must be a list of JSON strings, not a dict. "
-                        "Example: [\"{{\\\"field\\\": {{\\\"type\\\": \\\"string\\\"}}}}\"]"
+                        'Example: ["{{\\"field\\": {{\\"type\\": \\"string\\"}}}}"]'
                     )
                     break  # Only report once
 
         return errors
 
-    def _validate_tool_names(self, wdl: List[Dict[str, Any]]) -> List[str]:
+    def _validate_tool_names(self, wdl: list[dict[str, Any]]) -> list[str]:
         """
         Validate tool titles match Anthropic pattern.
 
@@ -438,7 +484,7 @@ class WDLValidator:
 
         return errors
 
-    def _validate_output_text_references(self, wdl: List[Dict[str, Any]]) -> List[str]:
+    def _validate_output_text_references(self, wdl: list[dict[str, Any]]) -> list[str]:
         """
         Validate OUTPUT_TEXT value references.
 
@@ -447,7 +493,7 @@ class WDLValidator:
         warnings = []
 
         # Collect all defined operation IDs
-        defined_ids: Set[str] = set()
+        defined_ids: set[str] = set()
         for op in wdl:
             if isinstance(op, dict):
                 op_id = op.get("id")
@@ -465,19 +511,23 @@ class WDLValidator:
                             # Extract the base reference (remove { } and any .field access)
                             ref = val.strip("{}")
                             base_ref = ref.split(".")[0] if "." in ref else ref
-                            if base_ref not in defined_ids and base_ref not in {"workflow_arguments", "security_params", "status_codes"}:
+                            if base_ref not in defined_ids and base_ref not in {
+                                "workflow_arguments",
+                                "security_params",
+                                "status_codes",
+                            }:
                                 warnings.append(
                                     f"OUTPUT_TEXT references '{base_ref}' which may not be defined"
                                 )
 
         return warnings
 
-    def _validate_duplicate_ids(self, wdl: List[Dict[str, Any]]) -> List[str]:
+    def _validate_duplicate_ids(self, wdl: list[dict[str, Any]]) -> list[str]:
         """Check for duplicate operation IDs."""
         errors = []
-        seen_ids: Set[str] = set()
+        seen_ids: set[str] = set()
 
-        for i, op in enumerate(wdl):
+        for _i, op in enumerate(wdl):
             if not isinstance(op, dict):
                 continue
 
@@ -493,20 +543,17 @@ class WDLValidator:
     # Auto-Fix Methods
     # =========================================================================
 
-    def _auto_fix_required_inputs(self, wdl: List[Dict[str, Any]]) -> None:
+    def _auto_fix_required_inputs(self, wdl: list[dict[str, Any]]) -> None:
         """Convert dict required_inputs to list format."""
         for op in wdl:
             if isinstance(op, dict) and "required_inputs" in op:
                 req_inputs = op["required_inputs"]
                 if isinstance(req_inputs, dict):
                     # Convert dict to list of JSON strings
-                    req_inputs_list = [
-                        json.dumps({k: v})
-                        for k, v in req_inputs.items()
-                    ]
+                    req_inputs_list = [json.dumps({k: v}) for k, v in req_inputs.items()]
                     op["required_inputs"] = req_inputs_list
 
-    def _auto_fix_tool_titles(self, wdl: List[Dict[str, Any]]) -> List[str]:
+    def _auto_fix_tool_titles(self, wdl: list[dict[str, Any]]) -> list[str]:
         """Sanitize tool titles for orchestrator compatibility."""
         fixes = []
 
@@ -524,12 +571,12 @@ class WDLValidator:
     # Helper Methods
     # =========================================================================
 
-    def _is_metadata_block(self, op: Dict[str, Any]) -> bool:
+    def _is_metadata_block(self, op: dict[str, Any]) -> bool:
         """Check if operation is a metadata block (not a real operation)."""
         metadata_keys = {"metadata", "required_inputs", "suggestions", "statement"}
         return any(key in op for key in metadata_keys) and "operation" not in op
 
-    def _extract_reference(self, ref_string: str) -> List[str]:
+    def _extract_reference(self, ref_string: str) -> list[str]:
         """Extract reference parts from {ref.path.parts} format."""
         if not ref_string.startswith("{") or not ref_string.endswith("}"):
             return []
@@ -543,7 +590,7 @@ class WDLValidator:
         # Replace spaces with hyphens
         sanitized = title.replace(" ", "-")
         # Remove invalid characters
-        sanitized = re.sub(r'[^a-zA-Z0-9_-]', '', sanitized)
+        sanitized = re.sub(r"[^a-zA-Z0-9_-]", "", sanitized)
         # Truncate to 128 chars
         return sanitized[:128]
 
@@ -552,8 +599,9 @@ class WDLValidator:
 # Convenience Functions
 # =========================================================================
 
+
 def validate_wdl(
-    wdl: List[Dict[str, Any]],
+    wdl: list[dict[str, Any]],
     context: str = "action",
     auto_fix: bool = False,
 ) -> ValidationResult:

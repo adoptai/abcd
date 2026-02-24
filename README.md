@@ -1,4 +1,4 @@
-# ABCD - Agent-Based Action & Workflow Builder
+# ABCD - (Adopt | Agent | Action | Automation) Builder in  (Cursor | Copilot | Claude) for (Devs | Dreamers)
 
 A comprehensive CLI toolkit designed for AI agents (like Cursor) to build, test, and manage actions and workflows on the AdoptAI platform.
 
@@ -82,6 +82,74 @@ cp dev.env workspaces/default/.env
 
 # Configure your credentials in workspaces/default/.env
 ```
+
+## Development Setup
+
+The `dev` dependency group contains linting, type-checking, and git-hook tools. It is **not installed by default** — you must opt in explicitly.
+
+### Install dev dependencies
+
+There are two optional groups:
+
+| Group | Install command | Contains |
+|-------|----------------|---------|
+| `lint` | `poetry install --no-root --only lint` | `ruff`, `mypy`, `types-requests` — minimal, used by CI |
+| `dev` | `poetry install --no-root --with dev` | Everything in `lint` + `pre-commit` for git hooks |
+
+For local development (git hooks + checks):
+
+```bash
+poetry install --no-root --with dev
+```
+
+### Enable pre-commit hooks
+
+After installing dev dependencies, install the git hooks once:
+
+```bash
+poetry run pre-commit install
+```
+
+From that point on, every `git commit` will automatically run `ruff` (lint + format check) and `mypy` against staged files. To run the hooks manually across the whole codebase:
+
+```bash
+poetry run pre-commit run --all-files
+```
+
+### Run checks manually
+
+Use the `local_checks.sh` script (mirrors CI behaviour):
+
+```bash
+# Run ruff linter only
+bash local_checks.sh --run-ruff-check
+
+# Run ruff formatter check only
+bash local_checks.sh --run-ruff-format
+
+# Run mypy type checks only
+bash local_checks.sh --run-mypy
+
+# Run everything at once
+bash local_checks.sh --run-all
+```
+
+Or invoke the tools directly through Poetry:
+
+```bash
+# Lint (and auto-fix)
+poetry run ruff check --fix cli/
+
+# Format
+poetry run ruff format cli/
+
+# Type check
+poetry run mypy cli/
+```
+
+The same checks run automatically on every pull request via the GitHub Actions workflow at `.github/workflows/lint.yml`.
+
+---
 
 ## Environment Setup
 

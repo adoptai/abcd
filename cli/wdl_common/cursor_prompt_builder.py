@@ -9,7 +9,7 @@ rather than preloading specific docs. Cursor navigates autonomously.
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from .trace_analyzer import TraceAnalyzer
 from .wdl_documentation import WDLDocumentationProvider
@@ -18,9 +18,7 @@ from .wdl_documentation import WDLDocumentationProvider
 class RoamingInstructionsBuilder:
     """Builds roaming instructions for Cursor to navigate WDL docs."""
 
-    def __init__(
-        self, docs_provider: Optional[WDLDocumentationProvider] = None
-    ) -> None:
+    def __init__(self, docs_provider: WDLDocumentationProvider | None = None) -> None:
         """
         Initialize builder.
 
@@ -34,7 +32,7 @@ class RoamingInstructionsBuilder:
         self,
         workspace: Path,
         title: str,
-        api_details: Optional[Dict[str, Any]] = None,
+        api_details: dict[str, Any] | None = None,
     ) -> str:
         """
         Build roaming instructions for WDL generation.
@@ -66,15 +64,11 @@ class RoamingInstructionsBuilder:
         lines.append(f"**Documentation Root**: `{docs_path}`\n")
 
         lines.append("### Step 1: Read the Index")
-        lines.append(
-            f"Start by reading `{system_index_path}` to see all available operations."
-        )
+        lines.append(f"Start by reading `{system_index_path}` to see all available operations.")
         lines.append("This index contains brief descriptions of each operation.\n")
 
         lines.append("### Step 2: Load What You Need")
-        lines.append(
-            "Based on the requirements, open and read the specific operation docs:"
-        )
+        lines.append("Based on the requirements, open and read the specific operation docs:")
         lines.append("- Each operation has a `*_OPERATION_DESCRIPTION.md` file")
         lines.append("- Files contain: syntax, parameters, examples")
         lines.append("- **Only load what's relevant** - don't read everything\n")
@@ -100,7 +94,9 @@ class RoamingInstructionsBuilder:
         lines.append("If you find relevant APIs or tools, add them to the workspace using:\n")
         lines.append("```bash")
         lines.append("# For new workflows:")
-        lines.append(f"python cli/manage_wdl_action.py --create -r {requirements_path} -t \"{title}\" \\")
+        lines.append(
+            f'python cli/manage_wdl_action.py --create -r {requirements_path} -t "{title}" \\'
+        )
         lines.append("  --use-api api-id-1 --use-api api-id-2 \\")
         lines.append("  --use-tool tool-id-1 --use-tool tool-id-2")
         lines.append("```\n")
@@ -117,7 +113,9 @@ class RoamingInstructionsBuilder:
         lines.append("- Create `tools/manifest.json` listing all tool IDs")
         lines.append("- Create `tool_context.md` with existing tool WDLs (for LLM reference)\n")
         lines.append("\n### Step 3: Use Context Files\n")
-        lines.append("**CRITICAL**: When generating WDL, you MUST use ONLY the API folder for API schema information!\n")
+        lines.append(
+            "**CRITICAL**: When generating WDL, you MUST use ONLY the API folder for API schema information!\n"
+        )
         lines.append("When generating WDL:")
         lines.append("- **APIs**: **ONLY** read JSON files from `apis/` directory:")
         lines.append("  - **DO NOT** fetch API details from any other source")
@@ -126,9 +124,13 @@ class RoamingInstructionsBuilder:
         lines.append("  - Read `apis/{api_id}.json` for full API specifications")
         lines.append("  - Each JSON contains: endpoints, parameters, schemas, base_url, etc.")
         lines.append("  - **These files are the single source of truth for API schema**")
-        lines.append("- **Tools**: Read JSON files from `tools/` directory for full tool definitions:")
+        lines.append(
+            "- **Tools**: Read JSON files from `tools/` directory for full tool definitions:"
+        )
         lines.append("  - Check `tools/manifest.json` for list of tool IDs")
-        lines.append("  - Read `tools/{tool_id}.json` for full tool specifications (WDL, parameters, etc.)")
+        lines.append(
+            "  - Read `tools/{tool_id}.json` for full tool specifications (WDL, parameters, etc.)"
+        )
         lines.append("  - Also reference `tool_context.md` for markdown-formatted tool WDLs")
         lines.append("- Use these as building blocks in your workflow\n")
 
@@ -144,23 +146,41 @@ class RoamingInstructionsBuilder:
                         lines.append("---\n")
                         lines.append("## 🔗 API Specifications\n")
                         lines.append(f"Full API specifications are stored in `{apis_dir}/`:\n")
-                        lines.append(f"- **Manifest**: `{apis_dir}/manifest.json` - Lists all API IDs\n")
+                        lines.append(
+                            f"- **Manifest**: `{apis_dir}/manifest.json` - Lists all API IDs\n"
+                        )
                         for api_id in api_ids:
                             api_file = apis_dir / f"{api_id}.json"
                             if api_file.exists():
                                 lines.append(f"- `{api_file.name}` - Full API spec for `{api_id}`")
-                        lines.append("\n**CRITICAL: To use these APIs** - You MUST use ONLY the API folder:")
-                        lines.append("1. **ONLY** read `apis/manifest.json` to see all available API IDs")
-                        lines.append("2. **ONLY** read the relevant API spec JSON files: `apis/{api_id}.json`")
-                        lines.append("3. **DO NOT** fetch API details from any other endpoint or source")
-                        lines.append("4. **DO NOT** use cached or previously fetched API information")
-                        lines.append("5. Each JSON contains: title, description, base_url, endpoints, parameters, schemas")
-                        lines.append("6. Use endpoint definitions and parameters from these JSON files when creating REST operations")
+                        lines.append(
+                            "\n**CRITICAL: To use these APIs** - You MUST use ONLY the API folder:"
+                        )
+                        lines.append(
+                            "1. **ONLY** read `apis/manifest.json` to see all available API IDs"
+                        )
+                        lines.append(
+                            "2. **ONLY** read the relevant API spec JSON files: `apis/{api_id}.json`"
+                        )
+                        lines.append(
+                            "3. **DO NOT** fetch API details from any other endpoint or source"
+                        )
+                        lines.append(
+                            "4. **DO NOT** use cached or previously fetched API information"
+                        )
+                        lines.append(
+                            "5. Each JSON contains: title, description, base_url, endpoints, parameters, schemas"
+                        )
+                        lines.append(
+                            "6. Use endpoint definitions and parameters from these JSON files when creating REST operations"
+                        )
                         lines.append("7. Reference the API ID when needed")
-                        lines.append("8. **The `apis/` directory is the single source of truth for all API schema information**\n")
+                        lines.append(
+                            "8. **The `apis/` directory is the single source of truth for all API schema information**\n"
+                        )
                 except Exception:
                     pass
-        
+
         # Check for tool specs in tools/ directory
         tools_dir = workspace / "tools"
         if tools_dir.exists():
@@ -173,17 +193,29 @@ class RoamingInstructionsBuilder:
                         lines.append("---\n")
                         lines.append("## 🔧 Tool Specifications\n")
                         lines.append(f"Full tool specifications are stored in `{tools_dir}/`:\n")
-                        lines.append(f"- **Manifest**: `{tools_dir}/manifest.json` - Lists all tool IDs\n")
+                        lines.append(
+                            f"- **Manifest**: `{tools_dir}/manifest.json` - Lists all tool IDs\n"
+                        )
                         for tool_id in tool_ids:
                             tool_file = tools_dir / f"{tool_id}.json"
                             if tool_file.exists():
-                                lines.append(f"- `{tool_file.name}` - Full tool spec for `{tool_id}`")
+                                lines.append(
+                                    f"- `{tool_file.name}` - Full tool spec for `{tool_id}`"
+                                )
                         lines.append("\n**To use these tools** - Reference the tool definitions:")
                         lines.append("1. Read `tools/manifest.json` to see all available tool IDs")
-                        lines.append("2. Read the relevant tool spec JSON files: `tools/{tool_id}.json`")
-                        lines.append("3. Each JSON contains: title, description, WDL (widdle), parameters, etc.")
-                        lines.append("4. Use tool WDLs as building blocks when creating composite workflows")
-                        lines.append("5. Reference `tool_context.md` for markdown-formatted tool WDLs")
+                        lines.append(
+                            "2. Read the relevant tool spec JSON files: `tools/{tool_id}.json`"
+                        )
+                        lines.append(
+                            "3. Each JSON contains: title, description, WDL (widdle), parameters, etc."
+                        )
+                        lines.append(
+                            "4. Use tool WDLs as building blocks when creating composite workflows"
+                        )
+                        lines.append(
+                            "5. Reference `tool_context.md` for markdown-formatted tool WDLs"
+                        )
                         lines.append("\n")
                 except Exception:
                     pass
@@ -258,9 +290,7 @@ class RoamingInstructionsBuilder:
         lines.append("---\n")
         lines.append("## ✅ After Fixing\n")
         lines.append(f"1. Save updated WDL to: `{widdle_json_path}`")
-        lines.append(
-            "2. Run test again: `python cli/test_runner.py {action_id}`"
-        )
+        lines.append("2. Run test again: `python cli/test_runner.py {action_id}`")
 
         return "\n".join(lines)
 

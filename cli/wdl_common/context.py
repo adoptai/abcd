@@ -18,32 +18,33 @@ Usage:
 import os
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from dotenv import load_dotenv
 
 
-def get_manager():
+def get_manager() -> Any:
     """
     Get the workspace manager singleton.
-    
+
     Returns:
         HierarchicalWorkspaceManager instance
     """
     from cli.wdl_common.workspace_manager import get_workspace_manager
+
     return get_workspace_manager()
 
 
 def ensure_env() -> str:
     """
     Ensure active environment is loaded and return its name.
-    
+
     This should be called at the start of any script that needs
     environment credentials.
-    
+
     Returns:
         Active environment name
-        
+
     Raises:
         ValueError: If no active environment
     """
@@ -51,19 +52,19 @@ def ensure_env() -> str:
     return manager.ensure_env_loaded()
 
 
-def get_context(action_id: str):
+def get_context(action_id: str) -> Any:
     """
     Get complete context for an action in the active environment.
-    
+
     This is the RECOMMENDED entry point for scripts that work with
     a specific action. It handles:
     - Finding the action in active environment
     - Loading environment credentials
     - Resolving adopt_profile.json inheritance
-    
+
     Args:
         action_id: Action to find
-        
+
     Returns:
         ActionContext or None if not found
     """
@@ -71,31 +72,30 @@ def get_context(action_id: str):
     return manager.get_action_context(action_id)
 
 
-def get_client(verbose: bool = False):
+def get_client(verbose: bool = False) -> Any:
     """
     Get API client for the active environment.
-    
+
     Credentials are automatically loaded from the environment's .env file.
-    
+
     Args:
         verbose: Print verbose info about credential loading.
-    
+
     Raises:
         ValueError: If no active environment
-        
+
     Returns:
         AdoptAPIClient configured with environment credentials.
     """
     from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
     manager = get_manager()
-    
+
     if not manager.active_env:
         raise ValueError(
-            "No active environment. Set one with: "
-            "python cli/workspace.py env use <env-id>"
+            "No active environment. Set one with: python cli/workspace.py env use <env-id>"
         )
-    
+
     env = manager.active_env
     env_path = WORKSPACES_DIR / env
 
@@ -121,34 +121,34 @@ def get_client(verbose: bool = False):
         print(f"   Expected: {env_dotenv}", file=sys.stderr)
 
     from cli.wdl_common.api_client import AdoptAPIClient
+
     return AdoptAPIClient()
 
 
-def get_discovery(verbose: bool = False):
+def get_discovery(verbose: bool = False) -> Any:
     """
     Get Discovery instance for the active environment.
-    
+
     Credentials and caching are per-environment.
-    
+
     Args:
         verbose: Enable verbose debugging output
-        
+
     Returns:
         Discovery instance configured for active environment
-        
+
     Raises:
         ValueError: If no active environment
     """
     from cli.wdl_common.workspace_manager import WORKSPACES_DIR
 
     manager = get_manager()
-    
+
     if not manager.active_env:
         raise ValueError(
-            "No active environment. Set one with: "
-            "python cli/workspace.py env use <env-id>"
+            "No active environment. Set one with: python cli/workspace.py env use <env-id>"
         )
-    
+
     env = manager.active_env
     env_path = WORKSPACES_DIR / env
 
@@ -174,28 +174,26 @@ def get_discovery(verbose: bool = False):
         print(f"   Expected: {env_dotenv}", file=sys.stderr)
 
     from cli.wdl_common.discovery import Discovery
+
     return Discovery(env_path=env_path, verbose=verbose)
 
 
 def get_env_cache_path() -> Path:
     """
     Get path to active environment's cache directory.
-    
+
     Returns:
         Path to .cache directory in active environment
-        
+
     Raises:
         ValueError: If no active environment
     """
     manager = get_manager()
     env_path = manager.get_env_path()
-    
+
     if not env_path:
         raise ValueError("No active environment")
-    
+
     cache_path = env_path / ".cache"
     cache_path.mkdir(exist_ok=True)
     return cache_path
-
-
-
