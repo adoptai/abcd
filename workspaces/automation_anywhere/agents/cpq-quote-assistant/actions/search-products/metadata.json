@@ -1,0 +1,112 @@
+{
+  "workflow_id": "search-products",
+  "title": "search-cpq-products-v5",
+  "agent_name": "cpq-quote-assistant",
+  "remote": {
+    "action_id": "cddef2cc-6a1f-4d4c-ae58-14dc26e10cdb",
+    "linked_at": "2026-02-19T16:16:47.450831",
+    "last_synced_at": "2026-02-23T00:12:16.571392",
+    "sync_status": "synced"
+  },
+  "working_version": {
+    "number": null,
+    "status": "draft",
+    "is_published": false,
+    "local_wdl_hash": "sha256:ceb0364847deede21fea5279ce7953ca0212677125a88004ae86c691f518fc61",
+    "remote_wdl_hash": "sha256:ceb0364847deede21fea5279ce7953ca0212677125a88004ae86c691f518fc61",
+    "has_local_changes": false,
+    "description": null,
+    "checked_out_at": null
+  },
+  "remote_versions": {
+    "latest_draft": null,
+    "latest_published": null,
+    "current": null
+  },
+  "versions": {
+    "1": {
+      "version_number": 1,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-19T16:17:07.286389",
+      "updated_at": "2026-02-19T16:17:07.286401",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "2": {
+      "version_number": 2,
+      "status": "draft",
+      "is_published": false,
+      "description": "OUTPUT_TABLE with JQ filter",
+      "created_at": "2026-02-19T16:14:58.414830",
+      "updated_at": "2026-02-19T16:14:58.414843",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "3": {
+      "version_number": 3,
+      "status": "draft",
+      "is_published": false,
+      "description": "Switch headers to additional_headers for VF Remoting",
+      "created_at": "2026-02-19T14:57:14.374798",
+      "updated_at": "2026-02-19T14:57:14.374803",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "4": {
+      "version_number": 4,
+      "status": "draft",
+      "is_published": false,
+      "description": "Hardcoded VF ctx values, added Referer in additional_headers",
+      "created_at": "2026-02-19T15:01:37.319034",
+      "updated_at": "2026-02-19T15:01:37.319038",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "5": {
+      "version_number": 5,
+      "status": "draft",
+      "is_published": false,
+      "description": "User fixed VF ctx values and Referer",
+      "created_at": "2026-02-19T15:09:55.313883",
+      "updated_at": "2026-02-19T15:09:55.313887",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "10": {
+      "version_number": 10,
+      "status": "draft",
+      "is_published": false,
+      "description": "Full JQ filter with fromjson chain and product extraction",
+      "created_at": "2026-02-19T15:36:32.448333",
+      "updated_at": "2026-02-19T15:36:32.448338",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "7": {
+      "version_number": 7,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-22T21:15:32.188787",
+      "updated_at": "2026-02-22T21:15:32.188793",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "8": {
+      "version_number": 8,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-23T00:12:18.345054",
+      "updated_at": "2026-02-23T00:12:18.345066",
+      "checked_out_at": null
+    }
+  },
+  "created_at": "2026-02-19T12:55:45.064589",
+  "updated_at": "2026-02-23T00:12:16.571399",
+  "action_id": "cddef2cc-6a1f-4d4c-ae58-14dc26e10cdb",
+  "current_version": 8,
+  "checked_out_version": null
+}

@@ -1,0 +1,14 @@
+{
+  "prompt": "Add an invalid product to a quote",
+  "workflow_params": {
+    "quote_id": "INVALID_QUOTE",
+    "product_id": "INVALID_PRODUCT",
+    "quantity": 1
+  },
+  "expected_output": {
+    "description": "Returns an error since the quote or product ID is invalid",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+

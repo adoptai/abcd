@@ -1,0 +1,10 @@
+{
+  "prompt": "I want to create a new quote for the Royal opportunity",
+  "workflow_params": {},
+  "expected_output": {
+    "description": "The agent should search for opportunities matching 'Royal' and present matching results, asking the user to select one",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+

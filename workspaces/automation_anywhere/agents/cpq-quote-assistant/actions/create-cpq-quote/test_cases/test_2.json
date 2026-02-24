@@ -1,0 +1,15 @@
+{
+  "prompt": "Create a quote with 24 month subscription term for opportunity 006Ie000002V9GlIAK",
+  "workflow_params": {
+    "opportunity_id": "006Ie000002V9GlIAK",
+    "start_date": "2026-01-01",
+    "expiration_date": "2027-01-01",
+    "subscription_term": 24
+  },
+  "expected_output": {
+    "description": "Returns the created Quote record with id and success",
+    "validation": "similarity",
+    "key_fields": ["id", "success"]
+  }
+}
+

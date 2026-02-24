@@ -1,0 +1,48 @@
+[
+  {
+    "required_inputs": [
+      "{\"quote_id\": {\"type\": \"string\", \"definition\": \"CPQ Quote ID (SBQQ__Quote__c Id) to save and finalize (mandatory)\"}}"
+    ]
+  },
+  {
+    "id": "saveQuote",
+    "operation": "REST",
+    "method": "PATCH",
+    "canonical_api_endpoint": "/services/data/v57.0/sobjects/SBQQ__Quote__c/{quote_id}",
+    "url": "{workflow_params.sfdc_rest_base}/services/data/{workflow_params.sfdc_api_version}/sobjects/SBQQ__Quote__c/{workflow_arguments.quote_id}",
+    "headers": {
+      "Authorization": "Bearer {security_params.access_token}",
+      "Content-Type": "application/json"
+    },
+    "payload": {
+      "SBQQ__Status__c": "Draft"
+    }
+  },
+  {
+    "id": "getQuoteFinal",
+    "operation": "REST",
+    "method": "GET",
+    "canonical_api_endpoint": "/services/data/v57.0/query",
+    "url": "{workflow_params.sfdc_rest_base}/services/data/{workflow_params.sfdc_api_version}/query",
+    "query_params": {
+      "q": "SELECT Id, Name, SBQQ__Status__c, SBQQ__NetAmount__c, SBQQ__CustomerAmount__c, SBQQ__LineItemCount__c, SBQQ__StartDate__c, SBQQ__ExpirationDate__c, SBQQ__Opportunity2__r.Name FROM SBQQ__Quote__c WHERE Id = '{workflow_arguments.quote_id}'"
+    },
+    "headers": {
+      "Authorization": "Bearer {security_params.access_token}"
+    }
+  },
+  {
+    "id": "extractQuote",
+    "operation": "JQ_FILTER",
+    "input": "getQuoteFinal",
+    "filter": ".records[0]"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TEXT",
+    "raw": true,
+    "inputs": {
+      "content": "{extractQuote}"
+    }
+  }
+]

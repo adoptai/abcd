@@ -1,0 +1,40 @@
+[
+  {
+    "required_inputs": [
+      "{\"opportunity_id\": {\"type\": \"string\", \"definition\": \"Salesforce Opportunity ID, e.g. 006Ie000002V9GlIAK (mandatory)\"}}"
+    ]
+  },
+  {
+    "id": "getOpportunity",
+    "operation": "REST",
+    "method": "POST_FORM",
+    "canonical_api_endpoint": "/aura?r=1&aura.RecordUi.getRecordWithFields=1",
+    "url": "/aura",
+    "query_params": {
+      "r": "1",
+      "aura.RecordUi.getRecordWithFields": "1"
+    },
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+    },
+    "payload": {
+      "message": "{\"actions\":[{\"id\":\"1;a\",\"descriptor\":\"aura://RecordUiController/ACTION$getRecordWithFields\",\"callingDescriptor\":\"UNKNOWN\",\"params\":{\"recordId\":\"{workflow_arguments.opportunity_id}\",\"optionalFields\":[\"Opportunity.Id\",\"Opportunity.Name\",\"Opportunity.Account.Id\",\"Opportunity.Account.Name\",\"Opportunity.AccountId\",\"Opportunity.Amount\",\"Opportunity.ACV_Annual_Contract_Value__c\",\"Opportunity.ACV_Forecast_Amount__c\",\"Opportunity.TCV__c\",\"Opportunity.StageName\",\"Opportunity.CloseDate\",\"Opportunity.Type\",\"Opportunity.Description\",\"Opportunity.CurrencyIsoCode\",\"Opportunity.Probability\",\"Opportunity.ForecastCategoryName\",\"Opportunity.RecordType.Id\",\"Opportunity.RecordType.Name\",\"Opportunity.RecordTypeId\",\"Opportunity.Owner.Id\",\"Opportunity.Owner.Name\",\"Opportunity.OwnerId\",\"Opportunity.CreatedDate\",\"Opportunity.LastModifiedDate\",\"Opportunity.IsClosed\",\"Opportunity.SBQQ__PrimaryQuote__c\",\"Opportunity.SBQQ__PrimaryQuote__r\",\"Opportunity.SBQQ__Renewal__c\",\"Opportunity.SBQQ__Ordered__c\",\"Opportunity.Primary_product__c\",\"Opportunity.Product_Type__c\",\"Opportunity.LeadSource\",\"Opportunity.Opportunity_Category__c\",\"Opportunity.Deal_Type__c\"]}}]}",
+      "aura.context": "{security_params.aura_context}",
+      "aura.pageURI": "/lightning/r/Opportunity/{workflow_arguments.opportunity_id}/view",
+      "aura.token": "{security_params.aura_token}"
+    }
+  },
+  {
+    "id": "extractRecord",
+    "operation": "JQ_FILTER",
+    "input": "getOpportunity",
+    "filter": ".actions[0].returnValue | {id: .id, Name: .fields.Name.value, AccountName: (.fields.Account.displayValue // null), AccountId: .fields.AccountId.value, Amount: .fields.Amount.displayValue, ACV: .fields.ACV_Annual_Contract_Value__c.displayValue, TCV: .fields.TCV__c.displayValue, StageName: .fields.StageName.value, CloseDate: .fields.CloseDate.value, Type: (.fields.Type.value // null), Description: (.fields.Description.value // null), Currency: .fields.CurrencyIsoCode.value, Probability: .fields.Probability.value, ForecastCategory: .fields.ForecastCategoryName.value, RecordType: (.fields.RecordType.displayValue // null), RecordTypeId: .fields.RecordTypeId.value, OwnerName: (.fields.Owner.displayValue // null), OwnerId: .fields.OwnerId.value, PrimaryQuoteId: (.fields.SBQQ__PrimaryQuote__c.value // null), IsRenewal: (.fields.SBQQ__Renewal__c.value // null), IsOrdered: (.fields.SBQQ__Ordered__c.value // null), IsClosed: .fields.IsClosed.value, ProductType: (.fields.Product_Type__c.value // null), OpportunityCategory: (.fields.Opportunity_Category__c.value // null)}"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TEXT",
+    "format_string": "{}",
+    "values": ["extractRecord"],
+    "raw": true
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "prompt": "Get a full summary of quote a5rdn000000AkuPAAS including all line items",
+  "workflow_params": {
+    "quote_id": "a5rdn000000AkuPAAS"
+  },
+  "expected_output": {
+    "description": "Returns quote summary with header details (name, account, dates, totals) and all line items with product names, quantities, and prices",
+    "validation": "similarity",
+    "key_fields": ["quoteId", "quoteName", "accountName", "lineItemCount", "lineItems"]
+  }
+}

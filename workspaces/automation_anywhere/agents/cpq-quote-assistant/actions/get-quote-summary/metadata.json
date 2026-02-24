@@ -1,0 +1,52 @@
+{
+  "workflow_id": "get-quote-summary",
+  "title": "get-quote-summary",
+  "agent_name": "cpq-quote-assistant",
+  "remote": {
+    "action_id": "2ba6eb2d-eb99-4dbb-9f50-c02f7d98092d",
+    "linked_at": "2026-02-20T01:48:12.428636",
+    "last_synced_at": "2026-02-22T21:15:07.904503",
+    "sync_status": "synced"
+  },
+  "working_version": {
+    "number": null,
+    "status": "draft",
+    "is_published": false,
+    "local_wdl_hash": "sha256:1ce4443dcad60acf93921556e62b89a95aa3b1cd0f74c470ca4169c7199cf5a3",
+    "remote_wdl_hash": "sha256:1ce4443dcad60acf93921556e62b89a95aa3b1cd0f74c470ca4169c7199cf5a3",
+    "has_local_changes": false,
+    "description": null,
+    "checked_out_at": null
+  },
+  "remote_versions": {
+    "latest_draft": null,
+    "latest_published": null,
+    "current": null
+  },
+  "versions": {
+    "1": {
+      "version_number": 1,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-20T01:48:33.713510",
+      "updated_at": "2026-02-20T01:48:33.713516",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "2": {
+      "version_number": 2,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-22T21:15:13.741885",
+      "updated_at": "2026-02-22T21:15:13.741893",
+      "checked_out_at": null
+    }
+  },
+  "created_at": "2026-02-19T12:55:46.939802",
+  "updated_at": "2026-02-22T21:15:07.904508",
+  "action_id": "2ba6eb2d-eb99-4dbb-9f50-c02f7d98092d",
+  "current_version": 2,
+  "checked_out_version": null
+}

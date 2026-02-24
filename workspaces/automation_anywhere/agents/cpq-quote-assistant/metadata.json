@@ -1,0 +1,9 @@
+{
+  "workflow_id": "cpq-quote-assistant",
+  "title": "CPQ Quote Assistant",
+  "type": "uber_agent",
+  "env_name": "automation_anywhere",
+  "action_id": "5a71c30f-189a-4c10-90b8-6819c874d256",
+  "created_at": "2026-02-19T12:55:38.076887",
+  "updated_at": "2026-02-19T12:55:38.076888"
+}

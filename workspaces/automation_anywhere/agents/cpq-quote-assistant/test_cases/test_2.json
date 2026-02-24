@@ -1,0 +1,10 @@
+{
+  "prompt": "Search for opportunities related to Automation Anywhere",
+  "workflow_params": {},
+  "expected_output": {
+    "description": "The agent should use search-opportunities tool to find opportunities matching 'Automation Anywhere' and present results",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+

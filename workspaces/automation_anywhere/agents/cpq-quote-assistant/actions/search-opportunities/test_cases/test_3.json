@@ -1,0 +1,12 @@
+{
+  "prompt": "Search for a non-existent opportunity xyznonexistent",
+  "workflow_params": {
+    "search_term": "xyznonexistent"
+  },
+  "expected_output": {
+    "description": "Returns an empty list or no records since no opportunities match 'xyznonexistent'",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+

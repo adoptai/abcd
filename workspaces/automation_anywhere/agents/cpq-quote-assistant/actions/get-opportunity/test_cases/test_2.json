@@ -1,0 +1,12 @@
+{
+  "prompt": "Retrieve opportunity details for 006Ie000003AAAAA1",
+  "workflow_params": {
+    "opportunity_id": "006Ie000003AAAAA1"
+  },
+  "expected_output": {
+    "description": "Returns the Opportunity record or an error if the ID does not exist",
+    "validation": "similarity",
+    "key_fields": ["Id", "Name"]
+  }
+}
+

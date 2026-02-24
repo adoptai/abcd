@@ -1,0 +1,10 @@
+{
+  "agent_id": "cpq-quote-assistant",
+  "name": "CPQ Quote Assistant",
+  "description": "Uber Agent that orchestrates Salesforce CPQ quote creation workflow",
+  "type": "uber_agent",
+  "remote_action_id": null,
+  "sub_actions": [],
+  "created_at": "2026-02-19T12:55:38.076670",
+  "updated_at": "2026-02-19T12:55:38.076676"
+}

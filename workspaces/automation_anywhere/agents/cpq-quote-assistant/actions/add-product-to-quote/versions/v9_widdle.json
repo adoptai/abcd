@@ -1,0 +1,96 @@
+[
+  {
+    "required_inputs": [
+      "{\"quote_id\": {\"type\": \"string\", \"definition\": \"CPQ Quote ID (SBQQ__Quote__c Id), e.g. a5rdn000000AkuPAAS (mandatory)\"}}",
+      "{\"product_id\": {\"type\": \"string\", \"definition\": \"Product2 ID from search-products results (mandatory)\"}}",
+      "{\"quantity\": {\"type\": \"number\", \"definition\": \"Quantity of the product to add (optional, default 1)\"}}"
+    ]
+  },
+  {
+    "id": "loadEditor",
+    "operation": "REST",
+    "method": "POST",
+    "canonical_api_endpoint": "/apexremote",
+    "url": "/apexremote",
+    "additional_headers": {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-User-Agent": "Visualforce-Remoting",
+      "Referer": "https://aainc--qas--sbqq.sandbox.vf.force.com/apex/sb",
+      "Origin": "https://aainc--qas--sbqq.sandbox.vf.force.com"
+    },
+    "payload": {
+      "action": "SBQQ.ServiceRouter",
+      "method": "load",
+      "data": [
+        "QuoteLineEditorServiceProvider.LoadFragmentedEditorModel",
+        "",
+        "{\"quoteId\":\"{workflow_arguments.quote_id}\"}",
+        true
+      ],
+      "type": "rpc",
+      "tid": 2,
+      "ctx": {
+        "csrf": "{security_params.vf_csrf_load}",
+        "vid": "{security_params.vf_vid}",
+        "ns": "SBQQ",
+        "ver": 57,
+        "authorization": "{security_params.vf_auth_load}"
+      }
+    }
+  },
+  {
+    "id": "buildSaveModel1",
+    "operation": "JQ_FILTER",
+    "input": "loadEditor",
+    "extract_all": false,
+    "filter": ".[0].result | fromjson | .response | fromjson | .quote | del(.accountRenewalModel, .accountRenewalPricingMethod, .calculationError, .contractedAccountId, .emptyGroupKeys, .existingProductIds, .fieldEditability, .fieldVisibility, .lineFieldEditability, .lineFieldVisibility, .lineSecondarySortField, .lineSortField, .lineTertiarySortField, .priceRuleTargetFieldsToIgnore, .priorBundledQuantityByLineKey, .segmentTemplatesByDimensionTypeByGroupKey, .targetGroupKey, .ui_original_record) | . + {grouped: false, nextGroupKey: 1} | .lineItems += [{record: {attributes: {type: \"SBQQ__QuoteLine__c\"}, SBQQ__Product__c: \"{workflow_arguments.product_id}\", SBQQ__Quantity__c: {workflow_arguments.quantity}, SBQQ__Quote__c: \"{workflow_arguments.quote_id}\", SBQQ__Number__c: .nextKey, SBQQ__PricingMethod__c: \"List\", SBQQ__SubscriptionBase__c: \"List\", License_Type__c: \"Renewal\"}, key: .nextKey, dirty: true, expanded: false, reconfigurationDisabled: false, productQuantityEditable: true, productHasDimensions: false, hasConsumptionSchedules: false, hasConfigAttrs: false, descriptionLocked: false}] | .nextKey += 1 | .lineItemRowCount = (.lineItems | length) | tojson"
+  },
+  {
+    "id": "saveQuote",
+    "operation": "REST",
+    "method": "POST",
+    "canonical_api_endpoint": "/apexremote",
+    "url": "/apexremote",
+    "additional_headers": {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-User-Agent": "Visualforce-Remoting",
+      "Referer": "https://aainc--qas--sbqq.sandbox.vf.force.com/apex/sb",
+      "Origin": "https://aainc--qas--sbqq.sandbox.vf.force.com"
+    },
+    "payload": {
+      "action": "SBQQ.ServiceRouter",
+      "method": "save",
+      "data": [
+        "QuoteLineEditorServiceProvider.EditorSaver",
+        "{buildSaveModel1}",
+        true
+      ],
+      "type": "rpc",
+      "tid": 14,
+      "ctx": {
+        "csrf": "{security_params.vf_csrf_save}",
+        "vid": "{security_params.vf_vid}",
+        "ns": "SBQQ",
+        "ver": 57,
+        "authorization": "{security_params.vf_auth_save}"
+      }
+    }
+  },
+  {
+    "id": "extractResult1",
+    "operation": "JQ_FILTER",
+    "input": "saveQuote",
+    "filter": ".[0].result | fromjson | .response | fromjson | if .quote then {quoteId: .quote.record.Id, lineItemCount: (.quote.lineItems | length), netTotal: .quote.netTotal, customerTotal: .quote.customerTotal, lineItems: [.quote.lineItems[].record | {product: .SBQQ__ProductName__c, productCode: .SBQQ__ProductCode__c, quantity: .SBQQ__Quantity__c, listPrice: .SBQQ__ListPrice__c, netPrice: .SBQQ__NetPrice__c, netTotal: .SBQQ__NetTotal__c}]} elif .messages then {error: true, messages: .messages} else {error: true, messages: [\"Unknown response\"]} end"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TEXT",
+    "format_string": "{}",
+    "values": [
+      "extractResult1"
+    ],
+    "raw": true
+  }
+]

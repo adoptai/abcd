@@ -1,0 +1,44 @@
+[
+  {
+    "required_inputs": [
+      "{\"opportunity_id\": {\"type\": \"string\", \"definition\": \"Salesforce Opportunity ID to create the quote for (mandatory)\"}}",
+      "{\"start_date\": {\"type\": \"string\", \"definition\": \"Quote start date in YYYY-MM-DD format (mandatory)\"}}",
+      "{\"expiration_date\": {\"type\": \"string\", \"definition\": \"Quote expiration date in YYYY-MM-DD format (mandatory)\"}}",
+      "{\"subscription_term\": {\"type\": \"integer\", \"definition\": \"Subscription term in months, default 12 (optional)\"}}",
+      "{\"product_type_filter\": {\"type\": \"string\", \"definition\": \"Product type filter - REQUIRED. Valid values: 'On Prem', 'Cloud Enabled', 'Pure Cloud'\"}}"
+    ]
+  },
+  {
+    "id": "createQuote",
+    "operation": "REST",
+    "method": "POST_FORM",
+    "canonical_api_endpoint": "/aura?r=1&ui-force-components-controllers-recordGlobalValueProvider.RecordGvp.saveQuickActionRecords=1",
+    "url": "/aura",
+    "query_params": {
+      "r": "1",
+      "ui-force-components-controllers-recordGlobalValueProvider.RecordGvp.saveQuickActionRecords": "1"
+    },
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+    },
+    "payload": {
+      "message": "{\"actions\":[{\"id\":\"1;a\",\"descriptor\":\"serviceComponent://ui.force.components.controllers.recordGlobalValueProvider.RecordGvpController/ACTION$saveQuickActionRecords\",\"callingDescriptor\":\"UNKNOWN\",\"params\":{\"record\":{\"apiName\":\"SBQQ__Quote__c\",\"childRelationships\":{},\"eTag\":\"2708d5d775fe32d73cff6bb075db0c62\",\"fields\":{\"Product_Type_Filter__c\":{\"displayValue\":null,\"value\":\"{workflow_arguments.product_type_filter}\"},\"RecordTypeId\":{\"displayValue\":null,\"value\":\"0122t000000TRdPAAW\"},\"SBQQ__ExpirationDate__c\":{\"displayValue\":null,\"value\":\"{workflow_arguments.expiration_date}\"},\"SBQQ__Opportunity2__c\":{\"displayValue\":null,\"value\":\"{workflow_arguments.opportunity_id}\"},\"SBQQ__Primary__c\":{\"displayValue\":null,\"value\":false},\"SBQQ__StartDate__c\":{\"displayValue\":null,\"value\":\"{workflow_arguments.start_date}\"},\"Subscription_Term__c\":{\"displayValue\":null,\"value\":{workflow_arguments.subscription_term}}},\"id\":null,\"lastModifiedById\":null,\"lastModifiedDate\":null,\"recordTypeId\":\"0122t000000TRdPAAW\",\"recordTypeInfo\":{\"available\":true,\"defaultRecordTypeMapping\":true,\"master\":false,\"name\":\"Draft\",\"recordTypeId\":\"0122t000000TRdPAAW\"},\"systemModstamp\":null,\"weakEtag\":0},\"quickActionName\":\"Opportunity.OSCPQ_New_Quote\",\"contextIds\":[\"{workflow_arguments.opportunity_id}\"],\"fetchFeedItem\":true,\"recordSaveParams\":{\"bypassDedupeCheck\":false,\"triggerAutoResponseEmail\":false,\"triggerOtherEmail\":false,\"triggerUserEmail\":false,\"isAllOrNothing\":false,\"filterInvalidFields\":true,\"useDefaultRule\":false,\"publishEngagementEvent\":true,\"skipCurrencyConversion\":true}}}]}",
+      "aura.context": "{security_params.aura_context}",
+      "aura.pageURI": "/lightning/action/quick/Opportunity.OSCPQ_New_Quote?objectApiName=SBQQ__Quote__c&context=RECORD_DETAIL&recordId={workflow_arguments.opportunity_id}&backgroundContext=%2Flightning%2Fr%2FOpportunity%2F{workflow_arguments.opportunity_id}%2Fview",
+      "aura.token": "{security_params.aura_token}"
+    }
+  },
+  {
+    "id": "extractQuote",
+    "operation": "JQ_FILTER",
+    "input": "createQuote",
+    "filter": ".actions[0].returnValue | to_entries[0].value | {QuoteId: .recordId, QuoteName: .recordName, OpportunityId: .contextId, EntityLabel: .entityLabel, Message: .successMessage}"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TEXT",
+    "format_string": "{}",
+    "values": ["extractQuote"],
+    "raw": true
+  }
+]

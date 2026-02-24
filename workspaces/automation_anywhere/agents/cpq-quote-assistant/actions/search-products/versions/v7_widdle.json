@@ -1,0 +1,69 @@
+[
+  {
+    "required_inputs": [
+      "{\"quote_id\": {\"type\": \"string\", \"definition\": \"SBQQ Quote ID to search products for, e.g. a5rdn000000AkuPAAS (mandatory)\"}}"
+    ]
+  },
+  {
+    "id": "searchProducts",
+    "operation": "REST",
+    "method": "POST",
+    "canonical_api_endpoint": "/apexremote",
+    "url": "/apexremote",
+    "additional_headers": {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-User-Agent": "Visualforce-Remoting",
+      "Referer": "https://aainc--qas--sbqq.sandbox.vf.force.com/apex/sb",
+      "Origin": "https://aainc--qas--sbqq.sandbox.vf.force.com"
+    },
+    "payload": {
+      "action": "SBQQ.ServiceRouter",
+      "method": "load",
+      "data": [
+        "ProductLookupServiceProvider.SearchModelLoader",
+        null,
+        "{\"processId\":null,\"actionId\":\"a5D2t000000KyjaEAC\",\"quote\":{\"attributes\":{\"type\":\"SBQQ__Quote__c\",\"url\":\"/services/data/v66.0/sobjects/SBQQ__Quote__c/{workflow_arguments.quote_id}\"},\"Id\":\"{workflow_arguments.quote_id}\",\"CurrencyIsoCode\":\"USD\",\"Name\":\"Q-371432\",\"SBQQ__Type__c\":\"Renewal\",\"SBQQ__Account__c\":\"0016F00002FOSEhQAP\",\"SBQQ__SubscriptionTerm__c\":12,\"SBQQ__ExpirationDate__c\":\"2026-05-20\",\"SBQQ__StartDate__c\":\"2026-02-20\",\"SBQQ__EndDate__c\":\"2028-02-19\",\"SBQQ__NetAmount__c\":0,\"SBQQ__CustomerAmount__c\":0,\"SBQQ__PricebookId__c\":\"01s2t000000L5B8AAK\",\"SBQQ__ContractingMethod__c\":\"Single Contract\",\"SBQQ__BillingFrequency__c\":\"Annual\",\"SBQQ__Unopened__c\":false,\"SBQQ__RenewalTerm__c\":12,\"SBQQ__LineItemCount__c\":0,\"SBQQ__PaymentTerms__c\":\"Net 30\",\"SBQQ__WatermarkShown__c\":true,\"xFOU__c\":\"INDIA\",\"Record_Type_Name__c\":\"OSCPQ_Draft\",\"Verify_Current_User__c\":\"Regular User\",\"Deal_Desk_Overrides__c\":false,\"Is_Partner__c\":true,\"Calculation_Recursion_Check__c\":true,\"Subscription_Term__c\":24,\"SBQQ__Status__c\":\"Draft\",\"EditLinesFieldSetName__c\":\"OSCPQ\",\"HeaderFieldSetName__c\":\"SBQQ__LineEditor\",\"ApplyPartnerDiscountFirst__c\":1,\"SBQQ__Partner__c\":\"0016F000033vYucQAE\",\"SBQQ__LastCalculatedOn__c\":\"2026-02-19T22:31:44.000+0000\",\"Migration__c\":false,\"SBQQ__Opportunity2__c\":\"006Ie000002V9GlIAK\",\"SBQQ__Primary__c\":false,\"RecordTypeId\":\"0122t000000TRdPAAW\",\"SBQQ__Account__r\":{\"Id\":\"0016F00002FOSEhQAP\"},\"SBQQ__Partner__r\":{\"Id\":\"0016F000033vYucQAE\"},\"SBQQ__DefaultTemplate__c\":\"a5p2t0000008OLQAA2\",\"SBQQ__DefaultTemplate__r\":{\"attributes\":{\"type\":\"SBQQ__QuoteTemplate__c\",\"url\":\"/services/data/v66.0/sobjects/SBQQ__QuoteTemplate__c/a5p2t0000008OLQAA2\"},\"Name\":\"Order Form\",\"Id\":\"a5p2t0000008OLQAA2\",\"CurrencyIsoCode\":\"USD\"},\"SBQQ__Opportunity2__r\":{\"Id\":\"006Ie000002V9GlIAK\"},\"Fulfillment_Partner__r\":null,\"SBQQ__Distributor__r\":null,\"SBQQ__MasterContract__r\":null}}",
+        true
+      ],
+      "type": "rpc",
+      "tid": 4,
+      "ctx": {
+        "csrf": "{security_params.vf_csrf_search}",
+        "vid": "{security_params.vf_vid}",
+        "ns": "SBQQ",
+        "ver": 57,
+        "authorization": "{security_params.vf_auth_search}"
+      }
+    }
+  },
+  {
+    "id": "extractProducts1",
+    "operation": "JQ_FILTER",
+    "input": "searchProducts",
+    "filter": ".[0].result | fromjson | .response | fromjson | .results[] | .record | { id: .Product2.Id, name: .Product2.Name, productCode: .Product2.ProductCode, description: .Product2.Description, subscriptionType: .Product2.xSubscription_Type__c, unitPrice: .UnitPrice, currency: .CurrencyIsoCode }"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TABLE",
+    "input": "extractProducts1",
+    "headers": [
+      "ID",
+      "Name",
+      "Product Code",
+      "Description",
+      "Subscription Type",
+      "Unit Price",
+      "Currency"
+    ],
+    "ordered_display_fields": [
+      "id",
+      "name",
+      "productCode",
+      "description",
+      "subscriptionType",
+      "unitPrice",
+      "currency"
+    ]
+  }
+]

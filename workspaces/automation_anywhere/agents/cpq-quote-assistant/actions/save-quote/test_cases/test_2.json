@@ -1,0 +1,12 @@
+{
+  "prompt": "Save quote a0PIe0000EXAMPL2",
+  "workflow_params": {
+    "quote_id": "a0PIe0000EXAMPL2"
+  },
+  "expected_output": {
+    "description": "Returns the saved quote details with status and totals",
+    "validation": "similarity",
+    "key_fields": ["SBQQ__Status__c"]
+  }
+}
+

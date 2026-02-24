@@ -1,0 +1,11 @@
+{
+  "prompt": "Get details for opportunity 006Ie000002V9GlIAK",
+  "workflow_params": {
+    "opportunity_id": "006Ie000002V9GlIAK"
+  },
+  "expected_output": {
+    "description": "Returns the full Opportunity record with fields like Name, StageName, Amount, AccountId, OwnerId, CloseDate",
+    "validation": "similarity",
+    "key_fields": ["Id", "Name", "StageName", "AccountId"]
+  }
+}

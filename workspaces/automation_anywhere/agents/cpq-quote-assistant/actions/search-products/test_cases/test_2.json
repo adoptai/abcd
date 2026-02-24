@@ -1,0 +1,12 @@
+{
+  "prompt": "Find products with code AA-",
+  "workflow_params": {
+    "search_term": "AA-"
+  },
+  "expected_output": {
+    "description": "Returns Product2 records with product codes starting with AA-",
+    "validation": "similarity",
+    "key_fields": ["Id", "Name", "ProductCode"]
+  }
+}
+

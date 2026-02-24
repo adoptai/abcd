@@ -1,0 +1,12 @@
+{
+  "prompt": "Save a quote with invalid ID",
+  "workflow_params": {
+    "quote_id": "INVALID_QUOTE_ID"
+  },
+  "expected_output": {
+    "description": "Returns an error since the quote ID is invalid",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+

@@ -1,0 +1,62 @@
+{
+  "workflow_id": "add-product-to-quote",
+  "title": "add-product-to-quote",
+  "agent_name": "cpq-quote-assistant",
+  "remote": {
+    "action_id": "3a9f1eac-3bdc-4037-93e8-3dd6f7f4a6b0",
+    "linked_at": "2026-02-19T21:46:33.352865",
+    "last_synced_at": "2026-02-22T21:15:48.624240",
+    "sync_status": "synced"
+  },
+  "working_version": {
+    "number": null,
+    "status": "draft",
+    "is_published": false,
+    "local_wdl_hash": "sha256:6cd97ae27b4bfeabe18ac952833a5f84afc2c950c6f011aac9142544b666985c",
+    "remote_wdl_hash": "sha256:6cd97ae27b4bfeabe18ac952833a5f84afc2c950c6f011aac9142544b666985c",
+    "has_local_changes": false,
+    "description": null,
+    "checked_out_at": null
+  },
+  "remote_versions": {
+    "latest_draft": null,
+    "latest_published": null,
+    "current": null
+  },
+  "versions": {
+    "1": {
+      "version_number": 1,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-19T21:47:01.490418",
+      "updated_at": "2026-02-19T21:47:01.490430",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "2": {
+      "version_number": 2,
+      "status": "draft",
+      "is_published": false,
+      "description": "Combined JQ: load+strip+add product+tojson in one step",
+      "created_at": "2026-02-19T21:50:58.561965",
+      "updated_at": "2026-02-19T21:50:58.561973",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "9": {
+      "version_number": 9,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-22T21:15:50.501236",
+      "updated_at": "2026-02-22T21:15:50.501247",
+      "checked_out_at": null
+    }
+  },
+  "created_at": "2026-02-19T12:55:45.685527",
+  "updated_at": "2026-02-22T21:15:48.624249",
+  "action_id": "3a9f1eac-3bdc-4037-93e8-3dd6f7f4a6b0",
+  "current_version": 9,
+  "checked_out_version": null
+}

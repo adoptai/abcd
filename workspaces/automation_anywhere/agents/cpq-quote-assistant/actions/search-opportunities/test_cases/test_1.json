@@ -1,0 +1,11 @@
+{
+  "prompt": "Search for opportunities related to Royal",
+  "workflow_params": {
+    "search_term": "Royal"
+  },
+  "expected_output": {
+    "description": "Returns a list of Opportunity records matching 'Royal' with fields like Id, Name, Account.Name, StageName, CloseDate",
+    "validation": "similarity",
+    "key_fields": ["Id", "Name", "Account"]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "prompt": "Search for a product that does not exist: zzznonexistent",
+  "workflow_params": {
+    "search_term": "zzznonexistent"
+  },
+  "expected_output": {
+    "description": "Returns an empty list since no products match 'zzznonexistent'",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+

@@ -1,0 +1,6 @@
+version: 8
+version_number: 8
+status: published
+is_published: true
+checked_out_at: 2026-02-23T00:12:18.342330
+description: WDL action update

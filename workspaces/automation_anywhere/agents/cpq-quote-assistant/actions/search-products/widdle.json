@@ -1,0 +1,93 @@
+[
+  {
+    "required_inputs": [
+      "{\"quote_id\": {\"type\": \"string\", \"definition\": \"SBQQ Quote ID to search products for, e.g. a5rdn000000AkuPAAS (mandatory)\"}}"
+    ]
+  },
+  {
+    "id": "loadEditor",
+    "operation": "REST",
+    "method": "POST",
+    "canonical_api_endpoint": "/apexremote",
+    "url": "/apexremote",
+    "additional_headers": {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-User-Agent": "Visualforce-Remoting",
+      "Referer": "https://aainc--qas--sbqq.sandbox.vf.force.com/apex/sb",
+      "Origin": "https://aainc--qas--sbqq.sandbox.vf.force.com"
+    },
+    "payload": {
+      "action": "SBQQ.ServiceRouter",
+      "method": "load",
+      "data": [
+        "QuoteLineEditorServiceProvider.LoadFragmentedEditorModel",
+        "",
+        "{\"quoteId\":\"{workflow_arguments.quote_id}\"}",
+        true
+      ],
+      "type": "rpc",
+      "tid": 2,
+      "ctx": {
+        "csrf": "{security_params.vf_csrf_load}",
+        "vid": "{security_params.vf_vid}",
+        "ns": "SBQQ",
+        "ver": 57,
+        "authorization": "{security_params.vf_auth_load}"
+      }
+    }
+  },
+  {
+    "id": "buildSearchPayload1",
+    "operation": "JQ_FILTER",
+    "input": "loadEditor",
+    "extract_all": false,
+    "filter": ".[0].result | fromjson | .response | fromjson | .quote.record | {processId: null, actionId: \"a5D2t000000KyjaEAC\", quote: .} | tojson"
+  },
+  {
+    "id": "searchProducts",
+    "operation": "REST",
+    "method": "POST",
+    "canonical_api_endpoint": "/apexremote",
+    "url": "/apexremote",
+    "additional_headers": {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-User-Agent": "Visualforce-Remoting",
+      "Referer": "https://aainc--qas--sbqq.sandbox.vf.force.com/apex/sb",
+      "Origin": "https://aainc--qas--sbqq.sandbox.vf.force.com"
+    },
+    "payload": {
+      "action": "SBQQ.ServiceRouter",
+      "method": "load",
+      "data": [
+        "ProductLookupServiceProvider.SearchModelLoader",
+        null,
+        "{buildSearchPayload1}",
+        true
+      ],
+      "type": "rpc",
+      "tid": 4,
+      "ctx": {
+        "csrf": "{security_params.vf_csrf_search}",
+        "vid": "{security_params.vf_vid}",
+        "ns": "SBQQ",
+        "ver": 57,
+        "authorization": "{security_params.vf_auth_search}"
+      }
+    }
+  },
+  {
+    "id": "extractProducts1",
+    "operation": "JQ_FILTER",
+    "input": "searchProducts",
+    "filter": ".[0].result | fromjson | .response | fromjson | .results[] | .record | { id: .Product2.Id, name: .Product2.Name, productCode: .Product2.ProductCode, description: .Product2.Description, subscriptionType: .Product2.xSubscription_Type__c, unitPrice: .UnitPrice, currency: .CurrencyIsoCode }"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TABLE",
+    "input": "extractProducts1",
+    "headers": ["ID", "Name", "Product Code", "Description", "Subscription Type", "Unit Price", "Currency"],
+    "ordered_display_fields": ["id", "name", "productCode", "description", "subscriptionType", "unitPrice", "currency"]
+  }
+]

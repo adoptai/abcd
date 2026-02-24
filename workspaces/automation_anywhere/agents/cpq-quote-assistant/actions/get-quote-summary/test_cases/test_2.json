@@ -1,0 +1,12 @@
+{
+  "prompt": "Retrieve the complete quote with line items for a0PIe0000EXAMPL2",
+  "workflow_params": {
+    "quote_id": "a0PIe0000EXAMPL2"
+  },
+  "expected_output": {
+    "description": "Returns quote header and line items details",
+    "validation": "similarity",
+    "key_fields": ["Name", "SBQQ__Status__c"]
+  }
+}
+

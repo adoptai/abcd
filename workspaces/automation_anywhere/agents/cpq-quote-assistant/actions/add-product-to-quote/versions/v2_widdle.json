@@ -1,0 +1,95 @@
+[
+  {
+    "required_inputs": [
+      "{\"quote_id\": {\"type\": \"string\", \"definition\": \"CPQ Quote ID (SBQQ__Quote__c Id), e.g. a5rdn000000AkuPAAS (mandatory)\"}}",
+      "{\"product_id\": {\"type\": \"string\", \"definition\": \"Product2 ID from search-products results (mandatory)\"}}",
+      "{\"quantity\": {\"type\": \"number\", \"definition\": \"Quantity of the product to add (optional, default 1)\"}}"
+    ]
+  },
+  {
+    "id": "loadEditor",
+    "operation": "REST",
+    "method": "POST",
+    "canonical_api_endpoint": "/apexremote",
+    "url": "/apexremote",
+    "additional_headers": {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-User-Agent": "Visualforce-Remoting",
+      "Referer": "https://aainc--qas--sbqq.sandbox.vf.force.com/apex/sb",
+      "Origin": "https://aainc--qas--sbqq.sandbox.vf.force.com"
+    },
+    "payload": {
+      "action": "SBQQ.ServiceRouter",
+      "method": "load",
+      "data": [
+        "QuoteLineEditorServiceProvider.LoadFragmentedEditorModel",
+        "",
+        "{\"quoteId\":\"{workflow_arguments.quote_id}\"}",
+        true
+      ],
+      "type": "rpc",
+      "tid": 2,
+      "ctx": {
+        "csrf": "VmpFPSxNakF5Tmkwd01pMHlNMVF3TlRvd09Eb3dPUzQzT0RkYSxDRy1BTV9OQXV5ZHNVdE9ERHJZQV9NX0IyeldiaGR0eWNPV2hBbTY5RWQ0PSxNRE5sT0RFeA==",
+        "vid": "0666F000006MK1z",
+        "ns": "SBQQ",
+        "ver": 57,
+        "authorization": "eyJub25jZSI6Il8tYXYxZE5TdklXZ3c4UlhJMEV4NU1XYV9BdkpyZlZiTE9kSUxieVhwa01cdTAwM2QiLCJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6IntcInRcIjpcIjAwRGRuMDAwMDAyZHY1SlwiLFwidlwiOlwiMDJHNkYwMDAwMDA0d0M1XCIsXCJhXCI6XCJ2ZnJlbW90aW5nc2lnbmluZ2tleVwiLFwidVwiOlwiMDA1ZG4wMDAwMENza0xWXCJ9IiwiY3JpdCI6WyJpYXQiXSwiaWF0IjoxNzcxNTY0MDg5Nzg4LCJleHAiOjB9.Q2hkVFFsRlJMbE5sY25acFkyVlNiM1YwWlhJdWJHOWhaQT09.Aq-7_ktRmlzXC2PR-6FFGMKlE6zOwfBaRYVPklRt9mw="
+      }
+    }
+  },
+  {
+    "id": "buildSaveModel1",
+    "operation": "JQ_FILTER",
+    "input": "loadEditor",
+    "filter": ".[0].result | fromjson | .response | fromjson | .quote | del(.accountRenewalModel, .accountRenewalPricingMethod, .calculationError, .contractedAccountId, .emptyGroupKeys, .existingProductIds, .fieldEditability, .fieldVisibility, .lineFieldEditability, .lineFieldVisibility, .lineSecondarySortField, .lineSortField, .lineTertiarySortField, .priceRuleTargetFieldsToIgnore, .priorBundledQuantityByLineKey, .segmentTemplatesByDimensionTypeByGroupKey, .targetGroupKey, .ui_original_record) | . + {grouped: false, nextGroupKey: 1} | .lineItems += [{record: {attributes: {type: \"SBQQ__QuoteLine__c\"}, SBQQ__Product__c: \"{workflow_arguments.product_id}\", SBQQ__Quantity__c: {workflow_arguments.quantity}, SBQQ__Quote__c: \"{workflow_arguments.quote_id}\", SBQQ__Number__c: .nextKey, SBQQ__PricingMethod__c: \"List\", SBQQ__SubscriptionBase__c: \"List\"}, key: .nextKey, dirty: true, expanded: false, reconfigurationDisabled: false, productQuantityEditable: true, productHasDimensions: false, hasConsumptionSchedules: false, hasConfigAttrs: false, descriptionLocked: false}] | .nextKey += 1 | .lineItemRowCount = (.lineItems | length) | tojson"
+  },
+  {
+    "id": "saveQuote",
+    "operation": "REST",
+    "method": "POST",
+    "canonical_api_endpoint": "/apexremote",
+    "url": "/apexremote",
+    "additional_headers": {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-User-Agent": "Visualforce-Remoting",
+      "Referer": "https://aainc--qas--sbqq.sandbox.vf.force.com/apex/sb",
+      "Origin": "https://aainc--qas--sbqq.sandbox.vf.force.com"
+    },
+    "payload": {
+      "action": "SBQQ.ServiceRouter",
+      "method": "save",
+      "data": [
+        "QuoteLineEditorServiceProvider.EditorSaver",
+        "{buildSaveModel1}",
+        true
+      ],
+      "type": "rpc",
+      "tid": 14,
+      "ctx": {
+        "csrf": "VmpFPSxNakF5Tmkwd01pMHlNMVF3TlRvd09Eb3dPUzQzT0RkYSxDRy1BTV9OQXV5ZHNVdE9ERHJZQV9NX0IyeldiaGR0eWNPV2hBbTY5RWQ0PSxNRE5sT0RFeA==",
+        "vid": "0666F000006MK1z",
+        "ns": "SBQQ",
+        "ver": 57,
+        "authorization": "eyJub25jZSI6Il8tYXYxZE5TdklXZ3c4UlhJMEV4NU1XYV9BdkpyZlZiTE9kSUxieVhwa01cdTAwM2QiLCJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6IntcInRcIjpcIjAwRGRuMDAwMDAyZHY1SlwiLFwidlwiOlwiMDJHNkYwMDAwMDA0d0M1XCIsXCJhXCI6XCJ2ZnJlbW90aW5nc2lnbmluZ2tleVwiLFwidVwiOlwiMDA1ZG4wMDAwMENza0xWXCJ9IiwiY3JpdCI6WyJpYXQiXSwiaWF0IjoxNzcxNTY0MDg5Nzg4LCJleHAiOjB9.Q2hkVFFsRlJMbE5sY25acFkyVlNiM1YwWlhJdWJHOWhaQT09.Aq-7_ktRmlzXC2PR-6FFGMKlE6zOwfBaRYVPklRt9mw="
+      }
+    }
+  },
+  {
+    "id": "extractResult1",
+    "operation": "JQ_FILTER",
+    "input": "saveQuote",
+    "filter": ".[0].result | fromjson | .response | fromjson | .quote | {quoteId: .record.Id, lineItemCount: (.lineItems | length), netTotal: .netTotal, customerTotal: .customerTotal, lineItems: [.lineItems[].record | {product: .SBQQ__ProductName__c, productCode: .SBQQ__ProductCode__c, quantity: .SBQQ__Quantity__c, listPrice: .SBQQ__ListPrice__c, netPrice: .SBQQ__NetPrice__c, netTotal: .SBQQ__NetTotal__c}]}"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TEXT",
+    "format_string": "{}",
+    "values": [
+      "extractResult1"
+    ],
+    "raw": true
+  }
+]

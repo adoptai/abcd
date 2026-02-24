@@ -1,0 +1,15 @@
+{
+  "prompt": "Create a quote for an invalid opportunity ID",
+  "workflow_params": {
+    "opportunity_id": "INVALID_OPP_ID",
+    "start_date": "2026-03-01",
+    "expiration_date": "2026-06-01",
+    "subscription_term": 12
+  },
+  "expected_output": {
+    "description": "Returns an error since the opportunity ID is invalid",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+

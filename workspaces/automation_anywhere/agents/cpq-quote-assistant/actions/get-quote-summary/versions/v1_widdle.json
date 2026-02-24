@@ -1,0 +1,56 @@
+[
+  {
+    "required_inputs": [
+      "{\"quote_id\": {\"type\": \"string\", \"definition\": \"CPQ Quote ID (SBQQ__Quote__c Id), e.g. a5rdn000000AkuPAAS (mandatory)\"}}"
+    ]
+  },
+  {
+    "id": "loadEditor",
+    "operation": "REST",
+    "method": "POST",
+    "canonical_api_endpoint": "/apexremote",
+    "url": "/apexremote",
+    "additional_headers": {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "X-User-Agent": "Visualforce-Remoting",
+      "Referer": "https://aainc--qas--sbqq.sandbox.vf.force.com/apex/sb",
+      "Origin": "https://aainc--qas--sbqq.sandbox.vf.force.com"
+    },
+    "payload": {
+      "action": "SBQQ.ServiceRouter",
+      "method": "load",
+      "data": [
+        "QuoteLineEditorServiceProvider.LoadFragmentedEditorModel",
+        "",
+        "{\"quoteId\":\"{workflow_arguments.quote_id}\"}",
+        true
+      ],
+      "type": "rpc",
+      "tid": 2,
+      "ctx": {
+        "csrf": "VmpFPSxNakF5Tmkwd01pMHlNMVF3T0RveE9Ub3dNeTQzT1RSYSxNaEFSYm9iNUdSQTZlR2VDNEZieGNZVnlOd05RbVFMZ2YwRzktY05IOFkwPSxNRE5sT0RFeA==",
+        "vid": "0666F000006MK1z",
+        "ns": "SBQQ",
+        "ver": 57,
+        "authorization": "eyJub25jZSI6ImkzenRlcThTbWZ6R25vV3EybU8yWVVQemJsRmc0a1FJdlFlTVJ3cWVZUEVcdTAwM2QiLCJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiIsImtpZCI6IntcInRcIjpcIjAwRGRuMDAwMDAyZHY1SlwiLFwidlwiOlwiMDJHNkYwMDAwMDA0d0M1XCIsXCJhXCI6XCJ2ZnJlbW90aW5nc2lnbmluZ2tleVwiLFwidVwiOlwiMDA1ZG4wMDAwMENza0xWXCJ9IiwiY3JpdCI6WyJpYXQiXSwiaWF0IjoxNzcxNTc1NTQzNzk1LCJleHAiOjB9.Q2hkVFFsRlJMbE5sY25acFkyVlNiM1YwWlhJdWJHOWhaQT09.tfX53TNyPg2M0pMIRnxg1UAx2xK7kd8GuWIBRrZmCpI="
+      }
+    }
+  },
+  {
+    "id": "extractSummary1",
+    "operation": "JQ_FILTER",
+    "input": "loadEditor",
+    "extract_all": false,
+    "filter": ".[0].result | fromjson | .response | fromjson | .quote | {quoteId: .record.Id, quoteName: .record.Name, accountName: .record.SBQQ__Account__r.Name, opportunityName: .record.SBQQ__Opportunity2__r.Name, opportunityId: .record.SBQQ__Opportunity2__c, status: .record.SBQQ__Status__c, startDate: .record.SBQQ__StartDate__c, expirationDate: .record.SBQQ__ExpirationDate__c, endDate: .record.SBQQ__EndDate__c, subscriptionTerm: .record.Subscription_Term__c, currency: .record.CurrencyIsoCode, netTotal: .netTotal, customerTotal: .customerTotal, listAmount: .record.SBQQ__ListAmount__c, lineItemCount: (.lineItems | length), lineItems: [.lineItems[].record | {product: .SBQQ__ProductName__c, productCode: .SBQQ__ProductCode__c, quantity: .SBQQ__Quantity__c, listPrice: .SBQQ__ListPrice__c, netPrice: .SBQQ__NetPrice__c, netTotal: .SBQQ__NetTotal__c, customerPrice: .SBQQ__CustomerPrice__c, discount: .SBQQ__TotalDiscountRate__c, startDate: .SBQQ__EffectiveStartDate__c, endDate: .SBQQ__EffectiveEndDate__c, productFamily: .SBQQ__ProductFamily__c, chargeType: .SBQQ__ChargeType__c, billingFrequency: .SBQQ__BillingFrequency__c}]}"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TEXT",
+    "format_string": "{}",
+    "values": [
+      "extractSummary1"
+    ],
+    "raw": true
+  }
+]

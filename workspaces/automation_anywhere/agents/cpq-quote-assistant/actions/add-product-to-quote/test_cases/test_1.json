@@ -1,0 +1,13 @@
+{
+  "prompt": "Add product 01tdn0000096uFHAAY to quote a5rdn000000AkuPAAS with quantity 1",
+  "workflow_params": {
+    "quote_id": "a5rdn000000AkuPAAS",
+    "product_id": "01tdn0000096uFHAAY",
+    "quantity": 1
+  },
+  "expected_output": {
+    "description": "Returns the saved quote with new line item added, including quote totals and line item details",
+    "validation": "similarity",
+    "key_fields": ["quoteId", "lineItemCount", "netTotal", "lineItems"]
+  }
+}

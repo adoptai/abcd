@@ -1,0 +1,52 @@
+{
+  "workflow_id": "create-cpq-quote",
+  "title": "create-sfdc-cpq-quote-v2",
+  "agent_name": "cpq-quote-assistant",
+  "remote": {
+    "action_id": "5b2cfb8c-78b8-44d3-b926-36e5f6e28bb5",
+    "linked_at": "2026-02-19T14:14:05.400137",
+    "last_synced_at": "2026-02-20T10:25:35.887152",
+    "sync_status": "synced"
+  },
+  "working_version": {
+    "number": null,
+    "status": "draft",
+    "is_published": false,
+    "local_wdl_hash": "sha256:ed0153f14fbe44131bc12ff5f4c7385fd2431544765275b0f268ad9eaf38d9df",
+    "remote_wdl_hash": "sha256:ed0153f14fbe44131bc12ff5f4c7385fd2431544765275b0f268ad9eaf38d9df",
+    "has_local_changes": false,
+    "description": null,
+    "checked_out_at": null
+  },
+  "remote_versions": {
+    "latest_draft": null,
+    "latest_published": null,
+    "current": null
+  },
+  "versions": {
+    "1": {
+      "version_number": 1,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-19T14:14:21.125139",
+      "updated_at": "2026-02-19T14:14:21.125145",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "2": {
+      "version_number": 2,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-20T10:28:53.838238",
+      "updated_at": "2026-02-20T10:28:53.838244",
+      "checked_out_at": null
+    }
+  },
+  "created_at": "2026-02-19T12:55:44.433613",
+  "updated_at": "2026-02-20T10:25:35.887155",
+  "action_id": "5b2cfb8c-78b8-44d3-b926-36e5f6e28bb5",
+  "current_version": 2,
+  "checked_out_version": null
+}

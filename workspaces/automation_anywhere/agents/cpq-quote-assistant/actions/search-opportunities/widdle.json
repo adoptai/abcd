@@ -1,0 +1,40 @@
+[
+  {
+    "required_inputs": [
+      "{\"search_term\": {\"type\": \"string\", \"definition\": \"Search term to find opportunities by name or account (mandatory)\"}}"
+    ]
+  },
+  {
+    "id": "searchOpportunities",
+    "operation": "REST",
+    "method": "POST_FORM",
+    "canonical_api_endpoint": "/aura?r=1&aura.ListUi.postListRecordsByName=1",
+    "url": "/aura",
+    "query_params": {
+      "r": "1",
+      "aura.ListUi.postListRecordsByName": "1"
+    },
+    "headers": {
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+    },
+    "payload": {
+      "message": "{\"actions\":[{\"id\":\"1;a\",\"descriptor\":\"aura://ListUiController/ACTION$postListRecordsByName\",\"callingDescriptor\":\"UNKNOWN\",\"params\":{\"objectApiName\":\"Opportunity\",\"listViewApiName\":\"__Recent\",\"listRecordsQuery\":{\"fields\":[\"Opportunity.Id\",\"Opportunity.Name\",\"Opportunity.Account.Name\",\"Opportunity.AccountId\",\"Opportunity.RecordType.Name\",\"Opportunity.StageName\",\"Opportunity.CloseDate\",\"Opportunity.CreatedDate\",\"Opportunity.Owner.Alias\",\"Opportunity.OwnerId\",\"Opportunity.ACV_Annual_Contract_Value__c\",\"Opportunity.ACV_Forecast_Amount__c\"],\"optionalFields\":[\"Opportunity.StageName\",\"Opportunity.ForecastCategoryName\",\"Opportunity.Probability\",\"Opportunity.LastCloseDateChangedHistory.PrevCloseDate\",\"Opportunity.LastCloseDateChangedHistory.CreatedBy.Id\",\"Opportunity.LastCloseDateChangedHistory.CreatedBy.Name\",\"Opportunity.LastCloseDateChangedHistory.CreatedDate\",\"Opportunity.CloseDate\",\"Opportunity.IsClosed\"],\"pageSize\":50,\"searchTerm\":\"{workflow_arguments.search_term}\",\"sortBy\":[]}}}]}",
+      "aura.context": "{security_params.aura_context}",
+      "aura.pageURI": "/lightning/o/Opportunity/list?filterName=__Recent",
+      "aura.token": "{security_params.aura_token}"
+    }
+  },
+  {
+    "id": "extractRecords",
+    "operation": "JQ_FILTER",
+    "input": "searchOpportunities",
+    "filter": ".actions[0].returnValue.records | map({id: .id, Name: .fields.Name.value, AccountName: .fields.Account.displayValue, StageName: .fields.StageName.value, CloseDate: .fields.CloseDate.value, RecordType: (.fields.RecordType.displayValue // null), OwnerAlias: (.fields.Owner.displayValue // null), ACV: .fields.ACV_Annual_Contract_Value__c.displayValue, ACVForecast: .fields.ACV_Forecast_Amount__c.displayValue})"
+  },
+  {
+    "id": "output",
+    "operation": "OUTPUT_TEXT",
+    "format_string": "{}",
+    "values": ["extractRecords"],
+    "raw": true
+  }
+]

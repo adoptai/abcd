@@ -1,0 +1,15 @@
+{
+  "prompt": "Create a new quote for opportunity 006Ie000002V9GlIAK starting 2026-02-20 expiring 2026-05-20 with 24 month term and product type filter 'Cloud Enabled'",
+  "workflow_params": {
+    "opportunity_id": "006Ie000002V9GlIAK",
+    "start_date": "2026-02-20",
+    "expiration_date": "2026-05-20",
+    "subscription_term": 24,
+    "product_type_filter": "Cloud Enabled"
+  },
+  "expected_output": {
+    "description": "Returns the created SBQQ__Quote__c record with a Quote Id, OpportunityId, StartDate, ExpirationDate",
+    "validation": "similarity",
+    "key_fields": ["id", "OpportunityId", "StartDate"]
+  }
+}

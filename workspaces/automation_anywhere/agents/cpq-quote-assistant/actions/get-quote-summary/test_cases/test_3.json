@@ -1,0 +1,12 @@
+{
+  "prompt": "Get summary for a non-existent quote",
+  "workflow_params": {
+    "quote_id": "INVALID_QUOTE_ID"
+  },
+  "expected_output": {
+    "description": "Returns an error or empty results since the quote ID does not exist",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+

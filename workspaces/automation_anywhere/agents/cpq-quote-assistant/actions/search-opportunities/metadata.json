@@ -1,0 +1,52 @@
+{
+  "workflow_id": "search-opportunities",
+  "title": "search-sfdc-opportunities-v2",
+  "agent_name": "cpq-quote-assistant",
+  "remote": {
+    "action_id": "b4d17643-15e3-4e5b-985f-c7ade1c3ab22",
+    "linked_at": "2026-02-19T13:49:51.100089",
+    "last_synced_at": "2026-02-19T13:51:27.710909",
+    "sync_status": "synced"
+  },
+  "working_version": {
+    "number": null,
+    "status": "draft",
+    "is_published": false,
+    "local_wdl_hash": "sha256:17ec664950d89a91c70913aed406a3940541293e7380e97cd7c5d55cdd790b2e",
+    "remote_wdl_hash": "sha256:17ec664950d89a91c70913aed406a3940541293e7380e97cd7c5d55cdd790b2e",
+    "has_local_changes": false,
+    "description": null,
+    "checked_out_at": null
+  },
+  "remote_versions": {
+    "latest_draft": null,
+    "latest_published": null,
+    "current": null
+  },
+  "versions": {
+    "1": {
+      "version_number": 1,
+      "status": "published",
+      "is_published": true,
+      "description": "Aura POST_FORM opportunity search",
+      "created_at": "2026-02-19T13:50:14.914813",
+      "updated_at": "2026-02-19T13:50:14.914818",
+      "checked_out_at": null,
+      "has_local_copy": false
+    },
+    "2": {
+      "version_number": 2,
+      "status": "published",
+      "is_published": true,
+      "description": "WDL action update",
+      "created_at": "2026-02-19T13:51:32.597563",
+      "updated_at": "2026-02-19T13:51:32.597567",
+      "checked_out_at": null
+    }
+  },
+  "created_at": "2026-02-19T12:55:43.166119",
+  "updated_at": "2026-02-19T13:51:27.710923",
+  "action_id": "b4d17643-15e3-4e5b-985f-c7ade1c3ab22",
+  "current_version": 2,
+  "checked_out_version": null
+}

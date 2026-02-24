@@ -1,0 +1,14 @@
+{
+  "prompt": "Add 1 unit of product 01tIe0000EXAMPL2 to quote a0PIe0000EXAMPLE",
+  "workflow_params": {
+    "quote_id": "a0PIe0000EXAMPLE",
+    "product_id": "01tIe0000EXAMPL2",
+    "quantity": 1
+  },
+  "expected_output": {
+    "description": "Returns the updated quote totals after adding the product",
+    "validation": "similarity",
+    "key_fields": ["SBQQ__NetAmount__c"]
+  }
+}
+

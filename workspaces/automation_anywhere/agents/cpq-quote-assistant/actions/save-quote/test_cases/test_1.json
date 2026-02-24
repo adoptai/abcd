@@ -1,0 +1,11 @@
+{
+  "prompt": "Save and finalize quote a0PIe0000EXAMPLE",
+  "workflow_params": {
+    "quote_id": "a0PIe0000EXAMPLE"
+  },
+  "expected_output": {
+    "description": "Returns the finalized quote with Status, NetAmount, LineItemCount, StartDate, ExpirationDate, and linked Opportunity name",
+    "validation": "similarity",
+    "key_fields": ["Id", "Name", "SBQQ__Status__c", "SBQQ__NetAmount__c"]
+  }
+}

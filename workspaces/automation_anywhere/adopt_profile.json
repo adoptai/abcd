@@ -1,0 +1,33 @@
+{
+  "base_url": "https://aainc--qas.sandbox.lightning.force.com",
+  "application_base_url": "https://aainc--qas.sandbox.lightning.force.com",
+  "workflow_params": {
+    "sfdc_api_version": "v57.0"
+  },
+  "profiles_map": {
+    "SalesforceREST": {
+      "base_url": "https://aainc--qas.sandbox.my.salesforce.com",
+  "security_params": {}
+    },
+    "SalesforceCPQ": {
+      "base_url": "https://aainc--qas--sbqq.sandbox.vf.force.com",
+      "security_params": {
+        "Cookie": "",
+        "Referer": "https://aainc--qas--sbqq.sandbox.vf.force.com/apex/sb",
+        "Origin": "https://aainc--qas--sbqq.sandbox.vf.force.com"
+      }
+    }
+  },
+  "security_params": {
+    "Cookie": "",
+    "aura_context": "",
+    "aura_token": "",
+    "vf_vid": "",
+    "vf_csrf_search": "",
+    "vf_auth_search": "",
+    "vf_csrf_load": "",
+    "vf_auth_load": "",
+    "vf_csrf_save": "",
+    "vf_auth_save": ""
+  }
+}

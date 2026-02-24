@@ -1,0 +1,11 @@
+{
+  "prompt": "Search for products available on quote a5rdn000000AkuPAAS",
+  "workflow_params": {
+    "quote_id": "a5rdn000000AkuPAAS"
+  },
+  "expected_output": {
+    "description": "Returns a list of products available for the given CPQ quote",
+    "validation": "similarity",
+    "key_fields": ["products"]
+  }
+}

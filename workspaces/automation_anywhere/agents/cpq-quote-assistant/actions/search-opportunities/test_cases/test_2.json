@@ -1,0 +1,12 @@
+{
+  "prompt": "Find opportunities for Automation Anywhere",
+  "workflow_params": {
+    "search_term": "Automation"
+  },
+  "expected_output": {
+    "description": "Returns a list of Opportunity records matching 'Automation' with Id, Name, Account, Stage details",
+    "validation": "similarity",
+    "key_fields": ["Id", "Name", "StageName"]
+  }
+}
+

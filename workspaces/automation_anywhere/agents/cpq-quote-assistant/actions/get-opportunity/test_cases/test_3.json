@@ -1,0 +1,12 @@
+{
+  "prompt": "Get opportunity with invalid ID INVALID_ID",
+  "workflow_params": {
+    "opportunity_id": "INVALID_ID"
+  },
+  "expected_output": {
+    "description": "Returns an error indicating the Opportunity ID is invalid or not found",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+

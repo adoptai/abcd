@@ -1,0 +1,10 @@
+{
+  "prompt": "Help me create a quote",
+  "workflow_params": {},
+  "expected_output": {
+    "description": "The agent should ask the user which opportunity they want to create a quote for",
+    "validation": "similarity",
+    "key_fields": []
+  }
+}
+
