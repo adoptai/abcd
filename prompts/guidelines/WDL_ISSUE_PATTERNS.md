@@ -21,10 +21,12 @@ This document catalogs common WDL issues, their detection patterns, and fix stra
    - Ensure `canonical_api_endpoint` matches the updated API path exactly
    - Ensure `url` uses the correct path with `{workflow_arguments.X}` substitution
 
-3. **SAVE DRAFT AND TEST**
+3. **TEST AND SAVE DRAFT**
    ```bash
-   python cli/save_wdl_draft.py --workflow-id <id> --standalone
+   # Test directly first (no save needed)
    python cli/test_runner.py <id>
+   # Save draft only after test passes
+   python cli/save_wdl_draft.py --workflow-id <id> --standalone
    ```
 
 ### Why This Matters
@@ -81,7 +83,7 @@ Status:    MISMATCH - API missing trailing slash
    ```
 3. **Then update local API spec file**: Update `apis/{api_id}.json` to match
 4. **Then update WDL**: Update `canonical_api_endpoint` and `url` in `widdle.json` to match
-5. Save draft and test to verify sync
+5. Test directly to verify sync, then save draft after test passes
 
 **⚠️ NEVER update WDL without updating API on remote first - they must stay in sync!**
 
@@ -495,9 +497,9 @@ python cli/diagnose_and_fix.py --scan --format llm | grep "api_id: <api-id>"
 # 2. For each affected tool, update the WDL
 # After fixing API on remote, update each tool's widdle.json
 
-# 3. Save draft and test each tool
-python cli/save_wdl_draft.py --workflow-id <tool-1> --standalone
+# 3. Test each tool directly, then save draft
 python cli/test_runner.py <tool-1>
+python cli/save_wdl_draft.py --workflow-id <tool-1> --standalone
 # Repeat for all affected tools
 ```
 

@@ -30,8 +30,9 @@ ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for b
 
 ### Testing & Validation
 
-- **Compilation**: JSON syntax + WDL structure compilation (`--compile`) — MANDATORY before remote testing
-- **Remote Execution**: Full workflow testing with trace capture
+- **Compilation**: JSON syntax + WDL structure compilation (`--compile`) — MANDATORY before testing
+- **Direct WDL Execution**: Test local `widdle.json` via /run-wdl without saving (default mode)
+- **Remote Action Testing**: Test saved remote action with `--remote` flag
 - **Test Cases**: JSON-based test cases with expected output validation
 - **Parallel Testing**: Test multiple actions simultaneously (`--parallel N`)
 - **Batch Testing**: Test all actions in workspace or agent (`--workspace`, `--agent`)
@@ -39,7 +40,7 @@ ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for b
 
 ### Version Management
 
-- **Draft Support**: Save and test drafts without publishing
+- **Draft Support**: Save drafts after testing, publish when ready
 - **Version History**: List all versions with descriptions and timestamps
 - **Checkout**: Restore any previous version (local-first, falls back to API)
 - **Publish**: Make specific version live (requires explicit confirmation)
@@ -264,11 +265,14 @@ python cli/manage_wdl_action.py --create -r requirements.md -t "Title" --create-
 ### Testing Commands
 
 ```bash
-# Compile WDL (MANDATORY before remote testing)
+# Compile WDL (MANDATORY before testing)
 python cli/test_runner.py {workflow_id} --compile
 
-# Full remote test
+# Direct WDL test (no save needed — default mode)
 python cli/test_runner.py {workflow_id}
+
+# Test saved remote action (requires save_wdl_draft first)
+python cli/test_runner.py {workflow_id} --remote
 
 # Test with specific test case
 python cli/test_runner.py {workflow_id} --test test_2.json

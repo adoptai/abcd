@@ -101,10 +101,10 @@ python cli/test_runner.py <tool-id> --all
    - Ensure `canonical_api_endpoint` matches the updated API path
    - Ensure `url` uses the correct path with `{workflow_arguments.X}` substitution
 
-3. **SAVE DRAFT AND TEST**
-   - Save the draft: `python cli/save_wdl_draft.py --workflow-id <id>`
-   - Test: `python cli/test_runner.py <id>`
+3. **TEST AND SAVE DRAFT**
+   - Test directly: `python cli/test_runner.py <id>` (no save needed, uses /run-wdl)
    - Verify both API and WDL are working together
+   - Save draft only after test passes: `python cli/save_wdl_draft.py --workflow-id <id>`
 
 ### Why This Order Matters
 

@@ -353,22 +353,24 @@ Ensure test cases exist in `test_cases/` directory:
 }
 ```
 
-### Step 2: Compile WDL (MANDATORY Before Remote Testing)
+### Step 2: Compile WDL (MANDATORY Before Testing)
 
 ```bash
 # Compile WDL via remote compiler
 python cli/test_runner.py <action-id> --compile
 ```
 
-### Step 3: Test Remotely
+### Step 3: Test Directly (No Save Needed)
 
 ```bash
-# Test single case
+# Test single case (direct WDL execution via /run-wdl)
 python cli/test_runner.py <action-id> --test test_1.json
 
 # Test all cases
 python cli/test_runner.py <action-id> --all
 ```
+
+Default test mode sends local `widdle.json` directly to /run-wdl — no save/draft needed.
 
 ### Step 4: Debug Failures
 
@@ -379,16 +381,16 @@ If tests fail:
 
 ### Step 5: Iterate
 
-Repeat edit → test cycle until all tests pass.
+Repeat edit → compile → test cycle until all tests pass.
 
 ---
 
 ## 📤 PUSHING NEW VERSION
 
-### Step 1: Save as Draft
+### Step 1: Save as Draft (Only After Tests Pass)
 
 ```bash
-# Save current WDL as new draft version
+# Save current WDL as new draft version (only after all tests pass)
 python cli/save_wdl_draft.py --workflow-id <action-id> --description "Description of changes"
 ```
 
@@ -399,11 +401,11 @@ python cli/save_wdl_draft.py --workflow-id <action-id> --description "Descriptio
 python cli/list_wdl_versions.py --workflow-id <action-id>
 ```
 
-### Step 3: Final Remote Test
+### Step 3: Final Remote Verification (Optional)
 
 ```bash
-# Test the draft version remotely
-python cli/test_runner.py <action-id> --all
+# Verify saved remote action works correctly
+python cli/test_runner.py <action-id> --all --remote
 ```
 
 ### Step 4: Publish (When User Confirms)
@@ -451,15 +453,15 @@ Remote Action Workflow
 │   ├─ Make changes
 │   └─ Compile: `test_runner.py <id> --compile` ← MANDATORY
 │
-├─ 5. Test
+├─ 5. Test (direct WDL execution — no save needed)
 │   ├─ Create/update test cases
-│   ├─ Test remotely: `test_runner.py <id> --all`
+│   ├─ Test directly: `test_runner.py <id> --all`
 │   ├─ Debug failures if any
-│   └─ Iterate until passing
+│   └─ Iterate (edit → compile → test) until passing
 │
-└─ 6. Push
+└─ 6. Push (only after tests pass)
     ├─ Save draft: `save_wdl_draft.py --workflow-id <id>`
-    ├─ Final test
+    ├─ Optional: verify remote: `test_runner.py <id> --all --remote`
     ├─ Publish (on user confirmation): `publish_wdl_action.py --workflow-id <id>`
     └─ Verify publication
 ```

@@ -684,6 +684,23 @@ Examples:
     dry_run: bool = args.dry_run
 
     # Determine what to save
+    if args.agent and args.actions:
+        print(
+            "❌ Cannot use --agent and positional action(s) together.",
+            file=sys.stderr,
+        )
+        print(
+            "   --agent saves the agent and its subactions; positional args save individual actions.",
+            file=sys.stderr,
+        )
+        print(
+            "   Use one or the other:\n"
+            f"     python save_wdl_draft.py --agent {args.agent}\n"
+            f"     python save_wdl_draft.py {' '.join(args.actions)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     if args.agent:
         # Agent mode: save agent + subactions
         results = save_agent_drafts(

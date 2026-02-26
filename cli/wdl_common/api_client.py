@@ -623,6 +623,102 @@ class AdoptAPIClient:
         except requests.exceptions.RequestException as e:
             return False, None, f"Network error calling validation API: {e}"
 
+    def run_wdl_directly(
+        self,
+        wdl: list[dict[str, Any]],
+        user_message: str,
+        profile: dict[str, Any],
+        title: str = "direct_wdl_execution",
+        workflow_params: dict[str, Any] | None = None,
+        inline_actions: dict[str, Any] | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Execute WDL payload directly via /run-wdl without saving to platform.
+
+        Bypasses the need to create a remote action, publish WDL, and save
+        as draft before testing. The WDL is sent directly for execution.
+
+        Args:
+            wdl: The WDL workflow steps (list of operation dicts).
+            user_message: Natural language input / prompt for the execution.
+            profile: Adopt profile with base_url, security_params, etc.
+                     Can include profiles_map for per-API profiles.
+            title: Display title for the execution (default: "direct_wdl_execution").
+            workflow_params: Optional workflow parameters.
+            inline_actions: Optional map of placeholder action IDs to inline WDL
+                           definitions for uber agent testing without platform dependency.
+
+        Returns:
+            Tuple of (success, response_data, message)
+        """
+        url = f"{self.api_endpoint}/v1/actions/run-wdl?include_trace=true"
+
+        combined_params = {**profile.get("workflow_params", {})}
+        if workflow_params:
+            combined_params.update(workflow_params)
+
+        payload: dict[str, Any] = {
+            "wdl": wdl,
+            "title": title,
+            "user_message": user_message,
+            "base_url": profile.get("base_url", ""),
+            "application_base_url": profile.get("application_base_url", ""),
+            "workflow_params": combined_params,
+            "security_params": profile.get("security_params", {}),
+            "include_execution_trace": True,
+        }
+
+        profiles_map = profile.get("profiles_map")
+        if profiles_map:
+            converted_profiles_map = {}
+            for key, entry in profiles_map.items():
+                converted_entry = entry.copy() if isinstance(entry, dict) else entry
+                if isinstance(converted_entry, dict) and "security_params" in converted_entry:
+                    converted_entry["security_headers"] = converted_entry.pop("security_params")
+                converted_profiles_map[key] = converted_entry
+            payload["profiles_map"] = converted_profiles_map
+
+        mcp_profiles_map = profile.get("mcp_profiles_map")
+        if mcp_profiles_map:
+            converted_mcp_profiles_map = {}
+            for key, entry in mcp_profiles_map.items():
+                converted_entry = entry.copy() if isinstance(entry, dict) else entry
+                if isinstance(converted_entry, dict) and "security_params" in converted_entry:
+                    converted_entry["security_headers"] = converted_entry.pop("security_params")
+                converted_mcp_profiles_map[key] = converted_entry
+            payload["mcp_profiles_map"] = converted_mcp_profiles_map
+
+        if inline_actions:
+            payload["inline_actions"] = inline_actions
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=120)
+
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    return (
+                        False,
+                        error_data,
+                        f"Failed: {response.status_code} - {response.text}",
+                    )
+                except (ValueError, json.JSONDecodeError):
+                    return (
+                        False,
+                        None,
+                        f"Failed: {response.status_code} - {response.text}",
+                    )
+
+            data = response.json()
+
+            if not data.get("status"):
+                return False, data, "WDL execution returned unsuccessful status"
+
+            return True, data, "WDL executed successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
     # =========================================================================
     # API Management Operations (for Diagnostics)
     # =========================================================================

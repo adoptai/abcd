@@ -3,21 +3,25 @@
 Enhanced Test Runner - Parallel and batch test execution with LLM-integrated output.
 
 Features:
-- Remote compilation check via --compile (MANDATORY before remote testing)
+- Direct WDL execution via /run-wdl (default, no remote action needed)
+- Remote compilation check via --compile (MANDATORY before testing)
+- Legacy remote action testing via --remote (requires saved draft)
 - Parallel test execution for multiple actions
 - Batch testing (--workspace, --agent flags)
 - Via-agent testing for sub-actions through uber agents
 - Multiple action arguments support
-- Always uses allow_draft=True (simpler, avoids metadata issues)
 - Robust trace extraction from success and error responses
 - Direct LLM/Cursor-friendly output for automated evaluation
 
 Usage:
-    # Compile WDL (MANDATORY before remote testing)
+    # Compile WDL (MANDATORY before testing)
     python test_runner.py my-action --compile
 
-    # Test single action (remote execution)
+    # Test single action (direct WDL execution - no save/draft needed)
     python test_runner.py my-action
+
+    # Test saved remote action (legacy mode, requires save_wdl_draft first)
+    python test_runner.py my-action --remote
 
     # Test multiple actions in parallel
     python test_runner.py action1 action2 action3 --parallel 3
@@ -30,6 +34,12 @@ Usage:
 
     # Test sub-action through agent (via-agent testing)
     python test_runner.py my-agent --via-agent --subaction get-orderpoints
+
+    # Test uber agent with ALL subactions inline (no platform dependency)
+    python test_runner.py my-agent --test test_1.json --inline
+
+    # Test uber agent with specific subactions inline (mixed mode)
+    python test_runner.py my-agent --test test_1.json --inline search-products,get-bundle-options
 
     # Run all test cases for an action
     python test_runner.py my-action --all
@@ -52,6 +62,118 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.api_client import get_api_client_for_env
 from cli.wdl_common.workspace_manager import HierarchicalWorkspaceManager, get_workspace_manager
+
+
+def _load_subaction_inline(
+    subaction_path: Path,
+    subaction_name: str,
+) -> dict[str, Any] | None:
+    """Load a single subaction's WDL, title, and description for inlining."""
+    wdl_path = subaction_path / "widdle.json"
+    if not wdl_path.exists():
+        return None
+
+    subaction_wdl = json.loads(wdl_path.read_text())
+
+    metadata_path = subaction_path / "metadata.json"
+    title = subaction_name
+    if metadata_path.exists():
+        meta = json.loads(metadata_path.read_text())
+        title = meta.get("title", subaction_name)
+
+    desc_path = subaction_path / "description.txt"
+    description = ""
+    if desc_path.exists():
+        description = desc_path.read_text().strip()
+
+    return {
+        "title": title,
+        "description": description,
+        "wdl": subaction_wdl,
+    }
+
+
+def build_inline_actions(
+    wdl: list[dict[str, Any]],
+    agent_path: Path,
+    inline_filter: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    """
+    Scan WDL for PROMPT_AND_TOOLS_AGENT steps, rewrite action_ids with inline:: prefix,
+    resolve them to local subaction widdle.json files, and build the inline_actions map.
+
+    When inline_filter is None (inline ALL), all local subaction directories are
+    discovered and used, replacing ANY existing action_ids (including platform UUIDs).
+
+    When inline_filter is a list of subaction names, only those are inlined and the
+    remaining action_ids are kept as-is (mixed mode).
+
+    Args:
+        wdl: The uber agent WDL.
+        agent_path: Path to the agent directory containing actions/ subdirectory.
+        inline_filter: If provided, only inline these specific subaction names.
+                       If None, inline ALL local subactions (replaces all action_ids).
+
+    Returns:
+        Tuple of (modified_wdl, inline_actions_map). inline_actions_map is None
+        if no inline actions were found/resolved.
+    """
+    import copy
+
+    actions_dir = agent_path / "actions"
+    if not actions_dir.exists():
+        return wdl, None
+
+    modified_wdl = copy.deepcopy(wdl)
+    inline_actions: dict[str, Any] = {}
+
+    for step in modified_wdl:
+        if step.get("operation") != "PROMPT_AND_TOOLS_AGENT":
+            continue
+
+        if inline_filter is None:
+            # Inline ALL: discover every local subaction and replace the entire action_ids list
+            new_ids: list[str] = []
+            for subaction_dir in sorted(actions_dir.iterdir()):
+                if not subaction_dir.is_dir():
+                    continue
+                subaction_name = subaction_dir.name
+                loaded = _load_subaction_inline(subaction_dir, subaction_name)
+                if loaded:
+                    inline_id = f"inline::{subaction_name}"
+                    inline_actions[inline_id] = loaded
+                    new_ids.append(inline_id)
+            step["action_ids"] = new_ids
+        else:
+            # Mixed mode: only inline specified subactions, keep the rest as-is
+            original_ids = step.get("action_ids", [])
+            new_ids = []
+
+            # First, add inline entries for the explicitly requested subactions
+            inlined_names: set[str] = set()
+            for name in inline_filter:
+                subaction_path = actions_dir / name
+                if subaction_path.exists():
+                    loaded = _load_subaction_inline(subaction_path, name)
+                    if loaded:
+                        inline_id = f"inline::{name}"
+                        inline_actions[inline_id] = loaded
+                        new_ids.append(inline_id)
+                        inlined_names.add(name)
+
+            # Then keep original action_ids that weren't inlined
+            for action_id in original_ids:
+                # Skip if this was an inline:: ref that we already handled
+                if action_id.startswith("inline::"):
+                    name = action_id.removeprefix("inline::")
+                    if name in inlined_names:
+                        continue
+                # Keep platform UUIDs and other non-inlined IDs
+                new_ids.append(action_id)
+
+            step["action_ids"] = new_ids
+
+    return modified_wdl, inline_actions if inline_actions else None
 
 
 @dataclass
@@ -242,6 +364,8 @@ def run_single_test(
     test_file: str | None = None,
     verbose: bool = False,
     validate: bool = False,
+    use_remote: bool = False,
+    inline_mode: list[str] | bool = False,
 ) -> TestResult:
     """
     Run test for a single action with full context for LLM evaluation.
@@ -249,7 +373,8 @@ def run_single_test(
     Modes (mutually exclusive):
     - compile_only: Compile WDL via remote compiler API (no remote execution)
     - validate: Run compiler validation before remote execution
-    - default: Skip validation, go straight to remote execution (remote already compiles)
+    - use_remote: Test the saved remote action via run_action (requires action_id in metadata)
+    - default: Execute local widdle.json directly via /run-wdl (no remote action needed)
 
     Args:
         action_id: Action/workflow ID
@@ -258,6 +383,9 @@ def run_single_test(
         test_file: Specific test file to run
         verbose: Include WDL operations in output for debugging
         validate: Run compiler validation before remote execution
+        use_remote: Use saved remote action instead of direct WDL execution
+        inline_mode: If True, inline ALL local subactions. If a list of names,
+                     inline only those subactions. If False, no inlining.
 
     Returns:
         TestResult with full context for LLM/Cursor evaluation
@@ -373,21 +501,6 @@ def run_single_test(
                 workspace_path=str(workspace),
             )
 
-        # Get remote action ID for testing
-        metadata = action_info.get("metadata", {})
-        remote_action_id = metadata.get("action_id") or metadata.get("remote_action_id")
-
-        if not remote_action_id:
-            return TestResult(
-                action_id=action_id,
-                success=False,
-                message="Not linked to remote",
-                duration_ms=int((time.time() - start_time) * 1000),
-                error="No remote action_id in metadata. Run: python cli/save_wdl_draft.py --workflow-id "
-                + action_id,
-                workspace_path=str(workspace),
-            )
-
         # Load test case
         test_cases_dir = workspace / "test_cases"
         if test_file:
@@ -429,15 +542,59 @@ def run_single_test(
             env_name=action_info.get("env_name"),
         )
 
-        # Run test (always allow_draft=True for simpler testing)
         client = get_api_client_for_env()
-        success, response, msg = client.run_action(
-            action_id=remote_action_id,
-            user_input=prompt,
-            profile=resolved_profile,
-            workflow_params=workflow_params,
-            allow_draft=True,
-        )
+
+        if use_remote:
+            # Legacy mode: test the saved remote action via run_action
+            metadata = action_info.get("metadata", {})
+            remote_action_id = metadata.get("action_id") or metadata.get("remote_action_id")
+
+            if not remote_action_id:
+                return TestResult(
+                    action_id=action_id,
+                    success=False,
+                    message="Not linked to remote",
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    error="No remote action_id in metadata. Run: python cli/save_wdl_draft.py --workflow-id "
+                    + action_id,
+                    workspace_path=str(workspace),
+                )
+
+            success, response, msg = client.run_action(
+                action_id=remote_action_id,
+                user_input=prompt,
+                profile=resolved_profile,
+                workflow_params=workflow_params,
+                allow_draft=True,
+            )
+        else:
+            # Default mode: execute local WDL directly via /run-wdl
+            metadata = action_info.get("metadata", {})
+            title = metadata.get("title", action_id)
+
+            # Handle inline subaction resolution for uber agents
+            inline_actions_payload: dict[str, Any] | None = None
+            execution_wdl = wdl
+            if inline_mode:
+                agent_path = workspace.parent.parent if action_info.get("agent_name") else workspace
+                inline_filter = inline_mode if isinstance(inline_mode, list) else None
+                execution_wdl, inline_actions_payload = build_inline_actions(
+                    wdl, agent_path, inline_filter
+                )
+                if inline_actions_payload:
+                    inline_names = [k.removeprefix("inline::") for k in inline_actions_payload]
+                    print(
+                        f"   📦 Inlined {len(inline_actions_payload)} subaction(s): {', '.join(inline_names)}"
+                    )
+
+            success, response, msg = client.run_wdl_directly(
+                wdl=execution_wdl,
+                user_message=prompt,
+                profile=resolved_profile,
+                title=title,
+                workflow_params=workflow_params,
+                inline_actions=inline_actions_payload,
+            )
 
         # Extract execution trace
         execution_trace = extract_execution_trace(response, msg if not success else None)
@@ -657,6 +814,8 @@ def run_parallel_tests(
     compile_only: bool = False,
     verbose: bool = False,
     validate: bool = False,
+    use_remote: bool = False,
+    inline_mode: list[str] | bool = False,
 ) -> list[TestResult]:
     """
     Run tests for multiple actions in parallel.
@@ -668,6 +827,8 @@ def run_parallel_tests(
         compile_only: Only compile via remote compiler (no remote execution)
         verbose: Include WDL operations for debugging
         validate: Run compiler validation before remote execution
+        use_remote: Test saved remote action instead of direct WDL execution
+        inline_mode: Inline subaction mode (True=all, list=specific, False=none)
 
     Returns:
         List of TestResults
@@ -677,7 +838,15 @@ def run_parallel_tests(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_action = {
             executor.submit(
-                run_single_test, aid, manager, compile_only, None, verbose, validate
+                run_single_test,
+                aid,
+                manager,
+                compile_only,
+                None,
+                verbose,
+                validate,
+                use_remote,
+                inline_mode,
             ): aid
             for aid in action_ids
         }
@@ -907,9 +1076,10 @@ def print_results(results: list[TestResult], start_time: datetime, verbose: bool
         print("   4. Does the output format match what was expected?")
         print("")
         print(
-            "   If output is valid → proceed with: python cli/save_wdl_draft.py --workflow-id <action-id>"
+            "   If output is valid → save draft: python cli/save_wdl_draft.py --workflow-id <action-id>"
         )
         print("   If output needs fixes → modify widdle.json and re-run tests")
+        print("   Note: Save draft only AFTER all tests pass and output is verified")
 
     print("=" * 80)
 
@@ -921,11 +1091,14 @@ def main() -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Compile WDL (MANDATORY before remote testing)
+  # Compile WDL (MANDATORY before testing)
   %(prog)s my-action --compile
 
-  # Test single action (remote execution)
+  # Test single action (direct WDL execution - no save/draft needed)
   %(prog)s my-action
+
+  # Test saved remote action (legacy, requires save_wdl_draft first)
+  %(prog)s my-action --remote
 
   # Test with verbose output (shows WDL operations, full traces)
   %(prog)s my-action --verbose
@@ -943,8 +1116,9 @@ Examples:
   %(prog)s my-agent --via-agent --subaction get-orderpoints
 
 Key Features:
-  - Remote compilation check via --compile (MANDATORY before remote testing)
-  - Always uses allow_draft=True (no metadata version tracking issues)
+  - Direct WDL execution via /run-wdl (default, no remote action needed)
+  - Remote compilation check via --compile (MANDATORY before testing)
+  - Legacy remote action testing via --remote (requires saved draft)
   - Robust trace extraction from success and error responses
   - LLM/Cursor-friendly output for automated evaluation
   - Parallel execution for multiple actions
@@ -975,14 +1149,28 @@ Key Features:
         "--compile",
         "-c",
         action="store_true",
-        help="Compile WDL via remote compiler (no remote execution). MANDATORY before remote testing.",
+        help="Compile WDL via remote compiler (no execution). MANDATORY before testing.",
     )
     parser.add_argument(
-        "--validate", action="store_true", help="Run compiler validation before remote execution"
+        "--validate", action="store_true", help="Run compiler validation before execution"
+    )
+    parser.add_argument(
+        "--remote",
+        action="store_true",
+        help="Test saved remote action via run_action (requires save_wdl_draft first). "
+        "Without this flag, tests execute local widdle.json directly via /run-wdl.",
     )
     parser.add_argument("--test", "-t", help="Specific test file to run")
     parser.add_argument(
         "--all", action="store_true", help="Run all test cases in test_cases/ directory"
+    )
+    parser.add_argument(
+        "--inline",
+        nargs="?",
+        const="__all__",
+        default=None,
+        help="Inline subaction WDLs for uber agent testing (no platform dependency). "
+        "Without args: inline ALL subactions. With comma-separated names: inline only those.",
     )
     parser.add_argument("--env", "-e", help="Environment to use")
     parser.add_argument(
@@ -1008,6 +1196,14 @@ Key Features:
         else:
             print(f"❌ Environment not found: {args.env}")
             return 1
+
+    # Parse --inline argument
+    inline_mode: list[str] | bool = False
+    if args.inline is not None:
+        if args.inline == "__all__":
+            inline_mode = True
+        else:
+            inline_mode = [s.strip() for s in args.inline.split(",") if s.strip()]
 
     dry_run: bool = getattr(args, "dry_run", False)
     start_time = datetime.now()
@@ -1052,55 +1248,8 @@ Key Features:
         result = run_via_agent_test(args.agent, subaction, manager, args.test)
         results = [result]
 
-    elif args.workspace:
-        # Batch test all actions in workspace
-        print(f"\n🧪 Testing all actions in workspace: {args.workspace}")
-        action_ids = collect_actions_from_workspace(args.workspace, manager)
-        if not action_ids:
-            print("❌ No actions found in workspace")
-            return 1
-        if dry_run:
-            print(
-                f"\n🔍 [DRY-RUN] Would test {len(action_ids)} action(s) from workspace: {args.workspace}"
-            )
-            for aid in action_ids:
-                info = manager.find_action(aid)
-                if info:
-                    tc_dir = info["path"] / "test_cases"
-                    tfiles = get_all_test_files(tc_dir) if tc_dir.exists() else []
-                    print(f"   • {aid}: {len(tfiles)} test case(s)")
-            print("\n   ✅ Dry-run complete — no API calls made")
-            return 0
-        print(f"   Found {len(action_ids)} actions")
-        results = run_parallel_tests(
-            action_ids, manager, args.parallel, args.compile, args.verbose, args.validate
-        )
-
-    elif args.agent and args.all_subactions:
-        # Batch test all sub-actions in agent
-        print(f"\n🧪 Testing all sub-actions in agent: {args.agent}")
-        action_ids = collect_actions_from_agent(args.agent, manager, args.env)
-        if not action_ids:
-            print("❌ No sub-actions found in agent")
-            return 1
-        if dry_run:
-            print(
-                f"\n🔍 [DRY-RUN] Would test {len(action_ids)} sub-action(s) in agent: {args.agent}"
-            )
-            for aid in action_ids:
-                info = manager.find_action(aid)
-                if info:
-                    tc_dir = info["path"] / "test_cases"
-                    tfiles = get_all_test_files(tc_dir) if tc_dir.exists() else []
-                    print(f"   • {aid}: {len(tfiles)} test case(s)")
-            print("\n   ✅ Dry-run complete — no API calls made")
-            return 0
-        print(f"   Found {len(action_ids)} sub-actions")
-        results = run_parallel_tests(
-            action_ids, manager, args.parallel, args.compile, args.verbose, args.validate
-        )
-
     elif args.actions:
+        # Positional action names take priority over --workspace / --agent batch modes
         # Test specific action(s)
         action_ids = args.actions
         if dry_run:
@@ -1130,7 +1279,13 @@ Key Features:
         if len(action_ids) == 1:
             # Single action - check if running all test cases
             action_id = action_ids[0]
-            print(f"\n🧪 Testing: {action_id}")
+            if args.remote:
+                mode = "remote action"
+            elif inline_mode:
+                mode = "direct WDL (/run-wdl) + inline subactions"
+            else:
+                mode = "direct WDL (/run-wdl)"
+            print(f"\n🧪 Testing: {action_id} [{mode}]")
 
             if args.all:
                 # Run all test cases for this action
@@ -1150,6 +1305,8 @@ Key Features:
                                 test_file,
                                 args.verbose,
                                 args.validate,
+                                args.remote,
+                                inline_mode,
                             )
                             results.append(result)
                     else:
@@ -1176,15 +1333,91 @@ Key Features:
             else:
                 # Single test case
                 result = run_single_test(
-                    action_id, manager, args.compile, args.test, args.verbose, args.validate
+                    action_id,
+                    manager,
+                    args.compile,
+                    args.test,
+                    args.verbose,
+                    args.validate,
+                    args.remote,
+                    inline_mode,
                 )
                 results = [result]
         else:
             # Multiple actions - parallel test
             print(f"\n🧪 Testing {len(action_ids)} actions in parallel")
             results = run_parallel_tests(
-                action_ids, manager, args.parallel, args.compile, args.verbose, args.validate
+                action_ids,
+                manager,
+                args.parallel,
+                args.compile,
+                args.verbose,
+                args.validate,
+                args.remote,
+                inline_mode,
             )
+
+    elif args.workspace:
+        # Batch test all actions in workspace (only when no positional args given)
+        print(f"\n🧪 Testing all actions in workspace: {args.workspace}")
+        action_ids = collect_actions_from_workspace(args.workspace, manager)
+        if not action_ids:
+            print("❌ No actions found in workspace")
+            return 1
+        if dry_run:
+            print(
+                f"\n🔍 [DRY-RUN] Would test {len(action_ids)} action(s) from workspace: {args.workspace}"
+            )
+            for aid in action_ids:
+                info = manager.find_action(aid)
+                if info:
+                    tc_dir = info["path"] / "test_cases"
+                    tfiles = get_all_test_files(tc_dir) if tc_dir.exists() else []
+                    print(f"   • {aid}: {len(tfiles)} test case(s)")
+            print("\n   ✅ Dry-run complete — no API calls made")
+            return 0
+        print(f"   Found {len(action_ids)} actions")
+        results = run_parallel_tests(
+            action_ids,
+            manager,
+            args.parallel,
+            args.compile,
+            args.verbose,
+            args.validate,
+            args.remote,
+            inline_mode,
+        )
+
+    elif args.agent and args.all_subactions:
+        # Batch test all sub-actions in agent
+        print(f"\n🧪 Testing all sub-actions in agent: {args.agent}")
+        action_ids = collect_actions_from_agent(args.agent, manager, args.env)
+        if not action_ids:
+            print("❌ No sub-actions found in agent")
+            return 1
+        if dry_run:
+            print(
+                f"\n🔍 [DRY-RUN] Would test {len(action_ids)} sub-action(s) in agent: {args.agent}"
+            )
+            for aid in action_ids:
+                info = manager.find_action(aid)
+                if info:
+                    tc_dir = info["path"] / "test_cases"
+                    tfiles = get_all_test_files(tc_dir) if tc_dir.exists() else []
+                    print(f"   • {aid}: {len(tfiles)} test case(s)")
+            print("\n   ✅ Dry-run complete — no API calls made")
+            return 0
+        print(f"   Found {len(action_ids)} sub-actions")
+        results = run_parallel_tests(
+            action_ids,
+            manager,
+            args.parallel,
+            args.compile,
+            args.verbose,
+            args.validate,
+            args.remote,
+            inline_mode,
+        )
 
     else:
         parser.print_help()

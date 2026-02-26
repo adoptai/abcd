@@ -229,51 +229,17 @@ python cli/manage_wdl_action.py --workflow-id <id> --use-api api-id-1 --use-tool
      - **Important**: Expected outputs don't need to be exact matches - they should be similar in structure and contain valid, non-hallucinated data
    - **Workflow**: Create all 3 test cases → Then proceed to testing
 
-### Phase 4: Create Remote Action & Save Draft
+### Phase 4: Test & Iterate
 
-**When the user requests to create the action on remote and save as draft**, you have two options:
+#### Direct WDL Testing (Default — No Save Required)
 
-#### Option A: Create Remote Action and Save Draft in One Command
-```bash
-# Create workspace, create remote action, and save draft (if widdle.json exists)
-python cli/manage_wdl_action.py --create \
-  -r requirements.md \
-  -t "My Workflow" \
-  --create-remote --save-draft \
-  --standalone
-```
+Test your local `widdle.json` directly without saving to the platform:
 
-This will:
-1. Create the workspace locally
-2. Create the action on AdoptAI platform
-3. Save `action_id` to `metadata.json`
-4. If `widdle.json` exists, publish WDL and save as draft automatically
-
-#### Option B: Save Draft (Automatically Creates Remote Action if Needed)
-```bash
-# Simply save draft - automatically creates remote action and publishes WDL if needed
-python cli/save_wdl_draft.py --workflow-id {workflow_id} --standalone
-```
-
-**What happens automatically**:
-- **If action doesn't exist**: Creates remote action on AdoptAI using metadata (title, description, API IDs)
-- **If action exists**: Verifies it exists on remote
-- **Always**: Publishes WDL to the remote action
-- **Always**: Saves as draft (creates version, not live)
-- **Always**: Updates `metadata.json` with `action_id`, version, and status
-
-**Note**: You no longer need to manually create the remote action first. `save_wdl_draft.py` handles everything automatically.
-
-### Phase 5: Test & Iterate
-
-#### Testing Draft Actions
-
-**NEW**: You can now test draft actions directly after saving them, without publishing!
-
-1. **Save draft**: `python cli/save_wdl_draft.py --workflow-id {id}`
-2. **Test draft immediately**: `python cli/test_runner.py {id}`
-   - Always uses `allow_draft=True` for reliable draft testing
-   - No need to publish first!
+1. **Compile** (MANDATORY): `python cli/test_runner.py {id} --compile`
+2. **Test directly**: `python cli/test_runner.py {id}`
+   - Executes local `widdle.json` via /run-wdl endpoint
+   - No remote action or draft needed
+   - Fast iteration: edit → compile → test
 
 #### Test Case Management
 
@@ -313,22 +279,26 @@ python cli/test_runner.py {workflow_id} --all
 #### 💡 Use test_runner.py for Testing
 
 ```bash
-# Simple test with automatic draft support
+# Direct WDL test (no save needed — default mode)
 python cli/test_runner.py {workflow_id}
+
+# Test saved remote action (legacy mode)
+python cli/test_runner.py {workflow_id} --remote
 
 # Parallel testing of multiple actions
 python cli/test_runner.py action1 action2 action3 --parallel 3
 ```
 
 **Why use test_runner.py:**
-- **Always uses `allow_draft=True`** - avoids metadata/version tracking issues
-- **No complex version detection** - simpler, more reliable
+- **Direct WDL execution** (default) - sends local `widdle.json` to /run-wdl, no save/draft needed
+- **Fast iteration** - edit → compile → test without saving to platform
 - **Parallel execution support** - faster when testing multiple actions
 - **Batch testing** - test entire workspaces or agents at once
+- **Remote mode** (`--remote`) - test saved remote action when needed
 
-#### Compilation (MANDATORY Before Remote Testing)
+#### Compilation (MANDATORY Before Testing)
 ```bash
-# Compile WDL via remote compiler (no remote execution)
+# Compile WDL via remote compiler (no execution)
 python cli/test_runner.py {workflow_id} --compile
 ```
 
@@ -346,17 +316,17 @@ python cli/test_runner.py {workflow_id} --compile
 - Validates operation-specific requirements
 - Checks for duplicate IDs
 - Validates data flow references
-- **Does NOT** execute the workflow remotely
+- **Does NOT** execute the workflow
 
 **Use this for**:
 - Catching structural and logical errors early
-- Checking JSON syntax and WDL structure before remote testing
+- Checking JSON syntax and WDL structure before testing
 - Debugging syntax and structure issues
-- **⚠️ MANDATORY: Always run this before remote testing**
+- **⚠️ MANDATORY: Always run this before testing**
 
-#### Remote Testing (Full Execution)
+#### Direct WDL Testing (Default Mode)
 ```bash
-# Full remote test
+# Direct WDL test (sends local widdle.json to /run-wdl)
 python cli/test_runner.py {workflow_id}
 
 # Test with specific test case
@@ -370,26 +340,20 @@ python cli/test_runner.py {workflow_id} --verbose
 ```
 
 **What this does**:
-1. **Detects remote action**: Checks `metadata.json` for `action_id`
-   - If `action_id` exists → Uses it for remote testing
-   - If no `action_id` → Shows error with instructions to create remote action
-2. **Detects version to test**:
-   - Checks for checked-out version first (from `metadata.json.checked_out_version`)
-   - Falls back to current version (from `metadata.json.current_version`)
-   - Determines if version is draft or published
-   - Passes `version_number` and `allow_draft` parameters to API
-3. **Executes workflow** on AdoptAI platform
-4. **Captures execution trace** (saved to `traces/`)
-5. **On failure**: Generates `cursor_fix_instructions.md` with fix suggestions
+1. **Loads local `widdle.json`** from workspace
+2. **Loads test case** with prompt and workflow_params
+3. **Sends WDL directly** to /run-wdl endpoint for execution
+4. **No remote action needed** — no save/draft/publish required
+5. **Captures execution trace** (saved to `traces/`)
+6. **On failure**: Generates fix suggestions
 
-**⚠️ Auto-save is DISABLED**: After successful tests, save drafts separately:
+#### Remote Action Testing (`--remote` flag)
 ```bash
-python cli/save_wdl_draft.py --workflow-id {workflow_id} --description "Test passed" --standalone
+# Test saved remote action (requires save_wdl_draft first)
+python cli/test_runner.py {workflow_id} --remote
 ```
 
-**Important**: The script now properly detects remote actions by checking `metadata.json` for `action_id`, not by checking the workflow_id string. Once an action is created remotely and saved as draft, the `action_id` is stored in metadata and the script will automatically use it for testing.
-
-**Draft Testing**: If you've checked out a draft version or the current version is a draft, the test script automatically passes `allow_draft=True` to enable testing draft versions directly.
+Use `--remote` when you need to test the actual saved remote action (e.g., after save/publish, or to verify the saved version).
 
 #### Testing Workflow
 
@@ -406,25 +370,40 @@ python cli/save_wdl_draft.py --workflow-id {workflow_id} --description "Test pas
    ├─ Step 1: JSON syntax validation (catches JSON parsing errors)
    └─ Step 2: Remote WDL compilation (catches structural and logical errors)
 4. Fix any compilation errors
-5. Save draft → python cli/save_wdl_draft.py --workflow-id {id} --standalone
-   (Automatically creates remote action and publishes WDL if needed)
-6. Test remotely → python cli/test_runner.py {id} --all
+5. Test directly → python cli/test_runner.py {id} --all
+   ├─ Executes local widdle.json via /run-wdl (no save needed!)
    ├─ Runs all 3 test cases
    ├─ Validates outputs against expected_output
-   └─ Failure → Read cursor_fix_instructions.md → Fix → Re-test
-7. Iterate until all test cases pass with similar/valid outputs
+   └─ Failure → Review trace → Fix widdle.json → Re-compile → Re-test
+6. Iterate until all test cases pass with similar/valid outputs
    ├─ Tweak workflow to match expected outputs
    └─ Focus on correctness and structural similarity
-8. Save draft → python cli/save_wdl_draft.py --workflow-id {id} --description "Ready for review" --standalone
-9. Publish when user confirms
+7. Save draft → python cli/save_wdl_draft.py --workflow-id {id} --standalone
+   (ONLY after all tests pass. Auto-creates remote action if needed)
+8. Publish when user confirms
 ```
 
 If test fails:
-1. Read the generated `cursor_fix_instructions.md`
-2. Read the trace file in `traces/`
-3. Consult relevant WDL documentation
-4. Fix `widdle.json`
-5. Re-run test
+1. Read the trace file in `traces/`
+2. Consult relevant WDL documentation
+3. Fix `widdle.json`
+4. Re-compile and re-test
+
+### Phase 5: Save Draft (Only After Tests Pass)
+
+**Save draft only when all tests pass and outputs are verified:**
+
+```bash
+# Save draft — automatically creates remote action and publishes WDL if needed
+python cli/save_wdl_draft.py --workflow-id {workflow_id} --standalone
+```
+
+**What happens automatically**:
+- **If action doesn't exist**: Creates remote action on AdoptAI using metadata (title, description, API IDs)
+- **If action exists**: Verifies it exists on remote
+- **Always**: Publishes WDL to the remote action
+- **Always**: Saves as draft (creates version, not live)
+- **Always**: Updates `metadata.json` with `action_id`, version, and status
 
 ### Phase 6: Publish (Only When User Confirms)
 ```bash
@@ -435,7 +414,7 @@ python cli/publish_wdl_action.py {action_id}
 python cli/publish_wdl_action.py {workflow_id}
 ```
 
-**IMPORTANT**: Only publish when the user explicitly approves. Tests passing just saves a draft.
+**IMPORTANT**: Only publish when the user explicitly approves.
 
 ## CLI Reference
 
@@ -556,14 +535,14 @@ python cli/manage_wdl_action.py --workflow-id {workflow_id} --create-remote
 
 ### Testing Commands
 ```bash
-# Compile WDL (MANDATORY before remote testing)
+# Compile WDL (MANDATORY before testing)
 python cli/test_runner.py {workflow_id} --compile
 
-# Full remote test (requires action_id in metadata.json)
-# - Automatically detects remote action from metadata.action_id
-# - Executes workflow on AdoptAI platform
-# - Auto-save is DISABLED - save drafts separately
+# Direct WDL test (sends local widdle.json to /run-wdl — no save needed)
 python cli/test_runner.py {workflow_id}
+
+# Test saved remote action (requires save_wdl_draft first)
+python cli/test_runner.py {workflow_id} --remote
 
 # Test with specific test case
 python cli/test_runner.py {workflow_id} --test test_2.json
@@ -578,11 +557,10 @@ python cli/test_runner.py {workflow_id} --agent my-agent
 python cli/test_runner.py {workflow_id} --verbose
 ```
 
-**How Remote Action Detection Works**:
-- The script checks `metadata.json` for `action_id` field
-- If `action_id` exists → Uses it for remote testing
-- If no `action_id` → Shows helpful error with instructions to create remote action
-- **No need to check workflow_id string** - detection is based on metadata
+**How Testing Works**:
+- **Default mode**: Sends local `widdle.json` directly to /run-wdl for execution — no save/draft needed
+- **Remote mode** (`--remote`): Tests the saved remote action (requires `save_wdl_draft` first)
+- **Save draft only after tests pass** — use `save_wdl_draft.py` when all tests are verified
 
 ### Version Management
 
@@ -988,11 +966,14 @@ Then update `widdle.json` to match:
 - Update `canonical_api_endpoint` in the REST block
 - Update `url` with the correct path (using `{workflow_arguments.X}` for parameters)
 
-#### Step 4: Save Draft and Test
+#### Step 4: Test and Save Draft
 
 ```bash
-python cli/save_wdl_draft.py --workflow-id <id> --standalone
+# Test directly first (no save needed)
 python cli/test_runner.py <id>
+
+# Save draft only after tests pass
+python cli/save_wdl_draft.py --workflow-id <id> --standalone
 ```
 
 **⚠️ NEVER:**
@@ -1004,20 +985,19 @@ If you update only one side, the tool **WILL** break.
 
 ## Important Notes
 
-1. **Draft vs Publish**: Test passing saves a draft, NOT published. User must explicitly approve publishing.
-2. **Draft Testing**: Draft actions can be tested directly without publishing. The test script automatically detects draft versions and passes `allow_draft=True` to the API.
+1. **Direct Testing**: Default test mode executes local `widdle.json` via /run-wdl — no save/draft needed. Save draft only after all tests pass.
+2. **Remote Testing**: Use `--remote` flag to test the saved remote action (requires `save_wdl_draft` first).
 3. **Version Control**: Every saved draft creates a version. Users can checkout previous versions. All versions are tracked with status (draft/published) and descriptions.
 4. **Version Descriptions**: Always provide meaningful descriptions when saving drafts or publishing. Descriptions help navigate version history and understand changes.
 5. **Version Metadata**: Version information is stored in `metadata.json` with a `versions` map structure. `current_version` and `checked_out_version` are just numbers pointing to full data in the map.
 6. **Local WDL Storage**: All versions are automatically stored in `versions/v{version_number}_widdle.json`. This enables checkout without API calls, version comparison, and local version history navigation.
 7. **Agent Workspaces**: Workflows can be organized under agents (projects) for grouping.
 8. **Roaming RAG**: Don't fetch all docs at once. Fetch the index first, then fetch specific operation docs as needed from `https://adoptai.github.io/widdle_docs/operations/`.
-9. **Remote Action Detection**: The test script detects remote actions by checking `metadata.json` for `action_id`, not by checking the workflow_id string. Once created remotely, the `action_id` is stored in metadata and used automatically.
-10. **Creating Remote Actions**: `save_wdl_draft.py` automatically creates remote action if it doesn't exist. No need to manually create it first. Use `--create-remote` only if you want to create action without saving draft.
-11. **Testing Flow**: Always compile first (`--compile`), then save draft (which auto-creates remote action and publishes WDL), then test remotely. Compilation is MANDATORY before remote testing. Draft versions can be tested immediately after saving.
-12. **Version Iteration**: You can checkout any version, modify it, save as new draft, test the draft, and switch back to previous versions seamlessly.
-13. **Parameter Changes**: `save_wdl_draft.py` supports `--description` but no longer has `--yes` parameter. `publish_wdl_action.py` supports both `--description` and `--yes` (skip confirmation).
-14. **Version Comparison**: Use `versions/` folder to compare versions locally: `diff versions/v4_widdle.json versions/v10_widdle.json` or `grep "operation" versions/*.json`.
+9. **Creating Remote Actions**: `save_wdl_draft.py` automatically creates remote action if it doesn't exist. No need to manually create it first.
+10. **Testing Flow**: Always compile first (`--compile`), then test directly (no save needed), then save draft only after all tests pass. Compilation is MANDATORY before testing.
+11. **Version Iteration**: You can checkout any version, modify it, save as new draft, test the draft, and switch back to previous versions seamlessly.
+12. **Parameter Changes**: `save_wdl_draft.py` supports `--description` but no longer has `--yes` parameter. `publish_wdl_action.py` supports both `--description` and `--yes` (skip confirmation).
+13. **Version Comparison**: Use `versions/` folder to compare versions locally: `diff versions/v4_widdle.json versions/v10_widdle.json` or `grep "operation" versions/*.json`.
 
 ## Your Role
 
@@ -1056,14 +1036,13 @@ As Cursor, you should:
    - **⚠️ MANDATORY: Always compile first** (`--compile`) to validate JSON syntax and WDL structure
      - **Step 1**: JSON syntax validation (catches parsing errors early)
      - **Step 2**: Remote WDL compilation (catches structural and logical errors)
-   - **Fix compilation errors** before proceeding to remote testing
-   - **Create remote action** when user requests: `--create-remote`
-   - **Save draft** when user requests: Use `save_wdl_draft.py` (automatically creates remote action and publishes WDL if needed)
-   - **Test remotely** after action is created and draft is saved
+   - **Fix compilation errors** before proceeding to testing
+   - **Test directly** after compilation — no save needed (default mode uses /run-wdl)
      - Use `--all` to run all test cases
      - Use `--test test_N.json` to run specific test case
    - The test script automatically validates outputs against `expected_output`
    - **Tweak workflow** to match expected outputs - focus on similarity and valid data
+   - **Save draft only after all tests pass**: Use `save_wdl_draft.py` (auto-creates remote action if needed)
 6. **Iterate**: Test frequently, fix issues, re-test until all test cases pass
 7. **Explain**: Tell the user what you're doing and why
 8. **Ask for confirmation**: Before publishing, always confirm with the user
@@ -1127,18 +1106,20 @@ When a user provides requirements, follow these steps:
    
    **Note**: No need to manually create remote action first. `save_wdl_draft.py` handles it automatically.
 
-8. **Compile vs Remote Testing**:
+8. **Compile and Test**:
    - **Compile (MANDATORY)**: `python cli/test_runner.py {workflow_id} --compile`
      - **Step 1**: Validates JSON syntax (catches parsing errors)
      - **Step 2**: Compiles WDL via remote compiler (catches structural and logical errors)
-     - No remote execution
+     - No execution — only validation
      - Fast feedback during development
-     - **Always run this first** to catch JSON syntax errors before structure validation
-   - **Remote**: `python cli/test_runner.py {workflow_id}`
-     - Requires `action_id` in `metadata.json`
-     - Executes workflow on AdoptAI platform
-     - **Auto-save is DISABLED** - save drafts separately with `save_wdl_draft.py`
-     - Generates fix instructions on failure
+     - **Always run this first**
+   - **Direct test** (default): `python cli/test_runner.py {workflow_id}`
+     - Sends local `widdle.json` to /run-wdl for execution
+     - No remote action or save/draft needed
+     - Fast iteration: edit → compile → test
+   - **Remote test**: `python cli/test_runner.py {workflow_id} --remote`
+     - Tests saved remote action (requires `save_wdl_draft` first)
+     - Use to verify saved version after drafting
 
 ## Simple Action Workflow (Template: `simple`)
 

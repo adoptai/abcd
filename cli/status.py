@@ -264,10 +264,10 @@ def show_status(workflow_id: str, sync_remote: bool = True) -> bool:
         print(f"│    python cli/save.py {workflow_id}" + " " * (54 - len(workflow_id)) + "│")
     elif has_local_changes:
         print("│ ⚡ You have local changes. To test:" + " " * 41 + "│")
-        print(f"│    python cli/test.py {workflow_id}" + " " * (54 - len(workflow_id)) + "│")
-        print("│    (Will auto-save draft before testing)" + " " * 36 + "│")
+        print(f"│    python cli/test_runner.py {workflow_id}" + " " * (47 - len(workflow_id)) + "│")
+        print("│    (Tests local WDL directly — no save needed)" + " " * 30 + "│")
         print("│" + " " * 78 + "│")
-        print("│ 💾 Or save draft only:" + " " * 54 + "│")
+        print("│ 💾 Save draft (after tests pass):" + " " * 42 + "│")
         print(f"│    python cli/save.py {workflow_id}" + " " * (54 - len(workflow_id)) + "│")
     elif working.number and not working.is_published:
         print("│ 🧪 Test the current draft:" + " " * 51 + "│")

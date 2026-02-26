@@ -26,9 +26,22 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
    - Read the FULL documentation for each operation you plan to use
    - Note default parameter values (especially `extract_all` for JQ_FILTER!)
 4. **Edit WDL**: Directly edit `widdle.json` files based on documentation
-5. **Testing**: Use `cli/test_runner.py` for testing (always `allow_draft=True`)
-6. **Saving**: Use `cli/save_wdl_draft.py` to persist changes
-7. **Publishing**: Use `cli/publish_wdl_action.py` when approved
+5. **Compile**: Run `cli/test_runner.py --compile` after edits (MANDATORY)
+6. **Testing**: Use `cli/test_runner.py` to test directly (executes local WDL via /run-wdl, no save needed)
+
+   **For Uber Agents — Three-Tier Testing Progression:**
+
+   | Tier | What | Command | When |
+   |------|------|---------|------|
+   | **Tier 1** | Test each subaction individually | `python cli/test_runner.py <subaction-id>` | After editing any subaction WDL |
+   | **Tier 2** | Test uber agent with inline subactions | `python cli/test_runner.py <agent-id> --inline` | After all subactions pass Tier 1 |
+   | **Tier 3** | Test uber agent with platform subactions | `python cli/test_runner.py <agent-id>` | After save+publish, final validation |
+
+   **Always progress bottom-up**: fix subaction failures before testing the uber agent.
+   Never skip to Tier 2/3 if any subaction is failing at Tier 1.
+
+7. **Saving**: Use `cli/save_wdl_draft.py` ONLY after all tests pass
+8. **Publishing**: Use `cli/publish_wdl_action.py` when approved
 
 ### 📝 Editing WDL Files
 
@@ -240,22 +253,24 @@ python cli/manage_wdl_action.py --create -r requirements.md -t "My Workflow"
 # 2. Check status
 python cli/status.py my-workflow
 
-# 3. Compile WDL (MANDATORY before remote testing)
+# 3. Compile WDL (MANDATORY before testing)
 python cli/test_runner.py my-workflow --compile
 
-# 4. Test remotely
+# 4. Test directly (executes local widdle.json via /run-wdl — no save needed!)
 python cli/test_runner.py my-workflow
 
-# 5. Save draft (auto-creates action if needed)
+# 5. Iterate: edit widdle.json → compile → test until all tests pass
+
+# 6. Save draft ONLY after tests pass (auto-creates action if needed)
 python cli/save_wdl_draft.py --workflow-id my-workflow --description "Fixed pagination"
 
-# 6. View versions
+# 7. View versions
 python cli/list_wdl_versions.py --workflow-id my-workflow
 
-# 7. Publish when ready
+# 8. Publish when ready
 python cli/publish_wdl_action.py --workflow-id my-workflow
 
-# 8. Enable tool mode (for sub-actions)
+# 9. Enable tool mode (for sub-actions)
 python cli/deployment_rules.py my-workflow --enable-tool-mode
 ```
 
@@ -352,7 +367,9 @@ Action adopt_profile.json → Agent → Environment
 
 | Feature | Description |
 |---------|-------------|
-| **Draft handling** | Always uses `allow_draft=True` ✅ |
+| **Direct WDL execution** | Default mode: executes local widdle.json via /run-wdl (no save needed) |
+| **Inline agent testing** | `--inline` flag: sends subaction WDLs inline for uber agent testing (no platform dependency) |
+| **Remote action testing** | `--remote` flag: tests saved remote action (requires `save_wdl_draft` first) |
 | **Parallel testing** | `--parallel N` for multiple actions |
 | **Batch testing** | `--workspace`, `--agent --all-subactions` |
 | **Via-agent testing** | `--via-agent --subaction` |
@@ -362,11 +379,14 @@ Action adopt_profile.json → Agent → Environment
 ### Single Action
 
 ```bash
-# Compile WDL (MANDATORY before remote testing)
+# Compile WDL (MANDATORY before testing)
 python cli/test_runner.py my-action --compile
 
-# Test single action
+# Test single action (direct WDL execution — no save/draft needed)
 python cli/test_runner.py my-action
+
+# Test saved remote action (legacy mode, requires save_wdl_draft first)
+python cli/test_runner.py my-action --remote
 
 # Run all test cases
 python cli/test_runner.py my-action --all
@@ -667,24 +687,25 @@ python cli/discover.py --requirements requirements.md
 - **Purpose**: Compile and test WDL workflows
 - **Features**:
   - **Step 1**: JSON syntax validation (catches parsing errors)
-  - **Step 2**: Remote WDL compilation (`--compile`) — MANDATORY before remote testing
-  - Remote execution with trace capture
-  - **Draft testing**: Automatically detects and tests draft versions
+  - **Step 2**: Remote WDL compilation (`--compile`) — MANDATORY before testing
+  - **Direct WDL execution** (default): Sends local `widdle.json` directly to /run-wdl for testing — **no save/draft needed**
+  - **Remote action testing** (`--remote`): Tests saved remote action (requires `save_wdl_draft` first)
   - **Test case management**: Run specific test case or all test cases
   - **Output validation**: Validates outputs against `expected_output` in test cases
   - Fix instruction generation on failure
 - **Menu Option**: 9
 - **Key Options**:
   ```bash
-  --compile             # Compile WDL via remote compiler (MANDATORY before remote testing)
+  --compile             # Compile WDL via remote compiler (MANDATORY before testing)
+  --remote              # Test saved remote action (requires save_wdl_draft first)
   --test FILE           # Use specific test case (filename only, not path)
                         # Examples: --test test_1.json, --test test_2.json
                         # NOT: --test test_cases/test_1.json (wrong!)
   --all                  # Run all test cases in test_cases/ directory
   --agent NAME          # Specify agent name
   ```
-- **⚠️ Auto-save is DISABLED**: After testing, save drafts separately with `save_wdl_draft.py`
-- **Draft Testing**: Tests draft versions directly without requiring publication
+- **Default mode**: Executes local `widdle.json` directly via /run-wdl — no remote action or draft needed
+- **Save draft only after tests pass**: Use `save_wdl_draft.py` only when testing is complete
 - **Test Cases**: JSON files in `test_cases/` directory with `prompt`, `workflow_params`, and `expected_output`
   - Validation types: `similarity` (most common, LLM-judged), `exact` (code-based), `contains` (code-based)
   - For `similarity`: Agent (LLM) reviews actual vs expected output and judges if they're similar enough with valid data
@@ -1049,8 +1070,8 @@ See these files for AI agent guidance:
 
 #### "I need to test my workflow"
 → **Use Test** (`cli/test_runner.py`)
-- Compile first (`--compile`) — MANDATORY before remote testing
-- Remote execution
+- Compile first (`--compile`) — MANDATORY before testing
+- Direct WDL execution (default, no save needed) or remote execution (`--remote`)
 - Trace capture
 - Run all test cases (`--all`) or specific test (`--test test_N.json`)
   - **IMPORTANT**: Use filename only (e.g., `test_1.json`), not path (`test_cases/test_1.json`)
@@ -1163,6 +1184,29 @@ workspaces/{env}/agents/
 4. **Test**: `test_runner.py my-action`
 5. **Save/Publish**: `save_wdl_draft.py` then `publish_wdl_action.py`
 
+### For Uber Agent Development
+
+1. **Read [`prompts/system/UBER_AGENT_PROMPT.md`](UBER_AGENT_PROMPT.md)**
+2. **Create agent and subactions**: `python cli/workspace.py agent create ...`
+3. **Implement subaction WDLs**: Edit each `actions/{subaction}/widdle.json`
+4. **Tier 1 — Test subactions individually**:
+   ```bash
+   python cli/test_runner.py <subaction> --all
+   ```
+   Fix ALL failures before proceeding.
+5. **Implement uber agent WDL**: Edit agent-level `widdle.json` with system prompt and `action_ids`
+6. **Tier 2 — Test uber agent inline**:
+   ```bash
+   python cli/test_runner.py <agent> --test test_1.json --inline
+   ```
+   Iterate on system prompt and subaction logic.
+7. **Save and publish**: `python cli/save_wdl_draft.py --agent <agent> --force`
+8. **Tier 3 — Test uber agent platform-side**:
+   ```bash
+   python cli/test_runner.py <agent> --test test_1.json
+   ```
+9. **Publish**: `python cli/publish_wdl_action.py --agent <agent> --yes`
+
 ### For Complex WDL Workflow Creation
 
 1. **👉 Read [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
@@ -1179,11 +1223,11 @@ workspaces/{env}/agents/
 7. **Compile** (`cli/test_runner.py workflow-id --compile`) — **MANDATORY**
    - **Step 1**: JSON syntax validation (catches parsing errors early)
    - **Step 2**: Remote WDL compilation (catches structural and logical errors)
-8. **Test** remotely (`cli/test_runner.py workflow-id --all`) - Runs all 3 test cases
+8. **Test directly** (`cli/test_runner.py workflow-id --all`) - Executes local WDL via /run-wdl, no save needed
    - Or test specific case: `python cli/test_runner.py workflow-id --test test_2.json`
    - **Note**: Use filename only (e.g., `test_2.json`), not path (`test_cases/test_2.json`)
-9. **Iterate** based on test results
-10. **Save** draft (`cli/save_wdl_draft.py`) - Automatically creates remote action and publishes WDL if needed
+9. **Iterate** based on test results (edit widdle.json → compile → test)
+10. **Save** draft ONLY after all tests pass (`cli/save_wdl_draft.py`) - Auto-creates remote action if needed
 11. **Publish** when user confirms (`cli/publish_wdl_action.py`)
 
 ---
@@ -1191,18 +1235,19 @@ workspaces/{env}/agents/
 ## Important Notes for Agents
 
 1. **Always ask for confirmation before publishing** - Publishing makes workflows live
-2. **Compile first** - Always run `--compile` before remote execution
+2. **Compile first** - Always run `--compile` before testing
    - **Step 1**: JSON syntax validation catches parsing errors (invalid JSON, malformed strings, etc.)
    - **Step 2**: Remote WDL compilation catches structural and logical errors (missing fields, invalid references, etc.)
-   - Fix compilation errors before proceeding to remote testing
-3. **Auto-save drafts** - Tests passing auto-save drafts (safe)
-4. **Automatic remote action creation** - `save_wdl_draft.py` automatically creates remote action and publishes WDL if needed
-5. **Draft testing** - Draft actions can be tested directly without publishing
-6. **Version management** - Every draft creates a version with descriptions, users can checkout and test any version
-7. **Version descriptions** - All versions can have descriptions stored locally and synced from API
-5. **Roaming RAG** - For WDL generation, fetch the index from `https://adoptai.github.io/widdle_docs/operations/index.md`, then fetch specific operation docs as needed
-6. **Tool discovery** - Use semantic search to find relevant building blocks
-7. **Agent organization** - Use agents to group related tools/workflows
+   - Fix compilation errors before proceeding to testing
+3. **Test directly** - Default test mode executes local `widdle.json` via /run-wdl — no save/draft needed
+4. **Save draft only after tests pass** - Use `save_wdl_draft.py` only when all tests pass and output is verified
+5. **Automatic remote action creation** - `save_wdl_draft.py` automatically creates remote action and publishes WDL if needed
+6. **Remote testing** - Use `--remote` flag to test the saved remote action (requires `save_wdl_draft` first)
+7. **Version management** - Every draft creates a version with descriptions, users can checkout and test any version
+8. **Version descriptions** - All versions can have descriptions stored locally and synced from API
+9. **Roaming RAG** - For WDL generation, fetch the index from `https://adoptai.github.io/widdle_docs/operations/index.md`, then fetch specific operation docs as needed
+10. **Tool discovery** - Use semantic search to find relevant building blocks
+11. **Agent organization** - Use agents to group related tools/workflows
 
 ---
 
@@ -1225,24 +1270,27 @@ python cli/manage_wdl_action.py --update --workflow-id abc123 --use-api api-1 --
 # Add APIs/tools independently (no --create/--update needed)
 python cli/manage_wdl_action.py --workflow-id abc123 --use-api api-1 --use-tool tool-1
 
-# Test WDL workflow (RECOMMENDED: test_runner.py for simpler testing)
-python cli/test_runner.py workflow-id --compile         # Compile WDL (MANDATORY before remote testing)
-python cli/test_runner.py workflow-id                   # Execute remotely (default test case)
+# Test WDL workflow
+python cli/test_runner.py workflow-id --compile         # Compile WDL (MANDATORY before testing)
+python cli/test_runner.py workflow-id                   # Direct WDL execution (no save needed)
+python cli/test_runner.py workflow-id --remote          # Test saved remote action (requires save_wdl_draft)
 python cli/test_runner.py action1 action2 --parallel 2  # Parallel testing
 python cli/test_runner.py workflow-id --all             # Run all test cases
 python cli/test_runner.py workflow-id --test test_2.json  # Run specific test case
 python cli/test_runner.py workflow-id --verbose         # Verbose with traces
+python cli/test_runner.py agent-id --inline             # Uber agent with inline subactions
+python cli/test_runner.py agent-id --inline sub1,sub2   # Inline specific subactions only
 # Note: Use --test test_2.json, NOT --test test_cases/test_2.json
 
 # Version management
 python cli/list_wdl_versions.py {action_id} --workflow-id workflow-id --standalone
 python cli/checkout_wdl_version.py {action_id} --version 3 --workflow-id workflow-id --standalone
 
-# Save draft with description (auto-creates remote action and publishes WDL if needed)
+# Save draft ONLY after tests pass (auto-creates remote action if needed)
 python cli/save_wdl_draft.py --workflow-id workflow-id --description "Fixed bug" --standalone
 
-# Test draft version directly (no publish needed!)
-python cli/test_runner.py workflow-id
+# Test saved remote action (legacy mode)
+python cli/test_runner.py workflow-id --remote
 
 # Publish (requires confirmation)
 python cli/publish_wdl_action.py workflow-id
@@ -1264,15 +1312,17 @@ python cli/publish_wdl_action.py workflow-id
 - **Complex Workflows**: Use for multi-step operations → **See [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
 - **Uber Agents**: Use for multi-action orchestrators → **See [`prompts/system/UBER_AGENT_PROMPT.md`](UBER_AGENT_PROMPT.md)**
 - **Discovery**: Use `--search-apis` / `--search` / `--auto-discover` options
-- **Testing**: Always compile first (`--compile`), then test remotely (`--all`)
+- **Testing**: Always compile first (`--compile`), then test directly (`--all`) — no save needed
+- **Saving**: Save draft only after all tests pass
 - **Publishing**: Only when user explicitly confirms
 
 **Workflow Order**:
 1. Create/Generate WDL
 2. Compile (`test_runner.py --compile`) — **MANDATORY**
-3. Remote testing (`test_runner.py --all`)
-4. Save draft (`save_wdl_draft.py`)
-5. Publish (`publish_wdl_action.py`)
+3. Test directly (`test_runner.py --all`) — executes local WDL via /run-wdl, no save needed
+4. Iterate (edit → compile → test) until all tests pass
+5. Save draft (`save_wdl_draft.py`) — only after tests pass
+6. Publish (`publish_wdl_action.py`)
 
 For detailed WDL workflow creation instructions, **always refer to [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**.
 
@@ -1444,9 +1494,51 @@ ctx.traces_dir      # path / "traces"
 
 When using actions as sub-tools in a `PROMPT_AND_TOOLS_AGENT` orchestrator, follow these requirements:
 
+### Testing Uber Agents (Three-Tier Progression)
+
+Uber agents must be tested bottom-up, in three tiers:
+
+#### Tier 1: Individual Subaction Testing (Direct WDL)
+Test each subaction independently via `/run-wdl`. This validates the subaction's
+WDL logic, API calls, JQ filters, and output formatting in isolation.
+
+```bash
+python cli/test_runner.py search-products --test test_1.json
+python cli/test_runner.py add-product-to-quote --test test_1.json
+python cli/test_runner.py get-bundle-options --test test_1.json
+```
+
+Only proceed to Tier 2 when ALL subactions pass.
+
+#### Tier 2: Inline Uber Agent Testing
+Test the uber agent with subaction WDLs sent inline in the payload. This validates
+the agent's system prompt, tool selection logic, and multi-tool orchestration —
+without needing anything saved to the platform.
+
+```bash
+python cli/test_runner.py my-agent --test test_1.json --inline
+
+python cli/test_runner.py my-agent --test test_1.json --inline search-products,get-bundle-options
+```
+
+This lets you iterate rapidly on the system prompt and subaction logic together.
+Fix any orchestration issues before proceeding to Tier 3.
+
+#### Tier 3: Platform-Side Uber Agent Testing
+After all subactions are saved, published, and have tool mode enabled — test the
+uber agent with real platform `action_ids`. This is the final validation that
+the full production setup works.
+
+```bash
+python cli/save_wdl_draft.py --agent my-agent --force
+python cli/publish_wdl_action.py --agent my-agent --yes
+
+python cli/test_runner.py my-agent --test test_1.json
+```
+
 ### Sub-Action Requirements
 
-1. **Must be PUBLISHED** - Draft actions cannot be used as sub-tools
+1. **Must be PUBLISHED (for Tier 3 / production)** - Draft actions cannot be used as platform-side sub-tools. During development, use `--inline` (Tier 2) to test without publishing.
 2. **Title format** - Must match pattern: `^[a-zA-Z0-9_-]{1,128}$`
    - ✅ Good: `get-orderpoints`, `inventory_check`, `create-po`
    - ❌ Bad: `Get Orderpoints`, `Check (Inventory)`, `create po`
@@ -1513,21 +1605,24 @@ python cli/validate.py my-workflow --orchestrator --auto-fix
 ### Simplified Testing Commands
 
 ```bash
-# Compile WDL (MANDATORY before remote testing)
-python cli/test.py my-workflow --compile
+# Compile WDL (MANDATORY before testing)
+python cli/test_runner.py my-workflow --compile
 
-# Test remotely (auto-detects version)
-python cli/test.py my-workflow
+# Test directly (executes local widdle.json via /run-wdl — no save needed)
+python cli/test_runner.py my-workflow
 
 # Test all cases
-python cli/test.py my-workflow --all
+python cli/test_runner.py my-workflow --all
+
+# Test saved remote action (after save_wdl_draft)
+python cli/test_runner.py my-workflow --remote
 
 # Auto-fix validation issues
-python cli/test.py my-workflow --auto-fix
+python cli/validate.py my-workflow --auto-fix
 ```
 
-Note: The CLI automatically determines which version to test based on your
-working state. No need to specify `--version` or `--allow-draft`.
+Note: Default test mode executes local `widdle.json` directly via /run-wdl.
+No need to save a draft before testing. Save draft only after tests pass.
 
 ---
 
@@ -1556,12 +1651,13 @@ python cli/validate.py my-workflow
 python cli/validate.py my-workflow --auto-fix
 python cli/validate.py my-workflow --orchestrator  # For sub-tool use
 
-# Compile and test (always uses allow_draft=True)
+# Compile and test
 python cli/test_runner.py my-workflow --compile    # Compile WDL (MANDATORY first)
-python cli/test_runner.py my-workflow              # Remote test
+python cli/test_runner.py my-workflow              # Direct WDL test (no save needed)
 python cli/test_runner.py my-workflow --all        # All test cases
+python cli/test_runner.py my-workflow --remote     # Test saved remote action
 
-# Save draft (auto-creates action if needed)
+# Save draft ONLY after tests pass (auto-creates action if needed)
 python cli/save_wdl_draft.py --workflow-id my-workflow
 python cli/save_wdl_draft.py --workflow-id my-workflow --description "Fixed bug"
 
