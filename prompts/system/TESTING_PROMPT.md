@@ -10,18 +10,20 @@
 
 | Type | Command | Description |
 |------|---------|-------------|
-| **Single** | `test_runner.py <id>` | Test one action |
+| **Single** | `test_runner.py <id>` | Test one action (direct WDL execution) |
+| **Inline Agent** | `test_runner.py <agent> --inline` | Test uber agent with inline subactions |
+| **Remote** | `test_runner.py <id> --remote` | Test saved remote action (requires draft) |
 | **Parallel** | `test_runner.py a1 a2 a3` | Test multiple in parallel |
 | **Batch** | `test_runner.py --workspace ENV` | Test all in environment |
 | **Agent Batch** | `test_runner.py --agent A --all-subactions` | All sub-actions |
 | **Via-Agent** | `test_runner.py A --via-agent --subaction S` | Through agent |
-| **Compile** | `test_runner.py <id> --compile` | Compile WDL (MANDATORY before remote testing) |
+| **Compile** | `test_runner.py <id> --compile` | Compile WDL (MANDATORY before testing) |
 
 ---
 
 ## Single Action Testing
 
-### Basic Test
+### Basic Test (Direct WDL Execution)
 
 ```bash
 python cli/test_runner.py my-action
@@ -30,17 +32,27 @@ python cli/test_runner.py my-action
 **What happens:**
 1. Validates WDL structure
 2. Loads `test_cases/test_1.json`
-3. Runs action remotely
+3. Sends local `widdle.json` directly to /run-wdl endpoint
 4. Captures execution trace
 5. Validates output against expected
 
-### Compile WDL (MANDATORY Before Remote Testing)
+**No save/draft needed** — the local WDL is executed directly.
+
+### Test Saved Remote Action
+
+```bash
+python cli/test_runner.py my-action --remote
+```
+
+Tests the saved remote action (requires `save_wdl_draft` first). Use this to verify the saved version matches expectations.
+
+### Compile WDL (MANDATORY Before Testing)
 
 ```bash
 python cli/test_runner.py my-action --compile
 ```
 
-Compiles WDL via the remote compiler — validates JSON syntax and WDL structure. No remote execution.
+Compiles WDL via the remote compiler — validates JSON syntax and WDL structure. No execution.
 
 ### Specific Test Case
 
@@ -149,6 +161,51 @@ Create in `test_cases/subaction_tests/test_{action}_via_agent.json`:
     "description": "Returns orderpoints data"
   }
 }
+```
+
+---
+
+## Uber Agent Testing (Three-Tier Progression)
+
+Uber agents with `PROMPT_AND_TOOLS_AGENT` must be tested bottom-up:
+
+### Tier 1: Individual Subaction Testing
+
+Test each subaction independently. This validates WDL logic in isolation.
+
+```bash
+python cli/test_runner.py <subaction> --test test_1.json
+```
+
+**Do not proceed to Tier 2 until ALL subactions pass Tier 1.**
+
+### Tier 2: Inline Uber Agent Testing
+
+Test the uber agent with subaction WDLs sent inline — no platform dependency.
+
+```bash
+# All subactions inline
+python cli/test_runner.py <agent> --test test_1.json --inline
+
+# Specific subactions inline (mixed mode)
+python cli/test_runner.py <agent> --test test_1.json --inline search-products,add-product
+```
+
+The `--inline` flag:
+- Scans the uber agent WDL for `PROMPT_AND_TOOLS_AGENT` steps
+- Resolves `action_ids` to local subaction `widdle.json` files under `actions/`
+- Sends them as `inline_actions` in the `/run-wdl` payload
+- Falls back to platform DB lookup for non-inline action_ids
+
+When `--inline` is used without specifying subaction names, ALL `action_ids` that match
+local subaction directory names are automatically resolved from local files.
+
+### Tier 3: Platform-Side Testing
+
+After save+publish, test with real platform `action_ids` — final production validation.
+
+```bash
+python cli/test_runner.py <agent> --test test_1.json
 ```
 
 ---
@@ -324,13 +381,15 @@ The REST block uses the `application` property to select the profile:
 
 ## Troubleshooting
 
-### "No action_id found"
+### "Not linked to remote" (only with --remote flag)
 
-Action not linked to remote. Save first:
+Action not linked to remote. This only affects `--remote` mode. Save first:
 
 ```bash
 python cli/save_wdl_draft.py --workflow-id my-action
 ```
+
+Without `--remote`, tests execute the local `widdle.json` directly via /run-wdl and don't need a remote action.
 
 ### "Tool not called" in via-agent
 

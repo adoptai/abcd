@@ -148,20 +148,42 @@ Edit `workspaces/{env}/agents/inventory-agent/widdle.json`:
 }
 ```
 
-### Step 7: Test and Publish Agent
+### Step 7: Test (Three-Tier Progression)
 
+**Tier 1 — Test each subaction individually:**
 ```bash
-python cli/test_runner.py inventory-agent
-python cli/save_wdl_draft.py --workflow-id inventory-agent
-python cli/publish_wdl_action.py --workflow-id inventory-agent
+python cli/test_runner.py get-orderpoints --all
+python cli/test_runner.py create-po --all
+# Fix ALL failures before proceeding to Tier 2
+```
+
+**Tier 2 — Test uber agent with inline subactions (no platform dependency):**
+```bash
+python cli/test_runner.py inventory-agent --test test_1.json --inline
+# Iterate on system_prompt and subaction logic together
+```
+
+**Tier 3 — Save, publish, and test with platform action_ids:**
+```bash
+# Save and publish all subactions + agent
+python cli/save_wdl_draft.py --agent inventory-agent --force
+python cli/publish_wdl_action.py --agent inventory-agent --yes
+
+# Enable tool mode for all subactions
+python cli/deployment_rules.py get-orderpoints --enable-tool-mode
+python cli/deployment_rules.py create-po --enable-tool-mode
+
+# Final validation with real platform action_ids
+python cli/test_runner.py inventory-agent --test test_1.json
 ```
 
 ---
 
 ## Sub-Action Requirements
 
-### 1. Must be PUBLISHED
-Draft actions cannot be used as tools.
+### 1. Must be PUBLISHED (for Tier 3 / production)
+Draft actions cannot be used as platform-side tools.
+During development, use `--inline` (Tier 2) to test without publishing.
 
 ### 2. Valid Title Format
 Must match: `^[a-zA-Z0-9_-]{1,128}$`

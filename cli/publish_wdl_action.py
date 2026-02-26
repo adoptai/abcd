@@ -548,9 +548,7 @@ USE FLAGS ONLY when automatic behavior doesn't work.
 
     # Legacy flags
     parser.add_argument("--workflow-id", "-w", help="(legacy) Workflow ID")
-    parser.add_argument(
-        "--version", "-v", help="Specific version to publish (default: latest draft)"
-    )
+    parser.add_argument("--version", help="Specific version to publish (default: latest draft)")
     parser.add_argument("--standalone", "-s", action="store_true", help="(legacy) Standalone mode")
 
     # Common options

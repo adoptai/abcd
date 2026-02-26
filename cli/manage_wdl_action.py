@@ -376,20 +376,23 @@ def update_workspace_context(
         return False, "No APIs or tools were added"
 
 
-def _generate_simple_tool_placeholder_wdl(api_details: dict[str, Any]) -> list[dict[str, Any]]:
+def _generate_simple_tool_placeholder_wdl(
+    api_details: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
     """
     Generate a placeholder WDL structure for a simple tool.
 
     This creates an initial WDL that the agent will refine based on the API spec.
 
     Args:
-        api_details: API details dictionary
+        api_details: API details dictionary, or None for a bare placeholder
 
     Returns:
         List of WDL blocks (placeholder structure)
     """
     _verbose_print("_generate_simple_tool_placeholder_wdl", "ENTER")
-    # Extract API info
+    # Extract API info (fall back to generic defaults when no API is provided)
+    api_details = api_details or {}
     canonical_path = api_details.get(
         "canonical_api_endpoint", api_details.get("path", "/api/endpoint")
     )
@@ -447,7 +450,7 @@ def _generate_simple_tool_placeholder_wdl(api_details: dict[str, Any]) -> list[d
 
 
 def _generate_simple_tool_instructions(
-    api_details: dict[str, Any],
+    api_details: dict[str, Any] | None,
     title: str,
     workspace: Path,
 ) -> str:
@@ -455,7 +458,7 @@ def _generate_simple_tool_instructions(
     Generate roaming instructions for the agent to create a simple tool.
 
     Args:
-        api_details: API details dictionary
+        api_details: API details dictionary, or None for a bare workspace
         title: Tool title
         workspace: Workspace path
 
@@ -471,6 +474,25 @@ def _generate_simple_tool_instructions(
     if template_path.exists():
         template_content = template_path.read_text()
 
+    _api = api_details or {}
+
+    if _api:
+        api_section = f"""## API Summary
+
+- **ID**: {_api.get("id", "N/A")}
+- **Title**: {_api.get("title", _api.get("name", "API"))}
+- **Method**: {_api.get("method", "GET")}
+- **Endpoint**: `{_api.get("canonical_api_endpoint", "/api/endpoint")}`
+- **Description**: {_api.get("description", "No description")[:500]}"""
+        task_steps = f"""1. **Review** the API specification in `apis/{_api.get("id", "api")}.json`
+2. **Refine** the placeholder WDL in `widdle.json` based on the API spec
+3. **Ensure** all parameters from the API are properly mapped"""
+    else:
+        api_section = "## API Summary\n\nNo API specified — build the WDL from scratch."
+        task_steps = """1. **Define** the API endpoint and parameters in `widdle.json`
+2. **Write** the WDL following the REST → EXTRACT → OUTPUT_TEXT pattern
+3. **Add** a test case in `test_cases/test_1.json`"""
+
     instructions = f"""# Simple Tool Creation Instructions
 
 ## Tool: {title}
@@ -479,9 +501,7 @@ You are creating a **simple API wrapper tool** that follows the REST → OUTPUT 
 
 ## Your Task
 
-1. **Review** the API specification in `apis/{api_details.get("id", "api")}.json`
-2. **Refine** the placeholder WDL in `widdle.json` based on the API spec
-3. **Ensure** all parameters from the API are properly mapped
+{task_steps}
 
 ## Workspace Contents
 
@@ -489,13 +509,7 @@ You are creating a **simple API wrapper tool** that follows the REST → OUTPUT 
 - `apis/` - API specification files
 - `metadata.json` - Tool metadata
 
-## API Summary
-
-- **ID**: {api_details.get("id", "N/A")}
-- **Title**: {api_details.get("title", api_details.get("name", "API"))}
-- **Method**: {api_details.get("method", "GET")}
-- **Endpoint**: `{api_details.get("canonical_api_endpoint", "/api/endpoint")}`
-- **Description**: {api_details.get("description", "No description")[:500]}
+{api_section}
 
 ## What to Do
 
@@ -520,14 +534,14 @@ You are creating a **simple API wrapper tool** that follows the REST → OUTPUT 
 
 ## Full API Specification
 
-See `apis/{api_details.get("id", "api")}.json` for complete details.
+{f"See `apis/{_api.get('id', 'api')}.json` for complete details." if _api else "No API file — define the endpoint directly in `widdle.json`."}
 """
     _verbose_print("_generate_simple_tool_instructions", "EXIT")
     return instructions
 
 
 def create_simple_tool(
-    api_id: str,
+    api_id: str | None = None,
     title: str = "New Tool",
     standalone: bool = False,
     agent_name: str | None = None,
@@ -568,42 +582,56 @@ def create_simple_tool(
     workspace_manager = get_workspace_manager()
 
     # Generate workflow ID
-    workflow_id = f"{api_id[:8]}-simple"
+    workflow_id = f"{api_id[:8]}-simple" if api_id else str(uuid4())[:8] + "-simple"
+
+    # Resolve agent: standalone flag overrides agent_name
+    selected_agent = None if standalone else agent_name
 
     if dry_run:
         # Skip API call in dry-run — just show what would happen
         print("\n🔍 [DRY-RUN] Would create simple tool workspace:")
         print(f"   Workflow ID  : {workflow_id}")
         print(f"   Title        : {title}")
-        print(f"   API          : {api_id} (not fetched in dry-run)")
-        print(f"   Agent        : {agent_name or '(standalone)'}")
+        print(f"   API          : {api_id or '(none)'}" + ("" if api_id else " — bare workspace"))
+        print(f"   Agent        : {selected_agent or '(standalone)'}")
         print(f"   Create remote: {create_remote}")
         print("\n   ✅ Dry-run complete — no API call, no workspace or remote action created")
         print("=" * 80)
         return 0
 
-    # Fetch API details
-    print(f"\n📡 Fetching API details for: {api_id}")
-    success, api_details, msg = discovery.get_api_details(api_id)
+    # Fetch API details (only when api_id is provided)
+    api_details = None
+    if api_id:
+        print(f"\n📡 Fetching API details for: {api_id}")
+        success, api_details, msg = discovery.get_api_details(api_id)
 
-    if not success or not api_details:
-        print(f"❌ Failed to fetch API: {msg}")
-        return 1
+        if not success or not api_details:
+            print(f"❌ Failed to fetch API: {msg}")
+            return 1
 
-    api_title = api_details.get("title", api_details.get("name", "API Tool"))
-    final_title = title if title != "New Tool" else api_title
+        api_title = api_details.get("title", api_details.get("name", "API Tool"))
+        final_title = title if title != "New Tool" else api_title
 
-    print(f"   ✅ API: {api_title}")
-    print(f"   Title: {final_title}")
+        print(f"   ✅ API: {api_title}")
+        print(f"   Title: {final_title}")
+    else:
+        final_title = title
+        print("\n📁 No API specified — creating bare workspace")
+        print(f"   Title: {final_title}")
 
     # Create workspace
     print(f"\n📁 Creating workspace: {workflow_id}")
 
+    requirements_str = (
+        f"Simple API wrapper for: {api_title}\n\nAPI ID: {api_id}"
+        if api_id and api_details
+        else f"Simple tool: {final_title}"
+    )
     success, workspace, msg = workspace_manager.create_action(
         action_id=workflow_id,
         title=final_title,
-        requirements=f"Simple API wrapper for: {api_title}\n\nAPI ID: {api_id}",
-        agent_name=agent_name,
+        requirements=requirements_str,
+        agent_name=selected_agent,
     )
 
     if not success:
@@ -612,13 +640,14 @@ def create_simple_tool(
 
     print(f"   ✅ Workspace created: {workspace}")
 
-    # Write api_specs to workspace
-    apis_dir = workspace / "apis"
-    apis_dir.mkdir(exist_ok=True)
-    api_file = apis_dir / f"{api_id}.json"
-    api_file.write_text(json.dumps(api_details, indent=2))
-    manifest_file = apis_dir / "manifest.json"
-    manifest_file.write_text(json.dumps({"api_ids": [api_id]}, indent=2))
+    # Write api_specs to workspace (only when an API was provided)
+    if api_id and api_details:
+        apis_dir = workspace / "apis"
+        apis_dir.mkdir(exist_ok=True)
+        api_file = apis_dir / f"{api_id}.json"
+        api_file.write_text(json.dumps(api_details, indent=2))
+        manifest_file = apis_dir / "manifest.json"
+        manifest_file.write_text(json.dumps({"api_ids": [api_id]}, indent=2))
 
     # Generate placeholder WDL
     print("\n📝 Generating placeholder WDL...")
@@ -656,12 +685,16 @@ def create_simple_tool(
         print("\n🌐 Creating remote action...")
         client = get_api_client_for_env()  # Uses active environment
 
-        description = api_details.get("description", f"Tool for {api_title}")[:300]
+        description = (
+            api_details.get("description", f"Tool for {api_title}")
+            if api_details
+            else f"Tool for {api_title}"
+        )[:300]
 
         success, data, msg = client.create_action(
             title=final_title,
             description=description,
-            api_ids=[api_id],
+            api_ids=[api_id] if api_id else [],
         )
 
         if success and data:
@@ -683,7 +716,8 @@ def create_simple_tool(
     print("✅ SIMPLE TOOL WORKSPACE READY")
     print("=" * 80)
     print(f"   Workspace: {workspace}")
-    print(f"   API: {api_title}")
+    if api_id:
+        print(f"   API: {api_title}")
     print(f"   Title: {final_title}")
     if action_id:
         print(f"   Action ID: {action_id}")
@@ -740,9 +774,13 @@ def create_wdl_action(
     if requirements_path:
         requirements = Path(requirements_path).read_text()
         print(f"📄 Loaded requirements from: {requirements_path}")
-    elif requirements_text:
+    elif requirements_text is not None:
+        # Empty string means bare workspace (no requirements)
         requirements = requirements_text
-        print("📄 Using provided requirements text")
+        if requirements:
+            print("📄 Using provided requirements text")
+        else:
+            print("📄 Creating bare workspace (no requirements specified)")
     elif dry_run:
         # Skip blocking stdin read in dry-run mode
         requirements = "(not required for dry-run)"
@@ -751,7 +789,7 @@ def create_wdl_action(
         print("Enter requirements (end with Ctrl+D or Ctrl+Z):")
         requirements = sys.stdin.read()
 
-    if not dry_run:
+    if not dry_run and requirements:
         print(f"\n📋 Requirements preview:\n{requirements[:300]}...")
 
     # Initialize components
@@ -1116,10 +1154,12 @@ def main() -> None:
         epilog="""
 Examples:
   # === SIMPLE TOOL (single API wrapper) ===
+  python manage_wdl_action.py --create --template simple -t "My Tool"               # bare workspace
   python manage_wdl_action.py --create --template simple --use-api <api-id> -t "My Tool"
   python manage_wdl_action.py --create --template simple --use-api <api-id> --publish
 
   # === COMPLEX WORKFLOW (multi-step) ===
+  python manage_wdl_action.py --create --template workflow -t "My Workflow"         # bare workspace
   python manage_wdl_action.py --create --template workflow -r requirements.md -t "My Workflow"
   python manage_wdl_action.py --create -r req.md -t "My Workflow" --use-api abc-123
   python manage_wdl_action.py --create -r req.md -t "My Workflow" --standalone
@@ -1279,18 +1319,10 @@ Examples:
 
     # Handle creation mode
     if args.create:
-        # Simple template: requires --use-api
+        # Simple template: --use-api is optional (bare workspace created when omitted)
         if args.template == "simple":
-            if not args.use_apis:
-                print("❌ Error: --template simple requires --use-api <api-id>", file=sys.stderr)
-                print(
-                    "   Example: python manage_wdl_action.py --create --template simple --use-api abc-123",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
-
             exit_code = create_simple_tool(
-                api_id=args.use_apis[0],  # Use first API for simple tool
+                api_id=args.use_apis[0] if args.use_apis else None,
                 title=args.title,
                 standalone=args.standalone,
                 agent_name=args.agent,
@@ -1299,20 +1331,12 @@ Examples:
             )
             sys.exit(exit_code)
 
-        # Workflow template: requires --requirements
-        if not args.requirements and not args.generate_only and not args.dry_run:
-            parser.print_help()
-            print(
-                "\n❌ Error: --create with --template workflow requires --requirements",
-                file=sys.stderr,
-            )
-            print(
-                "   Or use --template simple --use-api <id> for single-API tools", file=sys.stderr
-            )
-            sys.exit(1)
+        # Workflow template: --requirements is optional (bare workspace created when omitted)
+        # Pass empty string as requirements_text to avoid blocking on stdin
 
         exit_code = create_wdl_action(
             requirements_path=args.requirements,
+            requirements_text=None if args.requirements else "",
             title=args.title,
             standalone=args.standalone,
             agent_name=args.agent,
