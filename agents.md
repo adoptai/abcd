@@ -197,6 +197,51 @@ To switch environments: `python cli/workspace.py env use <env-id>`
 
 ---
 
+## 🌐 Playground Profiles & Token Manager
+
+Playground profiles are remote configurations used by the Chrome extension and platform at runtime. Token configs enable dynamic extraction of auth credentials (cookies, localStorage, DOM, custom JS) instead of hardcoding static values that expire.
+
+**📖 Full details: `prompts/system/PLAYGROUND_PROFILES_PROMPT.md`**
+
+### Key Commands
+
+```bash
+# List/show remote profiles
+python cli/playground_profiles.py list
+python cli/playground_profiles.py show --default
+python cli/playground_profiles.py show <profile-id>
+
+# Create/edit/delete profiles
+python cli/playground_profiles.py create --name "MyProfile" --application MyApp --api-base-url "https://..."
+python cli/playground_profiles.py edit <profile-id> --set-header "Cookie=sid=..."
+python cli/playground_profiles.py delete <profile-id> --force
+
+# Sync local adopt_profile.json to/from remote
+python cli/playground_profiles.py push --dry-run
+python cli/playground_profiles.py push
+python cli/playground_profiles.py pull --merge
+
+# Token manager
+python cli/playground_profiles.py token list
+python cli/playground_profiles.py token create --name sid --domain-suffix .force.com --storage-type cookie --cookie-key sid
+python cli/playground_profiles.py token edit <token-id> --parser-logic "return 'sid=' + value;"
+python cli/playground_profiles.py token publish <token-id>
+
+# Link tokens to profile headers
+python cli/playground_profiles.py set-token <profile-id> Cookie sid_token
+python cli/playground_profiles.py show-tokens <profile-id>
+
+```
+
+### Lifecycle
+
+1. **Local dev**: Edit `adopt_profile.json` with static tokens (extract from HAR files or browser DevTools)
+2. **Push**: `playground_profiles.py push` syncs to remote playground profiles
+3. **Token manager**: Replace static values with token config names for dynamic extraction
+4. **Chrome extension**: Resolves token names at runtime via cookies/localStorage/DOM/JS
+
+---
+
 ## 📚 Detailed Prompts (Load as Needed)
 
 For in-depth information, load the appropriate prompt from `prompts/system/`:
@@ -209,6 +254,7 @@ For in-depth information, load the appropriate prompt from `prompts/system/`:
 | **UBER_AGENT_PROMPT.md** | Creating Uber Agents with sub-actions |
 | **TESTING_PROMPT.md** | Testing strategies, parallel tests, via-agent tests |
 | **DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md** | Debugging failures, analyzing traces |
+| **PLAYGROUND_PROFILES_PROMPT.md** | Playground profiles, token manager, adopt profile sync, HAR analysis |
 
 Templates: `prompts/templates/` (uber_agent, complex_workflow, simple_tool)
 
@@ -519,6 +565,11 @@ User Request
     │
     ├─ "Test a tool/action"
     │   → python cli/test_runner.py <workflow_id>
+    │
+    ├─ "Manage playground profiles" / "Configure token extraction"
+    │   → Read: PLAYGROUND_PROFILES_PROMPT.md
+    │   → python cli/playground_profiles.py list/push/create/edit
+    │   → python cli/playground_profiles.py token list/create/edit
     │
     ├─ "Diagnose and fix issues"
     │   → Read: DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md
@@ -918,6 +969,20 @@ python cli/list_wdl_versions.py [OPTIONS]    # List versions
 python cli/checkout_wdl_version.py [OPTIONS] # Checkout version
 ```
 
+#### Playground Profiles & Token Manager
+```bash
+python cli/playground_profiles.py list       # List remote profiles
+python cli/playground_profiles.py show <id>  # Show profile details
+python cli/playground_profiles.py create     # Create profile
+python cli/playground_profiles.py edit <id>  # Edit profile
+python cli/playground_profiles.py delete <id> # Delete profile
+python cli/playground_profiles.py push       # Push local to remote
+python cli/playground_profiles.py pull       # Pull remote to local
+python cli/playground_profiles.py token list # List token configs
+python cli/playground_profiles.py token create # Create token config
+python cli/playground_profiles.py set-token <id> <key> <token> # Link token
+```
+
 #### Diagnostics & Fixes
 ```bash
 python cli/diagnose_and_fix.py [OPTIONS]     # Main diagnostic workflow
@@ -1294,6 +1359,21 @@ python cli/test_runner.py workflow-id --remote
 
 # Publish (requires confirmation)
 python cli/publish_wdl_action.py workflow-id
+
+# Playground profiles
+python cli/playground_profiles.py list                                  # List remote profiles
+python cli/playground_profiles.py show --default                        # Show default profile
+python cli/playground_profiles.py push --dry-run                        # Preview push
+python cli/playground_profiles.py push                                  # Push local to remote
+python cli/playground_profiles.py pull --merge                          # Pull remote to local
+python cli/playground_profiles.py create --name "X" --application X     # Create profile
+python cli/playground_profiles.py edit <id> --set-header "Cookie=..."   # Edit profile
+
+# Token manager
+python cli/playground_profiles.py token list                            # List token configs
+python cli/playground_profiles.py token create --name sid --storage-type cookie --domain-suffix .force.com --cookie-key sid
+python cli/playground_profiles.py set-token <profile-id> Cookie sid     # Link token to header
+python cli/playground_profiles.py show-tokens <profile-id>              # Show token mappings
 ```
 
 ---

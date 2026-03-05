@@ -96,6 +96,7 @@ For detailed information, load the appropriate prompt from `prompts/system/`:
 - **WORKSPACE_HIERARCHY_PROMPT.md** - Workspace structure, environments, profiles
 - **UBER_AGENT_PROMPT.md** - Creating Uber Agents with sub-actions
 - **TESTING_PROMPT.md** - Testing strategies, parallel tests, via-agent tests
+- **PLAYGROUND_PROFILES_PROMPT.md** - Playground profiles, token manager, adopt profile sync, HAR analysis
 
 ---
 
@@ -262,6 +263,32 @@ python cli/workspace.py agent move-action --action <action-id> --agent <agent-id
 2. Tool mode enabled: `python cli/deployment_rules.py <action-id> --enable-tool-mode`
 3. Push updated agent: `python cli/save_wdl_draft.py --workflow-id <agent-id>`
 
+### Playground Profiles & Token Manager
+
+```bash
+# Profiles
+python cli/playground_profiles.py list                                  # List remote profiles
+python cli/playground_profiles.py show --default                        # Show default profile
+python cli/playground_profiles.py create --name "X" --application X     # Create profile
+python cli/playground_profiles.py edit <id> --set-header "Cookie=..."   # Edit profile
+python cli/playground_profiles.py delete <id> --force                   # Delete profile
+python cli/playground_profiles.py push --dry-run                        # Preview push
+python cli/playground_profiles.py push                                  # Push local to remote
+python cli/playground_profiles.py pull --merge                          # Pull remote to local
+
+# Token configs
+python cli/playground_profiles.py token list                            # List tokens
+python cli/playground_profiles.py token show <id>                       # Show token details
+python cli/playground_profiles.py token create --name sid --storage-type cookie --domain-suffix .force.com --cookie-key sid
+python cli/playground_profiles.py token edit <id> --parser-logic "return 'sid=' + value;"
+python cli/playground_profiles.py token delete <id> --force
+python cli/playground_profiles.py token publish <id>                    # Publish token
+
+# Profile-token integration
+python cli/playground_profiles.py set-token <profile-id> Cookie sid     # Link token to header
+python cli/playground_profiles.py show-tokens <profile-id>              # Show token mappings
+```
+
 ---
 
 ## Command Categories
@@ -277,6 +304,8 @@ python cli/workspace.py agent move-action --action <action-id> --agent <agent-id
 | **Agent Management** | `workspace.py agent move-action/add-subaction/remove-subaction` |
 | **Tool Mode** | `deployment_rules.py` |
 | **Discovery** | `discover.py --list-*`, `discover.py --actions/--apis` |
+| **Playground Profiles** | `playground_profiles.py list/show/create/edit/delete/push/pull` |
+| **Token Manager** | `playground_profiles.py token list/show/create/edit/delete/publish` |
 
 ---
 
@@ -310,6 +339,11 @@ What do you need to do?
 ├─ Debug test failure?
 │   → Check traces/ folder
 │   → Read: DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md
+│
+├─ Manage playground profiles / token extraction?
+│   → Read: PLAYGROUND_PROFILES_PROMPT.md
+│   → Run: python cli/playground_profiles.py list/push/create/edit
+│   → Run: python cli/playground_profiles.py token list/create/edit
 │
 └─ Find existing actions/APIs?
     → Run: python cli/discover.py --actions "query"
@@ -361,6 +395,7 @@ When creating sub-actions for Uber Agents:
 | Testing strategies | `TESTING_PROMPT.md` |
 | Debugging failures | `DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md` |
 | WDL issue patterns | `guidelines/WDL_ISSUE_PATTERNS.md` |
+| Playground profiles, token manager, HAR analysis | `PLAYGROUND_PROFILES_PROMPT.md` |
 
 ---
 
