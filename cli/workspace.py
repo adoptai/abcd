@@ -25,6 +25,20 @@ Commands:
     profile show  - Show resolved profile
     profile update - Update profile
     profile copy  - Copy profile between levels
+
+    playground-profile list   - List remote playground profiles
+    playground-profile show   - Show playground profile details
+    playground-profile create - Create playground profile
+    playground-profile update - Update playground profile
+    playground-profile delete - Delete playground profile
+
+    token-config list      - List remote token configurations
+    token-config show      - Show token configuration details
+    token-config create    - Create token configuration
+    token-config update    - Update token configuration
+    token-config delete    - Delete token configuration
+    token-config publish   - Publish token configuration(s)
+    token-config unpublish - Unpublish token configuration(s)
 """
 
 import argparse
@@ -32,6 +46,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 # Add parent to path for imports
 CLI_DIR = Path(__file__).parent
@@ -1217,6 +1232,664 @@ def cmd_profile_update(args: argparse.Namespace) -> int:
     return 0
 
 
+# =========================================================================
+# Playground Profile (remote) command handlers
+# =========================================================================
+
+
+def _get_client() -> "AdoptAPIClient":
+    """Get API client for active environment."""
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    return get_api_client_for_env(verbose=_verbose)
+
+
+def cmd_pg_profile_list(args: argparse.Namespace) -> int:
+    """List remote playground profiles."""
+    client = _get_client()
+    integration_id = getattr(args, "integration_id", None)
+
+    success, profiles, message = client.list_playground_profiles(
+        integration_id=integration_id,
+    )
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    if not profiles:
+        print("No playground profiles found.")
+        return 0
+
+    print("\n" + "=" * 100)
+    print("🎮 PLAYGROUND PROFILES")
+    print("=" * 100)
+    print(f"{'ID':<38} {'Name':<22} {'API Base URL':<28} {'Default':<9} {'Available'}")
+    print("-" * 100)
+
+    for p in profiles:
+        pid = (p.get("id") or "?")[:36]
+        name = (p.get("profile_name") or "?")[:20]
+        api_url = (p.get("api_base_url") or "-")[:26]
+        default = "✓" if p.get("is_default") else ""
+        available = "✓" if p.get("is_available") else "✗"
+        print(f"{pid:<38} {name:<22} {api_url:<28} {default:<9} {available}")
+
+    print("=" * 100)
+    return 0
+
+
+def cmd_pg_profile_show(args: argparse.Namespace) -> int:
+    """Show a playground profile."""
+    client = _get_client()
+
+    if getattr(args, "default", False):
+        success, profile, message = client.get_default_playground_profile()
+    else:
+        if not args.id:
+            print("❌ Provide a profile ID or use --default")
+            return 1
+        success, profile, message = client.get_playground_profile(args.id)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(profile, indent=2, default=str))
+        return 0
+
+    print("\n" + "=" * 60)
+    print(f"🎮 PLAYGROUND PROFILE: {profile.get('profile_name', '?')}")
+    print("=" * 60)
+    print(f"  ID:              {profile.get('id')}")
+    print(f"  Name:            {profile.get('profile_name')}")
+    print(f"  App Base URL:    {profile.get('app_base_url', '-')}")
+    print(f"  API Base URL:    {profile.get('api_base_url', '-')}")
+    print(f"  User Email:      {profile.get('user_email', '-')}")
+    print(f"  User Org ID:     {profile.get('user_org_id', '-')}")
+    print(f"  Application:     {profile.get('application', '-')}")
+    print(f"  Integration ID:  {profile.get('integration_id', '-')}")
+    print(f"  Is Default:      {'Yes' if profile.get('is_default') else 'No'}")
+    print(f"  Is Available:    {'Yes' if profile.get('is_available') else 'No'}")
+    print(f"  Created:         {str(profile.get('created_at', '-'))[:19]}")
+    print(f"  Updated:         {str(profile.get('updated_at', '-'))[:19]}")
+
+    headers = profile.get("security_headers")
+    if headers:
+        print(f"\n  Security Headers:")
+        for k, v in headers.items():
+            print(f"    {k}: {v}")
+
+    props = profile.get("user_properties")
+    if props:
+        print(f"\n  User Properties:")
+        for k, v in props.items():
+            print(f"    {k}: {v}")
+
+    print("=" * 60)
+    return 0
+
+
+def cmd_pg_profile_create(args: argparse.Namespace) -> int:
+    """Create a playground profile."""
+    dry_run = getattr(args, "dry_run", False)
+    payload: dict[str, Any] = {}
+
+    # Load from file if provided
+    from_file = getattr(args, "from_file", None)
+    if from_file:
+        file_path = Path(from_file)
+        if not file_path.exists():
+            print(f"❌ File not found: {from_file}")
+            return 1
+        payload = json.loads(file_path.read_text())
+        _vprint(f"Loaded base payload from: {from_file}")
+
+    # Load from local adopt_profile.json if requested
+    from_profile = getattr(args, "from_profile", False)
+    if from_profile:
+        manager = get_workspace_manager()
+        env = manager.active_env
+        if not env:
+            print("❌ No active environment. Set one with: workspace.py env use <env-id>")
+            return 1
+        local_profile = manager.resolve_adopt_profile(env_name=env)
+        _vprint(f"Resolved local profile for env '{env}': {json.dumps(local_profile, indent=2)}")
+
+        if local_profile.get("base_url") and "api_base_url" not in payload:
+            payload["api_base_url"] = local_profile["base_url"]
+        if local_profile.get("application_base_url") and "app_base_url" not in payload:
+            payload["app_base_url"] = local_profile["application_base_url"]
+        if local_profile.get("security_params") and "security_headers" not in payload:
+            payload["security_headers"] = local_profile["security_params"]
+        if local_profile.get("workflow_params") and "user_properties" not in payload:
+            payload["user_properties"] = {
+                k: str(v) for k, v in local_profile["workflow_params"].items()
+            }
+
+    # CLI flags override everything
+    if args.name:
+        payload["profile_name"] = args.name
+    if getattr(args, "app_base_url", None):
+        payload["app_base_url"] = args.app_base_url
+    if getattr(args, "api_base_url", None):
+        payload["api_base_url"] = args.api_base_url
+    if getattr(args, "user_email", None):
+        payload["user_email"] = args.user_email
+    if getattr(args, "user_org_id", None):
+        payload["user_org_id"] = args.user_org_id
+    if getattr(args, "integration_id", None):
+        payload["integration_id"] = args.integration_id
+    if getattr(args, "is_default", False):
+        payload["is_default"] = True
+    if getattr(args, "application", None):
+        payload["application"] = args.application
+    if getattr(args, "documented_api_id", None):
+        payload["documented_api_id"] = args.documented_api_id
+
+    # JSON string fields
+    sec_headers = getattr(args, "security_headers", None)
+    if sec_headers:
+        try:
+            payload["security_headers"] = json.loads(sec_headers)
+        except json.JSONDecodeError:
+            print("❌ --security-headers must be a valid JSON string")
+            return 1
+
+    user_props = getattr(args, "user_properties", None)
+    if user_props:
+        try:
+            payload["user_properties"] = json.loads(user_props)
+        except json.JSONDecodeError:
+            print("❌ --user-properties must be a valid JSON string")
+            return 1
+
+    # Validate required fields
+    missing = []
+    if "profile_name" not in payload:
+        missing.append("--name")
+    if "app_base_url" not in payload:
+        missing.append("--app-base-url")
+    if "api_base_url" not in payload:
+        missing.append("--api-base-url")
+    if missing:
+        print(f"❌ Missing required fields: {', '.join(missing)}")
+        print("   Use --from-profile or --from-file to populate, or provide flags directly")
+        return 1
+
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print("DRY RUN: Would create playground profile:")
+        print(json.dumps(payload, indent=2, default=str))
+        return 0
+
+    client = _get_client()
+    success, profile, message = client.create_playground_profile(payload)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    print(f"✅ {message}")
+    print(f"   ID: {profile.get('id')}")
+    print(f"   Name: {profile.get('profile_name')}")
+    return 0
+
+
+def cmd_pg_profile_update(args: argparse.Namespace) -> int:
+    """Update a playground profile."""
+    dry_run = getattr(args, "dry_run", False)
+    payload: dict[str, Any] = {}
+
+    if getattr(args, "name", None):
+        payload["profile_name"] = args.name
+    if getattr(args, "app_base_url", None):
+        payload["app_base_url"] = args.app_base_url
+    if getattr(args, "api_base_url", None):
+        payload["api_base_url"] = args.api_base_url
+    if getattr(args, "user_email", None):
+        payload["user_email"] = args.user_email
+    if getattr(args, "user_org_id", None):
+        payload["user_org_id"] = args.user_org_id
+    if getattr(args, "integration_id", None):
+        payload["integration_id"] = args.integration_id
+    if getattr(args, "application", None):
+        payload["application"] = args.application
+    if getattr(args, "documented_api_id", None):
+        payload["documented_api_id"] = args.documented_api_id
+
+    # Boolean flags
+    if getattr(args, "is_default", None) is not None:
+        payload["is_default"] = args.is_default
+    if getattr(args, "is_available", None) is not None:
+        payload["is_available"] = args.is_available
+
+    sec_headers = getattr(args, "security_headers", None)
+    if sec_headers:
+        try:
+            payload["security_headers"] = json.loads(sec_headers)
+        except json.JSONDecodeError:
+            print("❌ --security-headers must be a valid JSON string")
+            return 1
+
+    user_props = getattr(args, "user_properties", None)
+    if user_props:
+        try:
+            payload["user_properties"] = json.loads(user_props)
+        except json.JSONDecodeError:
+            print("❌ --user-properties must be a valid JSON string")
+            return 1
+
+    if not payload:
+        print("❌ No updates specified. Provide at least one flag to update.")
+        return 1
+
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would update profile '{args.id}' with:")
+        print(json.dumps(payload, indent=2, default=str))
+        return 0
+
+    client = _get_client()
+    success, profile, message = client.update_playground_profile(args.id, payload)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    print(f"✅ {message}")
+    return 0
+
+
+def cmd_pg_profile_delete(args: argparse.Namespace) -> int:
+    """Delete a playground profile."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would delete playground profile '{args.id}'")
+        return 0
+
+    if not getattr(args, "force", False):
+        confirm = input(f"Are you sure you want to delete profile '{args.id}'? [y/N]: ")
+        if confirm.lower() != "y":
+            print("Cancelled.")
+            return 0
+
+    client = _get_client()
+    success, message = client.delete_playground_profile(args.id)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    print(f"✅ {message}")
+    return 0
+
+
+# =========================================================================
+# Token Config (remote) command handlers
+# =========================================================================
+
+# Storage type validation map
+_STORAGE_TYPE_REQUIRED = {
+    "localStorage": ["storage_key"],
+    "sessionStorage": ["storage_key"],
+    "cookie": ["cookie_key"],
+    "domElement": ["dom_selector", "dom_attribute"],
+    "customScript": ["custom_script"],
+}
+
+
+def cmd_token_config_list(args: argparse.Namespace) -> int:
+    """List remote token configurations."""
+    client = _get_client()
+
+    is_published = None
+    if getattr(args, "published", False):
+        is_published = True
+    elif getattr(args, "unpublished", False):
+        is_published = False
+
+    success, data, message = client.list_token_configs(
+        page=getattr(args, "page", 1) or 1,
+        page_size=getattr(args, "page_size", 50) or 50,
+        search=getattr(args, "search", None),
+        is_published=is_published,
+        integration_id=getattr(args, "integration_id", None),
+    )
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    items = data.get("items", []) if isinstance(data, dict) else []
+    total = data.get("total", len(items)) if isinstance(data, dict) else len(items)
+
+    if not items:
+        print("No token configurations found.")
+        return 0
+
+    page = getattr(args, "page", 1) or 1
+    page_size = getattr(args, "page_size", 50) or 50
+    start = (page - 1) * page_size + 1
+    end = start + len(items) - 1
+
+    print("\n" + "=" * 110)
+    print(f"🔑 TOKEN CONFIGURATIONS (showing {start}-{end} of {total})")
+    print("=" * 110)
+    print(f"{'ID':<38} {'Name':<22} {'Domain':<22} {'Storage Type':<16} {'Published'}")
+    print("-" * 110)
+
+    for t in items:
+        tid = (t.get("id") or "?")[:36]
+        name = (t.get("name") or "?")[:20]
+        domain = (t.get("domain_suffix") or "-")[:20]
+        stype = (t.get("storage_type") or "-")[:14]
+        published = "✓" if t.get("is_published") else "✗"
+        print(f"{tid:<38} {name:<22} {domain:<22} {stype:<16} {published}")
+
+    print("=" * 110)
+    return 0
+
+
+def cmd_token_config_show(args: argparse.Namespace) -> int:
+    """Show a token configuration."""
+    client = _get_client()
+    success, token, message = client.get_token_config(args.id)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    if getattr(args, "json", False):
+        print(json.dumps(token, indent=2, default=str))
+        return 0
+
+    print("\n" + "=" * 60)
+    print(f"🔑 TOKEN CONFIG: {token.get('name', '?')}")
+    print("=" * 60)
+    print(f"  ID:              {token.get('id')}")
+    print(f"  Name:            {token.get('name')}")
+    print(f"  Domain Suffix:   {token.get('domain_suffix')}")
+    print(f"  Storage Type:    {token.get('storage_type')}")
+    print(f"  Published:       {'Yes' if token.get('is_published') else 'No'}")
+    print(f"  Integration ID:  {token.get('integration_id', '-')}")
+    print(f"  Created:         {str(token.get('created_at', '-'))[:19]}")
+    print(f"  Updated:         {str(token.get('updated_at', '-'))[:19]}")
+
+    # Storage-type specific fields
+    stype = token.get("storage_type", "")
+    if stype in ("localStorage", "sessionStorage"):
+        print(f"\n  Storage Key:     {token.get('storage_key', '-')}")
+    elif stype == "cookie":
+        print(f"\n  Cookie Key:      {token.get('cookie_key', '-')}")
+        print(f"  Cookie Domains:  {', '.join(token.get('cookie_domains') or []) or '-'}")
+        print(f"  Use All Cookies: {'Yes' if token.get('use_all_cookies') else 'No'}")
+    elif stype == "domElement":
+        print(f"\n  DOM Selector:    {token.get('dom_selector', '-')}")
+        print(f"  DOM Attribute:   {token.get('dom_attribute', '-')}")
+        print(f"  Use Content:     {'Yes' if token.get('use_content') else 'No'}")
+    elif stype == "customScript":
+        script = token.get("custom_script", "-")
+        if script and len(script) > 80:
+            script = script[:77] + "..."
+        print(f"\n  Custom Script:   {script}")
+
+    if token.get("parser_logic"):
+        logic = token["parser_logic"]
+        if len(logic) > 80:
+            logic = logic[:77] + "..."
+        print(f"  Parser Logic:    {logic}")
+
+    print("=" * 60)
+    return 0
+
+
+def cmd_token_config_create(args: argparse.Namespace) -> int:
+    """Create a token configuration."""
+    dry_run = getattr(args, "dry_run", False)
+    payload: dict[str, Any] = {}
+
+    # Load from file if provided
+    from_file = getattr(args, "from_file", None)
+    if from_file:
+        file_path = Path(from_file)
+        if not file_path.exists():
+            print(f"❌ File not found: {from_file}")
+            return 1
+        payload = json.loads(file_path.read_text())
+        _vprint(f"Loaded base payload from: {from_file}")
+
+    # CLI flags override
+    if getattr(args, "name", None):
+        payload["name"] = args.name
+    if getattr(args, "domain_suffix", None):
+        payload["domain_suffix"] = args.domain_suffix
+    if getattr(args, "storage_type", None):
+        payload["storage_type"] = args.storage_type
+    if getattr(args, "storage_key", None):
+        payload["storage_key"] = args.storage_key
+    if getattr(args, "cookie_key", None):
+        payload["cookie_key"] = args.cookie_key
+    if getattr(args, "cookie_domains", None):
+        payload["cookie_domains"] = [d.strip() for d in args.cookie_domains.split(",")]
+    if getattr(args, "use_all_cookies", False):
+        payload["use_all_cookies"] = True
+        payload["cookie_key"] = "ALL_COOKIES"
+    if getattr(args, "dom_selector", None):
+        payload["dom_selector"] = args.dom_selector
+    if getattr(args, "dom_attribute", None):
+        payload["dom_attribute"] = args.dom_attribute
+    if getattr(args, "use_content", False):
+        payload["use_content"] = True
+    if getattr(args, "integration_id", None):
+        payload["integration_id"] = args.integration_id
+
+    # Custom script: support @filepath syntax
+    custom_script = getattr(args, "custom_script", None)
+    if custom_script:
+        if custom_script.startswith("@"):
+            script_path = Path(custom_script[1:])
+            if not script_path.exists():
+                print(f"❌ Script file not found: {script_path}")
+                return 1
+            payload["custom_script"] = script_path.read_text()
+        else:
+            payload["custom_script"] = custom_script
+
+    # Parser logic: support @filepath syntax
+    parser_logic = getattr(args, "parser_logic", None)
+    if parser_logic:
+        if parser_logic.startswith("@"):
+            logic_path = Path(parser_logic[1:])
+            if not logic_path.exists():
+                print(f"❌ Parser logic file not found: {logic_path}")
+                return 1
+            payload["parser_logic"] = logic_path.read_text()
+        else:
+            payload["parser_logic"] = parser_logic
+
+    # Publish status
+    if getattr(args, "no_publish", False):
+        payload["is_published"] = False
+
+    # Validate required fields
+    missing = []
+    if "name" not in payload:
+        missing.append("--name")
+    if "domain_suffix" not in payload:
+        missing.append("--domain-suffix")
+    if "storage_type" not in payload:
+        missing.append("--storage-type")
+    if missing:
+        print(f"❌ Missing required fields: {', '.join(missing)}")
+        return 1
+
+    # Validate storage-type specific fields
+    stype = payload.get("storage_type", "")
+    required_for_type = _STORAGE_TYPE_REQUIRED.get(stype, [])
+    type_missing = [f for f in required_for_type if not payload.get(f)]
+    if type_missing:
+        flag_names = [f"--{f.replace('_', '-')}" for f in type_missing]
+        print(f"❌ Storage type '{stype}' requires: {', '.join(flag_names)}")
+        return 1
+
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print("DRY RUN: Would create token config:")
+        print(json.dumps(payload, indent=2, default=str))
+        return 0
+
+    client = _get_client()
+    success, token, message = client.create_token_config(payload)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    print(f"✅ {message}")
+    print(f"   ID: {token.get('id')}")
+    print(f"   Name: {token.get('name')}")
+    return 0
+
+
+def cmd_token_config_update(args: argparse.Namespace) -> int:
+    """Update a token configuration."""
+    dry_run = getattr(args, "dry_run", False)
+    payload: dict[str, Any] = {}
+
+    if getattr(args, "name", None):
+        payload["name"] = args.name
+    if getattr(args, "domain_suffix", None):
+        payload["domain_suffix"] = args.domain_suffix
+    if getattr(args, "storage_type", None):
+        payload["storage_type"] = args.storage_type
+    if getattr(args, "storage_key", None):
+        payload["storage_key"] = args.storage_key
+    if getattr(args, "cookie_key", None):
+        payload["cookie_key"] = args.cookie_key
+    if getattr(args, "cookie_domains", None):
+        payload["cookie_domains"] = [d.strip() for d in args.cookie_domains.split(",")]
+    if getattr(args, "dom_selector", None):
+        payload["dom_selector"] = args.dom_selector
+    if getattr(args, "dom_attribute", None):
+        payload["dom_attribute"] = args.dom_attribute
+    if getattr(args, "integration_id", None):
+        payload["integration_id"] = args.integration_id
+
+    custom_script = getattr(args, "custom_script", None)
+    if custom_script:
+        if custom_script.startswith("@"):
+            script_path = Path(custom_script[1:])
+            if not script_path.exists():
+                print(f"❌ Script file not found: {script_path}")
+                return 1
+            payload["custom_script"] = script_path.read_text()
+        else:
+            payload["custom_script"] = custom_script
+
+    parser_logic = getattr(args, "parser_logic", None)
+    if parser_logic:
+        if parser_logic.startswith("@"):
+            logic_path = Path(parser_logic[1:])
+            if not logic_path.exists():
+                print(f"❌ Parser logic file not found: {logic_path}")
+                return 1
+            payload["parser_logic"] = logic_path.read_text()
+        else:
+            payload["parser_logic"] = parser_logic
+
+    # Boolean toggles
+    if getattr(args, "publish", False):
+        payload["is_published"] = True
+    elif getattr(args, "unpublish", False):
+        payload["is_published"] = False
+
+    if not payload:
+        print("❌ No updates specified. Provide at least one flag to update.")
+        return 1
+
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would update token config '{args.id}' with:")
+        print(json.dumps(payload, indent=2, default=str))
+        return 0
+
+    client = _get_client()
+    success, token, message = client.update_token_config(args.id, payload)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    print(f"✅ {message}")
+    return 0
+
+
+def cmd_token_config_delete(args: argparse.Namespace) -> int:
+    """Delete a token configuration."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would delete token config '{args.id}'")
+        return 0
+
+    if not getattr(args, "force", False):
+        confirm = input(f"Are you sure you want to delete token config '{args.id}'? [y/N]: ")
+        if confirm.lower() != "y":
+            print("Cancelled.")
+            return 0
+
+    client = _get_client()
+    success, message = client.delete_token_config(args.id)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    print(f"✅ {message}")
+    return 0
+
+
+def cmd_token_config_publish(args: argparse.Namespace) -> int:
+    """Publish token configurations."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would publish {len(args.ids)} token config(s)")
+        return 0
+
+    client = _get_client()
+    success, message = client.batch_token_config_status(args.ids, is_published=True)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    print(f"✅ {message}")
+    return 0
+
+
+def cmd_token_config_unpublish(args: argparse.Namespace) -> int:
+    """Unpublish token configurations."""
+    dry_run = getattr(args, "dry_run", False)
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would unpublish {len(args.ids)} token config(s)")
+        return 0
+
+    client = _get_client()
+    success, message = client.batch_token_config_status(args.ids, is_published=False)
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    print(f"✅ {message}")
+    return 0
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -1473,6 +2146,192 @@ Examples:
     )
     profile_update.set_defaults(func=cmd_profile_update)
 
+    # =========================================================================
+    # PLAYGROUND-PROFILE commands (remote)
+    # =========================================================================
+    pg_parser = subparsers.add_parser("playground-profile", help="Remote playground profile management")
+    pg_subparsers = pg_parser.add_subparsers(dest="pg_command")
+
+    # playground-profile list
+    pg_list = pg_subparsers.add_parser("list", help="List playground profiles")
+    pg_list.add_argument("--integration-id", help="Filter by integration ID")
+    pg_list.set_defaults(func=cmd_pg_profile_list)
+
+    # playground-profile show
+    pg_show = pg_subparsers.add_parser("show", help="Show playground profile details")
+    pg_show.add_argument("id", nargs="?", help="Profile ID")
+    pg_show.add_argument("--default", action="store_true", help="Show the default profile")
+    pg_show.add_argument("--json", action="store_true", help="Output as JSON")
+    pg_show.set_defaults(func=cmd_pg_profile_show)
+
+    # playground-profile create
+    pg_create = pg_subparsers.add_parser(
+        "create",
+        help="Create playground profile",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Create from CLI flags
+  python cli/workspace.py playground-profile create --name "My Profile" --app-base-url https://app.example.com --api-base-url https://api.example.com
+
+  # Create from local adopt_profile.json (auto-maps base_url, security_params, etc.)
+  python cli/workspace.py playground-profile create --name "My Profile" --from-profile
+
+  # Create from JSON file
+  python cli/workspace.py playground-profile create --from-file profile.json
+        """,
+    )
+    pg_create.add_argument("--name", help="Profile name (required)")
+    pg_create.add_argument("--app-base-url", help="Application base URL")
+    pg_create.add_argument("--api-base-url", help="API base URL")
+    pg_create.add_argument(
+        "--from-profile",
+        action="store_true",
+        help="Pre-populate from local adopt_profile.json (maps base_url, security_params, etc.)",
+    )
+    pg_create.add_argument("--from-file", help="Path to JSON file with profile payload")
+    pg_create.add_argument("--user-email", help="Login user email")
+    pg_create.add_argument("--user-org-id", help="User organization ID")
+    pg_create.add_argument("--integration-id", help="Integration ID")
+    pg_create.add_argument("--is-default", action="store_true", help="Set as default profile")
+    pg_create.add_argument("--security-headers", help="Security headers as JSON string")
+    pg_create.add_argument("--user-properties", help="User properties as JSON string")
+    pg_create.add_argument("--application", help="Third-party application name (e.g., Salesforce)")
+    pg_create.add_argument("--documented-api-id", help="Documented API ID")
+    pg_create.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    pg_create.set_defaults(func=cmd_pg_profile_create)
+
+    # playground-profile update
+    pg_update = pg_subparsers.add_parser("update", help="Update playground profile")
+    pg_update.add_argument("id", help="Profile ID to update")
+    pg_update.add_argument("--name", help="Profile name")
+    pg_update.add_argument("--app-base-url", help="Application base URL")
+    pg_update.add_argument("--api-base-url", help="API base URL")
+    pg_update.add_argument("--user-email", help="Login user email")
+    pg_update.add_argument("--user-org-id", help="User organization ID")
+    pg_update.add_argument("--integration-id", help="Integration ID")
+    pg_update.add_argument("--is-default", action="store_true", default=None, help="Set as default")
+    pg_update.add_argument("--is-available", action="store_true", default=None, help="Set as available")
+    pg_update.add_argument("--security-headers", help="Security headers as JSON string")
+    pg_update.add_argument("--user-properties", help="User properties as JSON string")
+    pg_update.add_argument("--application", help="Third-party application name")
+    pg_update.add_argument("--documented-api-id", help="Documented API ID")
+    pg_update.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    pg_update.set_defaults(func=cmd_pg_profile_update)
+
+    # playground-profile delete
+    pg_delete = pg_subparsers.add_parser("delete", help="Delete playground profile")
+    pg_delete.add_argument("id", help="Profile ID to delete")
+    pg_delete.add_argument("--force", action="store_true", help="Skip confirmation")
+    pg_delete.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    pg_delete.set_defaults(func=cmd_pg_profile_delete)
+
+    # =========================================================================
+    # TOKEN-CONFIG commands (remote)
+    # =========================================================================
+    tc_parser = subparsers.add_parser("token-config", help="Remote token configuration management")
+    tc_subparsers = tc_parser.add_subparsers(dest="tc_command")
+
+    # token-config list
+    tc_list = tc_subparsers.add_parser("list", help="List token configurations")
+    tc_list.add_argument("--search", help="Search by name")
+    tc_list.add_argument("--published", action="store_true", help="Show only published")
+    tc_list.add_argument("--unpublished", action="store_true", help="Show only unpublished")
+    tc_list.add_argument("--integration-id", help="Filter by integration ID")
+    tc_list.add_argument("--page", type=int, default=1, help="Page number (default: 1)")
+    tc_list.add_argument("--page-size", type=int, default=50, help="Page size (default: 50)")
+    tc_list.set_defaults(func=cmd_token_config_list)
+
+    # token-config show
+    tc_show = tc_subparsers.add_parser("show", help="Show token configuration details")
+    tc_show.add_argument("id", help="Token config ID")
+    tc_show.add_argument("--json", action="store_true", help="Output as JSON")
+    tc_show.set_defaults(func=cmd_token_config_show)
+
+    # token-config create
+    tc_create = tc_subparsers.add_parser(
+        "create",
+        help="Create token configuration",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # localStorage token
+  python cli/workspace.py token-config create --name "my-token" --domain-suffix "example.com" --storage-type localStorage --storage-key "auth_token"
+
+  # Cookie token
+  python cli/workspace.py token-config create --name "session" --domain-suffix "app.com" --storage-type cookie --cookie-key "SESSIONID" --cookie-domains "app.com,api.app.com"
+
+  # Custom script from file
+  python cli/workspace.py token-config create --name "custom" --domain-suffix "app.com" --storage-type customScript --custom-script @extract.js
+
+  # From JSON file
+  python cli/workspace.py token-config create --from-file token.json
+        """,
+    )
+    tc_create.add_argument("--name", help="Token name (no spaces, required)")
+    tc_create.add_argument("--domain-suffix", help="Domain suffix (required)")
+    tc_create.add_argument(
+        "--storage-type",
+        choices=["localStorage", "sessionStorage", "cookie", "domElement", "customScript"],
+        help="Storage type (required)",
+    )
+    tc_create.add_argument("--storage-key", help="Storage key (for localStorage/sessionStorage)")
+    tc_create.add_argument("--cookie-key", help="Cookie key (for cookie type)")
+    tc_create.add_argument("--cookie-domains", help="Comma-separated cookie domains")
+    tc_create.add_argument("--use-all-cookies", action="store_true", help="Extract all cookies")
+    tc_create.add_argument("--dom-selector", help="XPath selector (for domElement)")
+    tc_create.add_argument("--dom-attribute", help="DOM attribute (for domElement)")
+    tc_create.add_argument("--use-content", action="store_true", help="Use element content")
+    tc_create.add_argument("--custom-script", help="Custom JS script or @filepath")
+    tc_create.add_argument("--parser-logic", help="Parser JS logic or @filepath")
+    tc_create.add_argument("--from-file", help="Path to JSON file with full payload")
+    tc_create.add_argument("--no-publish", action="store_true", help="Create as unpublished")
+    tc_create.add_argument("--integration-id", help="Integration ID")
+    tc_create.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    tc_create.set_defaults(func=cmd_token_config_create)
+
+    # token-config update
+    tc_update = tc_subparsers.add_parser("update", help="Update token configuration")
+    tc_update.add_argument("id", help="Token config ID to update")
+    tc_update.add_argument("--name", help="Token name")
+    tc_update.add_argument("--domain-suffix", help="Domain suffix")
+    tc_update.add_argument(
+        "--storage-type",
+        choices=["localStorage", "sessionStorage", "cookie", "domElement", "customScript"],
+        help="Storage type",
+    )
+    tc_update.add_argument("--storage-key", help="Storage key")
+    tc_update.add_argument("--cookie-key", help="Cookie key")
+    tc_update.add_argument("--cookie-domains", help="Comma-separated cookie domains")
+    tc_update.add_argument("--dom-selector", help="XPath selector")
+    tc_update.add_argument("--dom-attribute", help="DOM attribute")
+    tc_update.add_argument("--custom-script", help="Custom JS script or @filepath")
+    tc_update.add_argument("--parser-logic", help="Parser JS logic or @filepath")
+    tc_update.add_argument("--integration-id", help="Integration ID")
+    tc_update.add_argument("--publish", action="store_true", help="Publish the token config")
+    tc_update.add_argument("--unpublish", action="store_true", help="Unpublish the token config")
+    tc_update.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    tc_update.set_defaults(func=cmd_token_config_update)
+
+    # token-config delete
+    tc_delete = tc_subparsers.add_parser("delete", help="Delete token configuration")
+    tc_delete.add_argument("id", help="Token config ID to delete")
+    tc_delete.add_argument("--force", action="store_true", help="Skip confirmation")
+    tc_delete.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    tc_delete.set_defaults(func=cmd_token_config_delete)
+
+    # token-config publish
+    tc_publish = tc_subparsers.add_parser("publish", help="Publish token configuration(s)")
+    tc_publish.add_argument("ids", nargs="+", help="Token config ID(s) to publish")
+    tc_publish.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    tc_publish.set_defaults(func=cmd_token_config_publish)
+
+    # token-config unpublish
+    tc_unpublish = tc_subparsers.add_parser("unpublish", help="Unpublish token configuration(s)")
+    tc_unpublish.add_argument("ids", nargs="+", help="Token config ID(s) to unpublish")
+    tc_unpublish.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    tc_unpublish.set_defaults(func=cmd_token_config_unpublish)
+
     # Global verbose flag
     parser.add_argument(
         "--verbose",
@@ -1505,6 +2364,10 @@ Examples:
             action_parser.print_help()
         elif args.command == "profile":
             profile_parser.print_help()
+        elif args.command == "playground-profile":
+            pg_parser.print_help()
+        elif args.command == "token-config":
+            tc_parser.print_help()
         return 0
 
 
