@@ -53,6 +53,7 @@ CLI_DIR = Path(__file__).parent
 PROJECT_ROOT = CLI_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from cli.wdl_common.api_client import AdoptAPIClient
 from cli.wdl_common.workspace_manager import (
     WORKSPACES_DIR,
     get_workspace_manager,
@@ -1237,7 +1238,7 @@ def cmd_profile_update(args: argparse.Namespace) -> int:
 # =========================================================================
 
 
-def _get_client() -> "AdoptAPIClient":
+def _get_client() -> AdoptAPIClient:
     """Get API client for active environment."""
     from cli.wdl_common.api_client import get_api_client_for_env
 
@@ -1291,7 +1292,7 @@ def cmd_pg_profile_show(args: argparse.Namespace) -> int:
             return 1
         success, profile, message = client.get_playground_profile(args.id)
 
-    if not success:
+    if not success or profile is None:
         print(f"❌ {message}")
         return 1
 
@@ -1317,13 +1318,13 @@ def cmd_pg_profile_show(args: argparse.Namespace) -> int:
 
     headers = profile.get("security_headers")
     if headers:
-        print(f"\n  Security Headers:")
+        print("\n  Security Headers:")
         for k, v in headers.items():
             print(f"    {k}: {v}")
 
     props = profile.get("user_properties")
     if props:
-        print(f"\n  User Properties:")
+        print("\n  User Properties:")
         for k, v in props.items():
             print(f"    {k}: {v}")
 
@@ -1427,7 +1428,7 @@ def cmd_pg_profile_create(args: argparse.Namespace) -> int:
     client = _get_client()
     success, profile, message = client.create_playground_profile(payload)
 
-    if not success:
+    if not success or profile is None:
         print(f"❌ {message}")
         return 1
 
@@ -1598,7 +1599,7 @@ def cmd_token_config_show(args: argparse.Namespace) -> int:
     client = _get_client()
     success, token, message = client.get_token_config(args.id)
 
-    if not success:
+    if not success or token is None:
         print(f"❌ {message}")
         return 1
 
@@ -1744,7 +1745,7 @@ def cmd_token_config_create(args: argparse.Namespace) -> int:
     client = _get_client()
     success, token, message = client.create_token_config(payload)
 
-    if not success:
+    if not success or token is None:
         print(f"❌ {message}")
         return 1
 
@@ -2149,7 +2150,9 @@ Examples:
     # =========================================================================
     # PLAYGROUND-PROFILE commands (remote)
     # =========================================================================
-    pg_parser = subparsers.add_parser("playground-profile", help="Remote playground profile management")
+    pg_parser = subparsers.add_parser(
+        "playground-profile", help="Remote playground profile management"
+    )
     pg_subparsers = pg_parser.add_subparsers(dest="pg_command")
 
     # playground-profile list
@@ -2211,7 +2214,9 @@ Examples:
     pg_update.add_argument("--user-org-id", help="User organization ID")
     pg_update.add_argument("--integration-id", help="Integration ID")
     pg_update.add_argument("--is-default", action="store_true", default=None, help="Set as default")
-    pg_update.add_argument("--is-available", action="store_true", default=None, help="Set as available")
+    pg_update.add_argument(
+        "--is-available", action="store_true", default=None, help="Set as available"
+    )
     pg_update.add_argument("--security-headers", help="Security headers as JSON string")
     pg_update.add_argument("--user-properties", help="User properties as JSON string")
     pg_update.add_argument("--application", help="Third-party application name")
@@ -2323,13 +2328,17 @@ Examples:
     # token-config publish
     tc_publish = tc_subparsers.add_parser("publish", help="Publish token configuration(s)")
     tc_publish.add_argument("ids", nargs="+", help="Token config ID(s) to publish")
-    tc_publish.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    tc_publish.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     tc_publish.set_defaults(func=cmd_token_config_publish)
 
     # token-config unpublish
     tc_unpublish = tc_subparsers.add_parser("unpublish", help="Unpublish token configuration(s)")
     tc_unpublish.add_argument("ids", nargs="+", help="Token config ID(s) to unpublish")
-    tc_unpublish.add_argument("--dry-run", action="store_true", help="Simulate without making changes")
+    tc_unpublish.add_argument(
+        "--dry-run", action="store_true", help="Simulate without making changes"
+    )
     tc_unpublish.set_defaults(func=cmd_token_config_unpublish)
 
     # Global verbose flag
