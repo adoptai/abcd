@@ -1245,6 +1245,56 @@ def _get_client() -> AdoptAPIClient:
     return get_api_client_for_env(verbose=_verbose)
 
 
+def _validate_security_headers_are_token_refs(
+    security_headers: dict[str, Any],
+) -> int | None:
+    """Validate that all security header values reference published token configs.
+
+    Security headers in remote playground profiles must reference token configs
+    by name (not hardcoded secrets). This prevents accidental secret leakage and
+    ensures tokens are managed via the token manager for automatic refresh.
+
+    Returns:
+        None if validation passes, or an error exit code (1) if it fails.
+    """
+    client = _get_client()
+    success, data, message = client.list_token_configs(
+        page=1, page_size=100, is_published=True
+    )
+    if not success or data is None:
+        print(f"⚠️  Could not fetch token configs to validate: {message}")
+        print("   Skipping security header validation.")
+        return None
+
+    items = data.get("items", []) if isinstance(data, dict) else []
+    published_names = {t["name"] for t in items if t.get("name")}
+
+    invalid = []
+    for key, value in security_headers.items():
+        if not isinstance(value, str):
+            invalid.append((key, str(value), "value must be a string"))
+        elif value not in published_names:
+            invalid.append((key, value, "not a published token config"))
+
+    if invalid:
+        print("❌ Security header values must reference published token configs.")
+        print("   Hardcoded secrets are not allowed in remote playground profiles.")
+        print()
+        for key, value, reason in invalid:
+            preview = value[:40] + "..." if len(value) > 40 else value
+            print(f"   • {key} = \"{preview}\" → {reason}")
+        print()
+        print(f"   Published token configs: {', '.join(sorted(published_names)) or '(none)'}")
+        print()
+        print("   To fix: create a token config first, then reference it by name:")
+        print("     python cli/workspace.py token-config create --name \"my_token\" \\")
+        print("       --domain-suffix \"example.com\" --storage-type customScript \\")
+        print("       --custom-script \"return document.cookie;\"")
+        return 1
+
+    return None
+
+
 def cmd_pg_profile_list(args: argparse.Namespace) -> int:
     """List remote playground profiles."""
     client = _get_client()
@@ -1419,6 +1469,14 @@ def cmd_pg_profile_create(args: argparse.Namespace) -> int:
         print("   Use --from-profile or --from-file to populate, or provide flags directly")
         return 1
 
+    # Validate security header values reference published token configs
+    if payload.get("security_headers"):
+        validation_err = _validate_security_headers_are_token_refs(
+            payload["security_headers"]
+        )
+        if validation_err:
+            return validation_err
+
     if dry_run:
         print("--- DRY RUN MODE ---")
         print("DRY RUN: Would create playground profile:")
@@ -1485,6 +1543,14 @@ def cmd_pg_profile_update(args: argparse.Namespace) -> int:
     if not payload:
         print("❌ No updates specified. Provide at least one flag to update.")
         return 1
+
+    # Validate security header values reference published token configs
+    if payload.get("security_headers"):
+        validation_err = _validate_security_headers_are_token_refs(
+            payload["security_headers"]
+        )
+        if validation_err:
+            return validation_err
 
     if dry_run:
         print("--- DRY RUN MODE ---")

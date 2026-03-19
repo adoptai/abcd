@@ -444,6 +444,62 @@ python cli/publish_wdl_action.py --agent my-agent --yes
 
 ---
 
+## Security Headers & Token Management
+
+**Remote playground profiles must NEVER contain hardcoded secrets.** All security header values must reference published token configs by name. The CLI enforces this — `playground-profile create` and `playground-profile update` will reject hardcoded values.
+
+### How It Works
+
+1. **Token configs** define HOW to extract a secret from a browser session (custom JS scripts, cookies, localStorage, etc.)
+2. **Playground profiles** reference token configs by name in their `security_headers`
+3. At runtime, the CE token manager resolves the names to fresh values extracted from the user's browser
+
+### Workflow: Setting Up Security Headers
+
+```bash
+# 1. Create token configs (one per secret)
+python cli/workspace.py token-config create \
+  --name "my_api_token" \
+  --domain-suffix "example.com" \
+  --storage-type customScript \
+  --custom-script "return document.querySelector('meta[name=csrf]').content;"
+
+# 2. Reference token configs by name in the profile
+python cli/workspace.py playground-profile update <profile-id> \
+  --security-headers '{"my_header": "my_api_token"}'
+```
+
+### What Gets Rejected
+
+```bash
+# ❌ This will fail — hardcoded secret value
+python cli/workspace.py playground-profile update <id> \
+  --security-headers '{"api_key": "sk-abc123-real-secret"}'
+
+# ✅ This works — references a published token config by name
+python cli/workspace.py playground-profile update <id> \
+  --security-headers '{"api_key": "my_api_token"}'
+```
+
+### Local vs Remote
+
+| Context | Where secrets live | How they're managed |
+|---------|-------------------|---------------------|
+| **Local (CLI tests)** | `adopt_profile.json` → `security_params` | Hardcoded values OK (never leaves your machine) |
+| **Remote (CE)** | Playground profile → `security_headers` | Must reference token configs (managed by token manager) |
+
+### Token Config Storage Types
+
+| Type | Use case | Key flag |
+|------|----------|----------|
+| `customScript` | Extract from page JS globals | `--custom-script "..."` |
+| `cookie` | Extract from browser cookies | `--cookie-key "SESSION_ID"` |
+| `localStorage` | Extract from localStorage | `--storage-key "auth_token"` |
+| `sessionStorage` | Extract from sessionStorage | `--storage-key "csrf"` |
+| `domElement` | Extract from DOM element | `--dom-selector "//meta[@name='token']"` |
+
+---
+
 ## Tool Mode / Deployment Rules
 
 **Required for sub-actions used by Uber Agents.**
