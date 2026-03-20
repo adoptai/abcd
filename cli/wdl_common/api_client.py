@@ -132,6 +132,26 @@ class AdoptAPIClient:
         except requests.exceptions.RequestException as e:
             return False, f"Network error: {e}"
 
+    def update_title(
+        self,
+        action_id: str,
+        new_title: str,
+    ) -> tuple[bool, str]:
+        """Update action title."""
+        url = f"{self.actions_endpoint}/v1/actions/{action_id}/title"
+        payload = {"new_title": new_title.strip()[:64]}
+
+        try:
+            response = requests.patch(url, headers=self.headers, json=payload, timeout=30)
+
+            if response.status_code not in (200, 201, 204):
+                return False, f"Failed: {response.status_code} - {response.text}"
+
+            return True, "Title updated"
+
+        except requests.exceptions.RequestException as e:
+            return False, f"Network error: {e}"
+
     def update_description(
         self,
         action_id: str,
@@ -148,6 +168,31 @@ class AdoptAPIClient:
                 return False, f"Failed: {response.status_code} - {response.text}"
 
             return True, "Description updated"
+
+        except requests.exceptions.RequestException as e:
+            return False, f"Network error: {e}"
+
+    def update_statement(
+        self,
+        action_id: str,
+        statement: str,
+        draft_id: str = "",
+    ) -> tuple[bool, str]:
+        """Update action statement (selection criteria)."""
+        url = f"{self.actions_endpoint}/v1/actions/statement"
+        payload: dict[str, Any] = {
+            "action_id": action_id,
+            "statement": statement,
+            "draft_id": draft_id,
+        }
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+
+            if response.status_code not in (200, 201, 204):
+                return False, f"Failed: {response.status_code} - {response.text}"
+
+            return True, "Statement updated"
 
         except requests.exceptions.RequestException as e:
             return False, f"Network error: {e}"
