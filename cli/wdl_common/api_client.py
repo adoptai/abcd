@@ -811,6 +811,367 @@ class AdoptAPIClient:
             return False, f"Network error: {e}"
 
     # =========================================================================
+    # Playground Profile Operations
+    # =========================================================================
+
+    def list_playground_profiles(
+        self,
+        integration_id: str | None = None,
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
+        """
+        List playground profiles for the organization.
+
+        Args:
+            integration_id: Optional filter by integration ID
+
+        Returns:
+            Tuple of (success, profiles_list, message)
+        """
+        url = f"{self.actions_endpoint}/v1/settings/playground-profiles/"
+        params: dict[str, Any] = {}
+        if integration_id:
+            params["integration_id"] = integration_id
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            data = response.json()
+            if isinstance(data, dict):
+                profiles = data.get("profiles", [])
+            elif isinstance(data, list):
+                profiles = data
+            else:
+                profiles = []
+
+            return True, profiles, f"Found {len(profiles)} profiles"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_playground_profile(
+        self,
+        profile_id: str,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Get a specific playground profile by ID.
+
+        Returns:
+            Tuple of (success, profile_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/settings/playground-profiles/{profile_id}"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+
+            if response.status_code == 404:
+                return False, None, f"Profile not found: {profile_id}"
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Profile fetched successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_default_playground_profile(
+        self,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Get the default playground profile for the organization.
+
+        Returns:
+            Tuple of (success, profile_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/settings/playground-profiles/default/"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+
+            if response.status_code == 404:
+                return False, None, "No default profile found"
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Default profile fetched successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def create_playground_profile(
+        self,
+        profile_data: dict[str, Any],
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Create a new playground profile.
+
+        Args:
+            profile_data: Profile fields (profile_name, app_base_url, api_base_url, etc.)
+
+        Returns:
+            Tuple of (success, created_profile, message)
+        """
+        url = f"{self.actions_endpoint}/v1/settings/playground-profiles/"
+
+        try:
+            response = requests.post(url, headers=self.headers, json=profile_data, timeout=30)
+
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Profile created successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def update_playground_profile(
+        self,
+        profile_id: str,
+        profile_data: dict[str, Any],
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Update an existing playground profile.
+
+        Args:
+            profile_id: Profile ID to update
+            profile_data: Fields to update
+
+        Returns:
+            Tuple of (success, updated_profile, message)
+        """
+        url = f"{self.actions_endpoint}/v1/settings/playground-profiles/update/{profile_id}"
+
+        try:
+            response = requests.post(url, headers=self.headers, json=profile_data, timeout=30)
+
+            if response.status_code == 404:
+                return False, None, f"Profile not found: {profile_id}"
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Profile updated successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def delete_playground_profile(
+        self,
+        profile_id: str,
+    ) -> tuple[bool, str]:
+        """
+        Soft delete a playground profile.
+
+        Returns:
+            Tuple of (success, message)
+        """
+        url = f"{self.actions_endpoint}/v1/settings/playground-profiles/delete/{profile_id}"
+
+        try:
+            response = requests.post(url, headers=self.headers, json={}, timeout=30)
+
+            if response.status_code == 404:
+                return False, f"Profile not found: {profile_id}"
+
+            if response.status_code != 200:
+                return False, f"Failed: {response.status_code} - {response.text}"
+
+            return True, "Profile deleted successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, f"Network error: {e}"
+
+    # =========================================================================
+    # Token Config Operations
+    # =========================================================================
+
+    def list_token_configs(
+        self,
+        page: int = 1,
+        page_size: int = 50,
+        search: str | None = None,
+        is_published: bool | None = None,
+        integration_id: str | None = None,
+        sort_by: str | None = None,
+        sort_order: str | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        List token configurations with pagination and filtering.
+
+        Returns:
+            Tuple of (success, paginated_response, message)
+            paginated_response has 'items' and 'total' keys
+        """
+        url = f"{self.actions_endpoint}/v1/token-configs"
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if search:
+            params["search"] = search
+        if is_published is not None:
+            params["is_published"] = is_published
+        if integration_id:
+            params["integration_id"] = integration_id
+        if sort_by:
+            params["sort_by"] = sort_by
+        if sort_order:
+            params["sort_order"] = sort_order
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Token configs fetched successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_token_config(
+        self,
+        token_id: str,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Get a specific token configuration by ID.
+
+        Returns:
+            Tuple of (success, token_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/token-configs/{token_id}"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+
+            if response.status_code == 404:
+                return False, None, f"Token config not found: {token_id}"
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Token config fetched successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def create_token_config(
+        self,
+        token_data: dict[str, Any],
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Create a new token configuration.
+
+        Args:
+            token_data: Token config fields (name, domain_suffix, storage_type, etc.)
+
+        Returns:
+            Tuple of (success, created_token, message)
+        """
+        url = f"{self.actions_endpoint}/v1/token-configs"
+
+        try:
+            response = requests.post(url, headers=self.headers, json=token_data, timeout=30)
+
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Token config created successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def update_token_config(
+        self,
+        token_id: str,
+        token_data: dict[str, Any],
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Update an existing token configuration.
+
+        Args:
+            token_id: Token config ID to update
+            token_data: Fields to update
+
+        Returns:
+            Tuple of (success, updated_token, message)
+        """
+        url = f"{self.actions_endpoint}/v1/token-configs/{token_id}"
+
+        try:
+            response = requests.post(url, headers=self.headers, json=token_data, timeout=30)
+
+            if response.status_code == 404:
+                return False, None, f"Token config not found: {token_id}"
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Token config updated successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def delete_token_config(
+        self,
+        token_id: str,
+    ) -> tuple[bool, str]:
+        """
+        Delete a token configuration.
+
+        Returns:
+            Tuple of (success, message)
+        """
+        url = f"{self.actions_endpoint}/v1/token-configs/{token_id}/delete"
+
+        try:
+            response = requests.post(url, headers=self.headers, json={}, timeout=30)
+
+            if response.status_code == 404:
+                return False, f"Token config not found: {token_id}"
+
+            if response.status_code != 200:
+                return False, f"Failed: {response.status_code} - {response.text}"
+
+            return True, "Token config deleted successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, f"Network error: {e}"
+
+    def batch_token_config_status(
+        self,
+        token_ids: list[str],
+        is_published: bool,
+    ) -> tuple[bool, str]:
+        """
+        Bulk update publish status for token configurations.
+
+        Args:
+            token_ids: List of token config IDs
+            is_published: New publish status
+
+        Returns:
+            Tuple of (success, message)
+        """
+        url = f"{self.actions_endpoint}/v1/token-configs/batch/status"
+        payload = {"token_ids": token_ids, "is_published": is_published}
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+
+            if response.status_code != 200:
+                return False, f"Failed: {response.status_code} - {response.text}"
+
+            data = response.json()
+            count = data.get("updated_count", len(token_ids))
+            status = "published" if is_published else "unpublished"
+            return True, f"{count} token config(s) {status}"
+
+        except requests.exceptions.RequestException as e:
+            return False, f"Network error: {e}"
+
+    # =========================================================================
     # Network Log Operations (for Diagnostics)
     # =========================================================================
 
