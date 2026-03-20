@@ -1258,9 +1258,7 @@ def _validate_security_headers_are_token_refs(
         None if validation passes, or an error exit code (1) if it fails.
     """
     client = _get_client()
-    success, data, message = client.list_token_configs(
-        page=1, page_size=100, is_published=True
-    )
+    success, data, message = client.list_token_configs(page=1, page_size=100, is_published=True)
     if not success or data is None:
         print(f"⚠️  Could not fetch token configs to validate: {message}")
         print("   Skipping security header validation.")
@@ -1282,14 +1280,14 @@ def _validate_security_headers_are_token_refs(
         print()
         for key, value, reason in invalid:
             preview = value[:40] + "..." if len(value) > 40 else value
-            print(f"   • {key} = \"{preview}\" → {reason}")
+            print(f'   • {key} = "{preview}" → {reason}')
         print()
         print(f"   Published token configs: {', '.join(sorted(published_names)) or '(none)'}")
         print()
         print("   To fix: create a token config first, then reference it by name:")
-        print("     python cli/workspace.py token-config create --name \"my_token\" \\")
-        print("       --domain-suffix \"example.com\" --storage-type customScript \\")
-        print("       --custom-script \"return document.cookie;\"")
+        print('     python cli/workspace.py token-config create --name "my_token" \\')
+        print('       --domain-suffix "example.com" --storage-type customScript \\')
+        print('       --custom-script "return document.cookie;"')
         return 1
 
     return None
@@ -1471,9 +1469,7 @@ def cmd_pg_profile_create(args: argparse.Namespace) -> int:
 
     # Validate security header values reference published token configs
     if payload.get("security_headers"):
-        validation_err = _validate_security_headers_are_token_refs(
-            payload["security_headers"]
-        )
+        validation_err = _validate_security_headers_are_token_refs(payload["security_headers"])
         if validation_err:
             return validation_err
 
@@ -1546,9 +1542,7 @@ def cmd_pg_profile_update(args: argparse.Namespace) -> int:
 
     # Validate security header values reference published token configs
     if payload.get("security_headers"):
-        validation_err = _validate_security_headers_are_token_refs(
-            payload["security_headers"]
-        )
+        validation_err = _validate_security_headers_are_token_refs(payload["security_headers"])
         if validation_err:
             return validation_err
 
