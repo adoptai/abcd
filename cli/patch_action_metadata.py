@@ -17,6 +17,7 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 # Add parent to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -60,7 +61,9 @@ def _load_local_metadata(workspace_path: Path) -> dict | None:
         return None
 
 
-def _save_local_metadata(workspace_path: Path, **fields: str) -> None:
+def _save_local_metadata(
+    workspace_path: Path, *, update_synced_at: bool = True, **fields: str
+) -> None:
     """Update local metadata.json with patched fields."""
     meta_path = workspace_path / "metadata.json"
     try:
@@ -69,7 +72,8 @@ def _save_local_metadata(workspace_path: Path, **fields: str) -> None:
             if value is not None:
                 metadata[key] = value
 
-        metadata["metadata_synced_at"] = datetime.now().isoformat()
+        if update_synced_at:
+            metadata["metadata_synced_at"] = datetime.now().isoformat()
 
         _vprint(f"Writing metadata updates to: {meta_path}")
         meta_path.write_text(json.dumps(metadata, indent=2))
@@ -77,7 +81,14 @@ def _save_local_metadata(workspace_path: Path, **fields: str) -> None:
         _vprint(f"Failed to update local metadata: {e}")
 
 
-def _patch_field(client, field_name, value, action_id, dry_run, draft_id=None):
+def _patch_field(
+    client: Any,
+    field_name: str,
+    value: str,
+    action_id: str,
+    dry_run: bool,
+    draft_id: str | None = None,
+) -> tuple[str, bool, str]:
     """
     Patch a single metadata field. Returns (field_name, success, message).
     """
@@ -109,26 +120,56 @@ def _patch_field(client, field_name, value, action_id, dry_run, draft_id=None):
     return field_name, success, msg
 
 
-def cmd_patch(args: argparse.Namespace) -> int:
-    """Patch action metadata on remote."""
+def _action_info_from_workspace(
+    workspace_path: Path,
+    *,
+    env_name: str | None = None,
+    agent_name: str | None = None,
+    metadata: dict | None = None,
+) -> dict | None:
+    """Build action info for an already-resolved workspace path."""
+    if not workspace_path.exists():
+        return None
+
+    action_info: dict = {
+        "path": workspace_path,
+        "env_name": env_name,
+        "agent_name": agent_name,
+        "action_id": workspace_path.name,
+    }
+    if metadata is None:
+        metadata = _load_local_metadata(workspace_path)
+    if metadata is not None:
+        action_info["metadata"] = metadata
+    return action_info
+
+
+def _cmd_patch_action(
+    args: argparse.Namespace,
+    action_ref: str,
+    action_info: dict | None = None,
+) -> int:
+    """Patch action metadata on remote for a resolved action workspace."""
     dry_run = args.dry_run
 
-    # Single workspace lookup for the entire command
-    action_info = _resolve_action(args.action)
+    if action_info is None:
+        action_info = _resolve_action(action_ref)
     if not action_info:
-        print(f"  No workspace found for: {args.action}")
+        print(f"  No workspace found for: {action_ref}")
         return 1
 
     action_id = action_info.get("metadata", {}).get("action_id")
     if not action_id:
-        print(f"  No remote action ID found for: {args.action}")
+        print(f"  No remote action ID found for: {action_ref}")
         print("   The action may not be published yet.")
         return 1
 
     workspace_path = action_info["path"]
-    local_meta = _load_local_metadata(workspace_path)
-    if not local_meta:
-        print(f"  Could not load metadata.json for: {args.action}")
+    local_meta = action_info.get("metadata")
+    if local_meta is None:
+        local_meta = _load_local_metadata(workspace_path)
+    if local_meta is None:
+        print(f"  Could not load metadata.json for: {action_ref}")
         return 1
 
     # Determine which fields to patch.
@@ -137,12 +178,24 @@ def cmd_patch(args: argparse.Namespace) -> int:
         args.title is not None or args.description is not None or args.statement is not None
     )
 
-    title = args.title if args.title is not None else (None if has_explicit_flags else local_meta.get("title"))
-    description = args.description if args.description is not None else (None if has_explicit_flags else local_meta.get("description"))
-    statement = args.statement if args.statement is not None else (None if has_explicit_flags else local_meta.get("statement"))
+    title = (
+        args.title
+        if args.title is not None
+        else (None if has_explicit_flags else local_meta.get("title"))
+    )
+    description = (
+        args.description
+        if args.description is not None
+        else (None if has_explicit_flags else local_meta.get("description"))
+    )
+    statement = (
+        args.statement
+        if args.statement is not None
+        else (None if has_explicit_flags else local_meta.get("statement"))
+    )
 
     if not (title or description or statement):
-        print(f"  No metadata fields to patch for: {args.action}")
+        print(f"  No metadata fields to patch for: {action_ref}")
         print("   Set title, description, or statement in metadata.json")
         print("   Or use --title, --description, --statement flags")
         return 1
@@ -151,7 +204,7 @@ def cmd_patch(args: argparse.Namespace) -> int:
     client = get_api_client_for_env()
 
     print(f"\n{'=' * 60}")
-    print(f"  PATCH METADATA: {args.action}")
+    print(f"  PATCH METADATA: {action_ref}")
     print(f"{'=' * 60}")
     print(f"  Action ID: {action_id}")
 
@@ -169,22 +222,42 @@ def cmd_patch(args: argparse.Namespace) -> int:
         if not dry_run:
             success_get, data, _ = client.get_action(action_id)
             if success_get and data:
-                draft_id = data.get("draft_id") or ""
+                draft_id = data.get("id", data.get("draft_id", ""))
                 _vprint(f"Draft ID for statement update: {draft_id!r}")
-        results.append(_patch_field(client, "statement", statement, action_id, dry_run, draft_id=draft_id))
+        results.append(
+            _patch_field(client, "statement", statement, action_id, dry_run, draft_id=draft_id)
+        )
 
     # Patch description
     if description:
         results.append(_patch_field(client, "description", description, action_id, dry_run))
 
-    # Update local metadata with synced timestamp
-    if not dry_run:
-        patched_fields = {name: val for name, val in [("title", title), ("description", description), ("statement", statement)] if val}
-        _save_local_metadata(workspace_path, **patched_fields)
-
     # Summary
     succeeded = sum(1 for _, s, _ in results if s)
     failed = sum(1 for _, s, _ in results if not s)
+
+    # Update local metadata only for fields that were confirmed remotely.
+    if not dry_run:
+        requested_fields = {
+            name: value
+            for name, value in [
+                ("title", title),
+                ("description", description),
+                ("statement", statement),
+            ]
+            if value
+        }
+        successful_fields = {
+            name: requested_fields[name]
+            for name, success, _ in results
+            if success and name in requested_fields
+        }
+        if successful_fields:
+            _save_local_metadata(
+                workspace_path,
+                update_synced_at=(failed == 0),
+                **successful_fields,
+            )
 
     print(f"\n{'=' * 60}")
     if failed == 0:
@@ -194,6 +267,11 @@ def cmd_patch(args: argparse.Namespace) -> int:
     print(f"{'=' * 60}")
 
     return 1 if failed > 0 else 0
+
+
+def cmd_patch(args: argparse.Namespace) -> int:
+    """Patch action metadata on remote."""
+    return _cmd_patch_action(args, args.action)
 
 
 def cmd_patch_agent(args: argparse.Namespace) -> int:
@@ -222,6 +300,13 @@ def cmd_patch_agent(args: argparse.Namespace) -> int:
         print(f"\n{'~' * 60}")
         print(f"  Sub-action: {sa_id}")
 
+        sub_action_path = Path(agent["path"]) / "actions" / sa_id
+        sub_action_info = _action_info_from_workspace(
+            sub_action_path,
+            env_name=agent.get("env_name"),
+            agent_name=args.agent,
+        )
+
         patch_args = argparse.Namespace(
             action=sa_id,
             title=args.title,
@@ -229,7 +314,7 @@ def cmd_patch_agent(args: argparse.Namespace) -> int:
             statement=args.statement,
             dry_run=args.dry_run,
         )
-        exit_code = cmd_patch(patch_args)
+        exit_code = _cmd_patch_action(patch_args, sa_id, action_info=sub_action_info)
         if exit_code != 0:
             total_exit = 1
 
@@ -247,7 +332,12 @@ def cmd_patch_agent(args: argparse.Namespace) -> int:
             statement=args.statement,
             dry_run=args.dry_run,
         )
-        exit_code = cmd_patch(patch_args)
+        agent_action_info = _action_info_from_workspace(
+            agent_path,
+            env_name=agent.get("env_name"),
+            metadata=agent,
+        )
+        exit_code = _cmd_patch_action(patch_args, agent_id, action_info=agent_action_info)
         if exit_code != 0:
             total_exit = 1
 
