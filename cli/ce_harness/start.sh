@@ -12,6 +12,7 @@
 # --- CONFIGURE THESE ---
 EXTENSION_PATH="${ADOPT_EXTENSION_PATH:-/home/gabriel/Documents/adopt/adoptce/dist}"
 TARGET_URL="${1:-https://www.google.com/travel/flights}"
+APP_URL="https://app.adopt.ai"
 DEBUG_PORT=9222
 # --- END CONFIG ---
 
@@ -31,6 +32,7 @@ echo "=== AdoptAI Extension Test Browser ==="
 echo "Extension: $EXTENSION_PATH"
 echo "Profile:   $PROFILE_DIR  (isolated from your daily Chrome)"
 echo "Debug:     http://localhost:$DEBUG_PORT"
+echo "Auth:      $APP_URL"
 echo "Target:    $TARGET_URL"
 echo ""
 echo "Close the browser window to stop (don't Ctrl+C — Chrome needs a clean exit to save state)."
@@ -57,7 +59,12 @@ google-chrome \
   --load-extension="$EXTENSION_PATH" \
   --remote-debugging-port=$DEBUG_PORT \
   --new-window \
-  "$TARGET_URL" &
+  "$APP_URL" "$TARGET_URL" &
 
 CHROME_PID=$!
+
+# Run boot sequencer in background: waits for app.adopt.ai, then opens extension
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+node "$SCRIPT_DIR/boot.mjs" "$TARGET_URL" &
+
 wait $CHROME_PID
