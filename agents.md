@@ -42,6 +42,12 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 
 7. **Saving**: Use `cli/save_wdl_draft.py` ONLY after all tests pass
 8. **Publishing**: Use `cli/publish_wdl_action.py` when approved
+9. **CE Testing** (production validation via Chrome Extension):
+   - Check readiness: `python cli/ce_test.py status`
+   - Generate test cases if needed: `python cli/ce_test.py generate <agent-name>`
+   - User must run `cli/ce_harness/start.sh <target-url>` from their terminal
+   - Run tests: `python cli/ce_test.py run <agent-name>`
+   - Review results and iterate on WDL if issues found
 
 ### 📝 Editing WDL Files
 

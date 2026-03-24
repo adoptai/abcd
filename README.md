@@ -296,6 +296,44 @@ python cli/test_runner.py --agent my-agent --all-subactions
 python cli/test_runner.py my-agent --via-agent --subaction get-data
 ```
 
+### Chrome Extension (CE) Testing
+
+Production validation by testing agents as end users experience them — through the Adopt Chrome Extension copilot.
+
+**First-time setup:**
+
+```bash
+# Check prerequisites (Node.js, Chrome, npm deps)
+python cli/ce_test.py setup
+```
+
+**Testing workflow:**
+
+```bash
+# 1. Launch Chrome with extension (run in YOUR terminal, not from Claude)
+cli/ce_harness/start.sh https://target-site.com
+
+# 2. Click the Adopt extension icon on the target site
+
+# 3. Check readiness
+python cli/ce_test.py status
+
+# 4. Generate test cases from agent metadata
+python cli/ce_test.py generate my-agent --target-url https://target-site.com
+
+# 5. Run all CE tests
+python cli/ce_test.py run my-agent
+
+# Run specific test(s)
+python cli/ce_test.py run my-agent --test 1,3
+
+# Send ad-hoc query
+python cli/ce_test.py send my-agent "What can you do?"
+```
+
+Test cases are stored in `workspaces/{env}/agents/{agent}/ce_test_cases/ce_test_suite.json`.
+Results are saved to `workspaces/{env}/agents/{agent}/traces/ce_results/`.
+
 ### Version Management
 
 ```bash
@@ -346,6 +384,7 @@ abcd/
 │   ├── test_runner.py            # Testing workflows (parallel/batch)
 │   ├── save_wdl_draft.py         # Save drafts
 │   ├── publish_wdl_action.py     # Publish workflows
+│   ├── ce_test.py                # Chrome Extension agent testing
 │   ├── list_wdl_versions.py      # Version listing
 │   ├── checkout_wdl_version.py   # Version checkout
 │   ├── deployment_rules.py       # Tool mode management
@@ -401,6 +440,7 @@ abcd/
 8. **Test remotely**: `python cli/test_runner.py <id> --all`
 9. **Iterate** until all tests pass
 10. **Publish** when user confirms: `python cli/publish_wdl_action.py <id>`
+11. **CE Test** (optional): `python cli/ce_test.py run <agent-name>` — validate in Chrome Extension
 
 ## Key Concepts
 
