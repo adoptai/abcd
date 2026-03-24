@@ -403,6 +403,7 @@ class MetadataManager:
             "is_visible_in_list",
             "env_name",
             "description",
+            "statement",
         )
         if self.metadata_path.exists():
             try:
