@@ -307,21 +307,23 @@ Production validation by testing agents as end users experience them — through
 python cli/ce_test.py setup
 ```
 
-**Testing workflow:**
+**One-time agent setup:**
 
 ```bash
-# 1. Launch Chrome with extension (run in YOUR terminal, not from Claude)
-cli/ce_harness/start.sh https://target-site.com
+# Pick playground profile and target URL (saved to ce_test_cases/ce_config.json)
+python cli/ce_test.py configure my-agent
 
-# 2. Click the Adopt extension icon on the target site
+# Generate test cases from agent metadata
+python cli/ce_test.py generate my-agent
+```
 
-# 3. Check readiness
-python cli/ce_test.py status
+**Testing workflow (every run):**
 
-# 4. Generate test cases from agent metadata
-python cli/ce_test.py generate my-agent --target-url https://target-site.com
+```bash
+# Terminal 1: Launch Chrome with extension (blocking — Ctrl+C to stop)
+python cli/ce_test.py start my-agent
 
-# 5. Run all CE tests
+# Terminal 2: Run tests (profile auto-selected)
 python cli/ce_test.py run my-agent
 
 # Run specific test(s)
@@ -331,7 +333,8 @@ python cli/ce_test.py run my-agent --test 1,3
 python cli/ce_test.py send my-agent "What can you do?"
 ```
 
-Test cases are stored in `workspaces/{env}/agents/{agent}/ce_test_cases/ce_test_suite.json`.
+Config is stored in `workspaces/{env}/agents/{agent}/ce_test_cases/ce_config.json`.
+Test cases are in `ce_test_cases/ce_test_suite.json`.
 Results are saved to `workspaces/{env}/agents/{agent}/traces/ce_results/`.
 
 ### Version Management
@@ -440,7 +443,7 @@ abcd/
 8. **Test remotely**: `python cli/test_runner.py <id> --all`
 9. **Iterate** until all tests pass
 10. **Publish** when user confirms: `python cli/publish_wdl_action.py <id>`
-11. **CE Test** (optional): `python cli/ce_test.py run <agent-name>` — validate in Chrome Extension
+11. **CE Test** (optional): `python cli/ce_test.py start <agent>` + `run <agent>` — validate in Chrome Extension
 
 ## Key Concepts
 

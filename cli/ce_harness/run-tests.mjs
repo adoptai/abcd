@@ -173,11 +173,45 @@ const DEFAULT_QUERIES = [
   { id: 13, category: 'Technical', query: 'What subcontractors or vendors are mentioned in the Complete Automation study? Are there any contract research expenses?' },
 ];
 
+async function setExtensionProfile(ws, profileId) {
+  const result = await cdpSend(ws, 'Runtime.evaluate', {
+    expression: `(function() {
+      const keys = Object.keys(localStorage)
+        .filter(k => k.startsWith('adopt_session_profile_'));
+      const key = keys.length > 0 ? keys[0] : 'adopt_session_profile_default';
+      const current = localStorage.getItem(key);
+      if (current === '${profileId}') return 'already_set';
+      localStorage.setItem(key, '${profileId}');
+      return 'updated';
+    })()`,
+    returnByValue: true,
+  });
+  const status = result?.result?.value;
+  if (status === 'already_set') {
+    console.log(`[profile] Profile ${profileId} already active.`);
+  } else {
+    console.log(`[profile] Switching to profile ${profileId}, reloading extension...`);
+    await cdpSend(ws, 'Page.reload', {});
+    await new Promise(r => setTimeout(r, 2500));
+    // Wait for textarea to reappear (extension re-init)
+    for (let i = 0; i < 10; i++) {
+      const check = await cdpSend(ws, 'Runtime.evaluate', {
+        expression: `!!document.querySelector('textarea')`,
+        returnByValue: true,
+      });
+      if (check?.result?.value) break;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    console.log('[profile] Extension ready.');
+  }
+}
+
 // ---- CLI ARGUMENT PARSING ----
 
 const cliArgs = process.argv.slice(2);
 const testFileArg = cliArgs.find(a => a.startsWith('--test-file='));
 const resultsFileArg = cliArgs.find(a => a.startsWith('--results-file='));
+const profileIdArg = cliArgs.find(a => a.startsWith('--profile-id='));
 const targetIdArg = cliArgs.find(a => !a.startsWith('--'));
 
 const queries = testFileArg
@@ -188,6 +222,7 @@ const RESULTS_FILE = resultsFileArg
   ? resultsFileArg.split('=')[1]
   : (process.env.RESULTS_FILE || './test-results.json');
 
+const profileId = profileIdArg ? profileIdArg.split('=')[1] : null;
 const targetId = targetIdArg ? parseInt(targetIdArg) : null;
 
 // ---- MAIN ----
@@ -201,6 +236,10 @@ const targetId = targetIdArg ? parseInt(targetIdArg) : null;
   const ws = new WebSocket(ext.webSocketDebuggerUrl);
   await new Promise((resolve, reject) => { ws.on('open', resolve); ws.on('error', reject); });
   await cdpSend(ws, 'Runtime.enable');
+
+  if (profileId) {
+    await setExtensionProfile(ws, profileId);
+  }
 
   const results = [];
   const toRun = targetId ? queries.filter(q => q.id === targetId) : queries;

@@ -10,29 +10,23 @@ This is Step 9 in the agent development workflow, after publishing.
 Subcommands:
     setup     - Check prerequisites and guide first-time setup
     status    - Check if Chrome and the extension are reachable
+    configure - Set playground profile and target URL for an agent (one-time)
+    start     - Start Chrome session for an agent (run in a separate terminal)
     run       - Run CE test cases for an agent
     send      - Send an ad-hoc query to the copilot
     generate  - Generate CE test cases from agent metadata
 
-Usage:
-    # Check prerequisites
-    python cli/ce_test.py setup
+Workflow per agent:
+    # One-time setup:
+    python cli/ce_test.py configure my-agent
+    python cli/ce_test.py generate my-agent
 
-    # Check Chrome + extension readiness
-    python cli/ce_test.py status
-
-    # Run all CE tests for an agent
+    # Every test run:
+    python cli/ce_test.py start my-agent      # in a separate terminal
     python cli/ce_test.py run my-agent
 
-    # Run specific test(s)
-    python cli/ce_test.py run my-agent --test 1
-    python cli/ce_test.py run my-agent --test 1,3,5
-
-    # Send ad-hoc query
+    # Ad-hoc query
     python cli/ce_test.py send my-agent "What can you do?"
-
-    # Generate test cases from agent metadata
-    python cli/ce_test.py generate my-agent
 """
 
 import argparse
@@ -49,6 +43,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cli.wdl_common.api_client import get_api_client_for_env
 from cli.wdl_common.workspace_manager import get_workspace_manager
 
 # Paths
@@ -59,6 +54,7 @@ RUN_TESTS_SCRIPT = CE_HARNESS_DIR / "run-tests.mjs"
 
 CDP_PORT = 9222
 CDP_URL = f"http://localhost:{CDP_PORT}"
+CE_CONFIG_FILE = "ce_config.json"
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +127,31 @@ def get_ce_results_dir(agent_path: Path) -> Path:
     return agent_path / "traces" / "ce_results"
 
 
+def load_ce_config(agent_path: Path) -> dict[str, Any] | None:
+    """Load ce_config.json if it exists."""
+    config_path = get_ce_test_dir(agent_path) / CE_CONFIG_FILE
+    if config_path.exists():
+        return json.loads(config_path.read_text())
+    return None
+
+
+def save_ce_config(agent_path: Path, config: dict[str, Any]) -> Path:
+    """Save ce_config.json, creating ce_test_cases/ dir if needed."""
+    test_dir = get_ce_test_dir(agent_path)
+    test_dir.mkdir(parents=True, exist_ok=True)
+    config_path = test_dir / CE_CONFIG_FILE
+    config_path.write_text(json.dumps(config, indent=2))
+    return config_path
+
+
+def get_effective_target_url(agent_path: Path) -> str | None:
+    """Get target URL: ce_config.json takes precedence over ce_test_suite.json."""
+    config = load_ce_config(agent_path)
+    if config:
+        return config.get("target_url") or config.get("app_base_url")
+    return get_target_url(agent_path)
+
+
 def load_ce_test_cases(agent_path: Path) -> list[dict[str, Any]]:
     """Load CE test cases from agent workspace."""
     test_dir = get_ce_test_dir(agent_path)
@@ -176,6 +197,7 @@ def run_node_runner(
     queries: list[dict[str, Any]],
     results_path: Path,
     target_id: int | None = None,
+    profile_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Invoke the Node.js test runner and return parsed results."""
     if not RUN_TESTS_SCRIPT.exists():
@@ -196,6 +218,8 @@ def run_node_runner(
             f"--test-file={test_file}",
             f"--results-file={results_path}",
         ]
+        if profile_id:
+            cmd.append(f"--profile-id={profile_id}")
         if target_id is not None:
             cmd.append(str(target_id))
 
@@ -375,10 +399,13 @@ def cmd_setup(_args: argparse.Namespace) -> int:
 
     print()
     if all_ok:
-        print("All prerequisites met. To start testing:")
-        print(f"  1. Run in your terminal: {start_sh} <target-url>")
-        print("  2. Click the Adopt extension icon on the target site")
-        print("  3. Run: python cli/ce_test.py status")
+        print("All prerequisites met. Workflow per agent:")
+        print(
+            "  1. python cli/ce_test.py configure <agent>   # one-time: pick profile + target URL"
+        )
+        print("  2. python cli/ce_test.py generate <agent>    # generate test cases")
+        print("  3. python cli/ce_test.py start <agent>       # in a separate terminal")
+        print("  4. python cli/ce_test.py run <agent>         # run tests")
     else:
         print("Some prerequisites are missing. Fix the issues above and re-run setup.")
 
@@ -408,10 +435,23 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"Error: Agent '{agent_name}' not found in active environment.")
         return 1
 
+    # Load CE config (profile + target URL)
+    ce_config = load_ce_config(agent_path)
+    profile_id = ce_config.get("profile_id") if ce_config else None
+    profile_name = ce_config.get("profile_name") if ce_config else None
+    target_url = get_effective_target_url(agent_path)
+
     # Check Chrome readiness
     chrome_ok, chrome_msg = check_chrome_ready()
     if not chrome_ok:
-        print(chrome_msg)
+        start_hint = f"python cli/ce_test.py start {agent_name}"
+        if not ce_config:
+            start_hint = f"cli/ce_harness/start.sh <target-url>  (or: python cli/ce_test.py configure {agent_name} first)"
+        print(
+            f"Chrome is not running on port {CDP_PORT}.\n"
+            f"Please run this in a separate terminal:\n"
+            f"  {start_hint}"
+        )
         return 1
     ext_ok, ext_msg = check_extension_visible()
     if not ext_ok:
@@ -434,8 +474,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"No test cases matching IDs: {args.test}")
             return 1
 
-    target_url = get_target_url(agent_path)
-    print(f"Running {len(test_cases)} CE test(s) for '{agent_name}'...")
+    info = f"profile: {profile_name}" if profile_name else "no profile configured"
+    print(f"Running {len(test_cases)} CE test(s) for '{agent_name}' ({info})...")
 
     # Prepare results directory
     results_dir = get_ce_results_dir(agent_path)
@@ -444,7 +484,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     results_path = results_dir / f"ce_run_{timestamp}.json"
 
     # Run via Node
-    raw_results = run_node_runner(test_cases, results_path)
+    raw_results = run_node_runner(test_cases, results_path, profile_id=profile_id)
 
     if not raw_results:
         print("No results captured. Check Chrome/extension status.")
@@ -619,10 +659,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     test_dir = get_ce_test_dir(agent_path)
     test_dir.mkdir(parents=True, exist_ok=True)
 
-    target_url = args.target_url if hasattr(args, "target_url") and args.target_url else None
-
     suite = {
-        "target_url": target_url,
         "generated_at": datetime.now().isoformat(),
         "test_cases": test_cases,
     }
@@ -635,12 +672,125 @@ def cmd_generate(args: argparse.Namespace) -> int:
     for tc in test_cases:
         print(f"  #{tc['id']} [{tc['category']}] {tc['query'][:70]}")
 
-    if target_url:
-        print(f"\n  Target URL: {target_url}")
-    else:
-        print("\n  Note: No target URL set. Edit the suite file to add one, or pass --target-url")
+    if not load_ce_config(agent_path):
+        print(
+            f"\n  Tip: Run 'python cli/ce_test.py configure {agent_name}' to set the profile and target URL."
+        )
 
     return 0
+
+
+def cmd_configure(args: argparse.Namespace) -> int:
+    """Set the playground profile and target URL for an agent."""
+    agent_name = args.agent
+    agent_path, _ = resolve_agent(agent_name)
+    if not agent_path:
+        print(f"Error: Agent '{agent_name}' not found in active environment.")
+        return 1
+
+    # Fetch profiles from API
+    try:
+        client = get_api_client_for_env()
+    except Exception as e:
+        print(f"Error: Could not initialize API client: {e}")
+        return 1
+
+    success, profiles, msg = client.list_playground_profiles()
+    if not success or not profiles:
+        print(f"Error: Could not fetch playground profiles: {msg}")
+        return 1
+
+    # Resolve profile: --profile-id flag or interactive selection
+    if args.profile_id:
+        profile = next((p for p in profiles if p["id"] == args.profile_id), None)
+        if not profile:
+            print(f"Error: Profile '{args.profile_id}' not found.")
+            return 1
+    else:
+        print("Available playground profiles:")
+        for i, p in enumerate(profiles, 1):
+            default_marker = " (default)" if p.get("is_default") else ""
+            print(f"  {i}. {p['profile_name']}{default_marker}  [{p['id']}]")
+            if p.get("app_base_url"):
+                print(f"       URL: {p['app_base_url']}")
+
+        choice = input("\nEnter number or profile ID: ").strip()
+        if choice.isdigit():
+            idx = int(choice) - 1
+            if idx < 0 or idx >= len(profiles):
+                print("Invalid selection.")
+                return 1
+            profile = profiles[idx]
+        else:
+            profile = next((p for p in profiles if p["id"] == choice), None)
+            if not profile:
+                print(f"Profile '{choice}' not found.")
+                return 1
+
+    # Resolve target URL
+    app_base_url = profile.get("app_base_url", "")
+    if args.target_url:
+        target_url = args.target_url
+    elif args.profile_id:
+        # Non-interactive: use profile's app_base_url directly
+        target_url = app_base_url or None
+    else:
+        # Interactive: allow override, defaulting to app_base_url
+        entered = input(f"Target URL [{app_base_url}]: ").strip()
+        target_url = entered if entered else (app_base_url or None)
+
+    # Save config
+    config: dict[str, Any] = {
+        "profile_id": profile["id"],
+        "profile_name": profile["profile_name"],
+        "app_base_url": app_base_url,
+        "configured_at": datetime.now().isoformat(),
+    }
+    if target_url and target_url != app_base_url:
+        config["target_url"] = target_url
+
+    config_path = save_ce_config(agent_path, config)
+    print(f"\nConfigured '{agent_name}':")
+    print(f"  Profile: {profile['profile_name']} ({profile['id']})")
+    print(f"  Target URL: {target_url or app_base_url or '(not set)'}")
+    print(f"  Config: {config_path}")
+    return 0
+
+
+def cmd_start(args: argparse.Namespace) -> int:
+    """Start a Chrome session for an agent (blocking — run in a separate terminal)."""
+    agent_name = args.agent
+    agent_path, _ = resolve_agent(agent_name)
+    if not agent_path:
+        print(f"Error: Agent '{agent_name}' not found in active environment.")
+        return 1
+
+    start_sh = CE_HARNESS_DIR / "start.sh"
+    if not start_sh.exists():
+        print(f"Error: {start_sh} not found. Run 'python cli/ce_test.py setup' first.")
+        return 1
+
+    # Resolve target URL
+    if args.target_url:
+        target_url = args.target_url
+    else:
+        target_url = get_effective_target_url(agent_path)
+
+    if not target_url:
+        print(
+            f"Error: No target URL configured for '{agent_name}'.\n"
+            f"  Run: python cli/ce_test.py configure {agent_name}\n"
+            f"  Or:  python cli/ce_test.py start {agent_name} --target-url <url>"
+        )
+        return 1
+
+    print(f"Starting Chrome for '{agent_name}' at {target_url}")
+    print("Press Ctrl+C to stop Chrome.\n")
+    try:
+        result = subprocess.run([str(start_sh), target_url])
+        return result.returncode
+    except KeyboardInterrupt:
+        return 0
 
 
 # ---------------------------------------------------------------------------
@@ -682,8 +832,26 @@ def main() -> int:
         "generate", help="Generate CE test cases from agent metadata"
     )
     gen_parser.add_argument("agent", help="Agent name")
-    gen_parser.add_argument("--target-url", help="Target URL where the copilot runs")
     gen_parser.set_defaults(func=cmd_generate)
+
+    # configure
+    configure_parser = subparsers.add_parser(
+        "configure", help="Set playground profile and target URL for an agent (one-time setup)"
+    )
+    configure_parser.add_argument("agent", help="Agent name")
+    configure_parser.add_argument("--profile-id", help="Profile ID (non-interactive)")
+    configure_parser.add_argument(
+        "--target-url", help="Override target URL (default: profile's app_base_url)"
+    )
+    configure_parser.set_defaults(func=cmd_configure)
+
+    # start
+    start_parser = subparsers.add_parser(
+        "start", help="Start Chrome session for an agent (run in a separate terminal)"
+    )
+    start_parser.add_argument("agent", help="Agent name")
+    start_parser.add_argument("--target-url", help="Override target URL from config")
+    start_parser.set_defaults(func=cmd_start)
 
     args = parser.parse_args()
 
