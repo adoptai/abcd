@@ -324,8 +324,35 @@ def save_single_draft(
             error=msg,
         )
 
-    if not draft_id:
-        draft_id = data.get("id", data.get("draft_id", ""))
+    refreshed_draft_id = data.get("id", data.get("draft_id", ""))
+    if refreshed_draft_id:
+        draft_id = refreshed_draft_id
+
+    # Step 6b: Ensure statement (selection criteria) is set
+    statement = ""
+    metadata_path = workspace / "metadata.json"
+    if metadata_path.exists():
+        try:
+            meta_raw = json.loads(metadata_path.read_text())
+            statement = meta_raw.get("statement", "")
+        except (json.JSONDecodeError, OSError):
+            pass
+    if not statement:
+        for block in wdl:
+            if isinstance(block, dict) and "statement" in block:
+                statement = block["statement"]
+                break
+    if statement:
+        log("\n📝 Step 6b: Updating statement...")
+        ok, stmt_msg = client.update_statement(action_id, statement, draft_id=draft_id)
+        if ok:
+            log("   ✅ Statement updated")
+        else:
+            log(f"   ⚠️  Statement update failed: {stmt_msg}")
+    else:
+        log(
+            "\n⚠️  No statement found in metadata.json or WDL — action may not be matched during execution"
+        )
 
     if not description:
         description = "WDL workflow update"
