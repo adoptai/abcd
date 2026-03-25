@@ -354,6 +354,17 @@ def save_single_draft(
             "\n⚠️  No statement found in metadata.json or WDL — action may not be matched during execution"
         )
 
+    # Step 6c: Wait for draft to leave "regenerating" state
+    import time as _time
+
+    for _poll in range(30):
+        _ok, _d, _ = client.get_action(action_id)
+        if _ok and _d and not _d.get("is_regenerating", False):
+            break
+        if _poll == 0:
+            log("\n⏳ Step 6c: Waiting for draft regeneration to finish...")
+        _time.sleep(2)
+
     if not description:
         description = "WDL workflow update"
 
