@@ -30,9 +30,9 @@ Workflow per agent:
 """
 
 import argparse
+import importlib.util
 import json
-import shutil
-import subprocess
+import os
 import sys
 import tempfile
 import urllib.error
@@ -43,14 +43,19 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cli.ce_browser import (
+    boot_extension,
+    find_chrome_executable,
+    launch_chrome,
+    run_python_runner,
+    wait_for_chrome,
+)
 from cli.wdl_common.api_client import get_api_client_for_env
 from cli.wdl_common.workspace_manager import get_workspace_manager
 
 # Paths
 CLI_DIR = Path(__file__).parent
 PROJECT_ROOT = CLI_DIR.parent
-CE_HARNESS_DIR = CLI_DIR / "ce_harness"
-RUN_TESTS_SCRIPT = CE_HARNESS_DIR / "run-tests.mjs"
 
 CDP_PORT = 9222
 CDP_URL = f"http://localhost:{CDP_PORT}"
@@ -73,9 +78,9 @@ def check_chrome_ready() -> tuple[bool, str]:
     except (urllib.error.URLError, OSError):
         return False, (
             f"Chrome is not running on port {CDP_PORT}.\n"
-            "Please run this in your terminal:\n"
-            f"  {CE_HARNESS_DIR / 'start.sh'} <target-url>\n"
-            "Then click the Adopt extension icon on the target site."
+            "Please run this in a separate terminal:\n"
+            "  python cli/ce_test.py start <agent>\n"
+            "Then click the Adopt extension icon on the target site if not injected automatically."
         )
 
 
@@ -189,59 +194,17 @@ def get_target_url(agent_path: Path) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Node.js runner invocation
+# Python runner invocation (wraps ce_browser.run_python_runner)
 # ---------------------------------------------------------------------------
 
 
-def run_node_runner(
+def _run_tests(
     queries: list[dict[str, Any]],
     results_path: Path,
-    target_id: int | None = None,
     profile_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Invoke the Node.js test runner and return parsed results."""
-    if not RUN_TESTS_SCRIPT.exists():
-        print(f"Error: {RUN_TESTS_SCRIPT} not found. Run 'python cli/ce_test.py setup' first.")
-        sys.exit(1)
-
-    # Write queries to temp file
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False, dir=str(CE_HARNESS_DIR)
-    ) as f:
-        json.dump(queries, f)
-        test_file = f.name
-
-    try:
-        cmd = [
-            "node",
-            str(RUN_TESTS_SCRIPT),
-            f"--test-file={test_file}",
-            f"--results-file={results_path}",
-        ]
-        if profile_id:
-            cmd.append(f"--profile-id={profile_id}")
-        if target_id is not None:
-            cmd.append(str(target_id))
-
-        result = subprocess.run(
-            cmd,
-            cwd=str(CE_HARNESS_DIR),
-            capture_output=False,
-            timeout=600,
-        )
-
-        if result.returncode != 0:
-            print(f"\nNode runner exited with code {result.returncode}")
-            return []
-
-        if results_path.exists():
-            return json.loads(results_path.read_text())
-        return []
-    except subprocess.TimeoutExpired:
-        print("\nNode runner timed out after 600 seconds.")
-        return []
-    finally:
-        Path(test_file).unlink(missing_ok=True)
+    """Run test queries via the Playwright-based Python runner."""
+    return run_python_runner(queries, results_path, profile_id=profile_id, cdp_port=CDP_PORT)
 
 
 # ---------------------------------------------------------------------------
@@ -358,43 +321,34 @@ def cmd_setup(_args: argparse.Namespace) -> int:
     """Check prerequisites and guide first-time setup."""
     all_ok = True
 
-    # Node.js
-    if shutil.which("node"):
-        print("[OK] Node.js is installed")
+    # playwright Python package
+    if importlib.util.find_spec("playwright"):
+        print("[OK] playwright is installed")
     else:
-        print("[MISSING] Node.js is not installed. Install it from https://nodejs.org/")
+        print("[MISSING] playwright is not installed")
+        print("  Run: poetry install")
         all_ok = False
 
-    # Chrome
-    if shutil.which("google-chrome"):
-        print("[OK] Google Chrome is installed")
-    else:
-        print("[MISSING] Google Chrome is not installed")
+    # Playwright browser binaries
+    try:
+        from playwright.sync_api import sync_playwright  # noqa: PLC0415
+
+        with sync_playwright() as p:
+            # check_for_updates=False avoids network calls
+            _ = p.chromium  # access the chromium launcher; will raise if binaries missing
+        print("[OK] Playwright browser binaries present")
+    except Exception:
+        print("[MISSING] Playwright browser binaries not installed")
+        print("  Run: playwright install chromium")
         all_ok = False
 
-    # npm dependencies
-    node_modules = CE_HARNESS_DIR / "node_modules"
-    if (node_modules / "ws").exists() and (node_modules / "playwright").exists():
-        print("[OK] npm dependencies installed (playwright, ws)")
+    # System Chrome (needed for extension loading)
+    chrome = find_chrome_executable()
+    if chrome:
+        print(f"[OK] Google Chrome found at {chrome}")
     else:
-        print("[MISSING] npm dependencies not installed")
-        print(f"  Run: cd {CE_HARNESS_DIR} && npm install playwright ws")
-        all_ok = False
-
-    # Test harness scripts
-    if RUN_TESTS_SCRIPT.exists():
-        print("[OK] Test harness scripts present")
-    else:
-        print("[MISSING] Test harness scripts not found")
-        print(f"  Expected: {RUN_TESTS_SCRIPT}")
-        all_ok = False
-
-    # start.sh
-    start_sh = CE_HARNESS_DIR / "start.sh"
-    if start_sh.exists():
-        print("[OK] start.sh present")
-    else:
-        print("[MISSING] start.sh not found")
+        print("[MISSING] Google Chrome not found")
+        print("  Install Chrome from https://www.google.com/chrome/")
         all_ok = False
 
     print()
@@ -446,7 +400,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     if not chrome_ok:
         start_hint = f"python cli/ce_test.py start {agent_name}"
         if not ce_config:
-            start_hint = f"cli/ce_harness/start.sh <target-url>  (or: python cli/ce_test.py configure {agent_name} first)"
+            start_hint = f"python cli/ce_test.py configure {agent_name}  # then: python cli/ce_test.py start {agent_name}"
         print(
             f"Chrome is not running on port {CDP_PORT}.\n"
             f"Please run this in a separate terminal:\n"
@@ -483,8 +437,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     results_path = results_dir / f"ce_run_{timestamp}.json"
 
-    # Run via Node
-    raw_results = run_node_runner(test_cases, results_path, profile_id=profile_id)
+    # Run via Python/Playwright
+    raw_results = _run_tests(test_cases, results_path, profile_id=profile_id)
 
     if not raw_results:
         print("No results captured. Check Chrome/extension status.")
@@ -542,7 +496,7 @@ def cmd_send(args: argparse.Namespace) -> int:
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         results_path = Path(f.name)
 
-    raw_results = run_node_runner(queries, results_path)
+    raw_results = _run_tests(queries, results_path)
     results_path.unlink(missing_ok=True)
 
     if raw_results:
@@ -765,11 +719,6 @@ def cmd_start(args: argparse.Namespace) -> int:
         print(f"Error: Agent '{agent_name}' not found in active environment.")
         return 1
 
-    start_sh = CE_HARNESS_DIR / "start.sh"
-    if not start_sh.exists():
-        print(f"Error: {start_sh} not found. Run 'python cli/ce_test.py setup' first.")
-        return 1
-
     # Resolve target URL
     if args.target_url:
         target_url = args.target_url
@@ -784,13 +733,36 @@ def cmd_start(args: argparse.Namespace) -> int:
         )
         return 1
 
+    extension_path = os.environ.get("ADOPT_EXTENSION_PATH", str(PROJECT_ROOT / "../adoptce/dist"))
+    profile_dir = PROJECT_ROOT / "user-profile"
+
+    print("=== AdoptAI Extension Test Browser ===")
     print(f"Starting Chrome for '{agent_name}' at {target_url}")
-    print("Press Ctrl+C to stop Chrome.\n")
+    print("Close the browser window or press Ctrl+C to stop.\n")
+
     try:
-        result = subprocess.run([str(start_sh), target_url])
-        return result.returncode
+        process = launch_chrome(target_url, extension_path, profile_dir, CDP_PORT)
+    except RuntimeError as e:
+        print(f"Error: {e}")
+        return 1
+
+    print("[boot] Waiting for Chrome to start...")
+    if not wait_for_chrome(CDP_PORT):
+        print("Error: Chrome did not start in time.")
+        process.terminate()
+        return 1
+
+    boot_extension(CDP_PORT, target_url)
+
+    print("\nChrome ready. Press Ctrl+C to stop.")
+    try:
+        process.wait()
     except KeyboardInterrupt:
-        return 0
+        print("\nShutting down Chrome...")
+        process.terminate()
+        process.wait()
+
+    return 0
 
 
 # ---------------------------------------------------------------------------
