@@ -147,5 +147,3 @@ workspaces/.active_env
 
 # CE Testing
 user-profile/
-cli/ce_harness/node_modules/
-cli/ce_harness/package-lock.json
