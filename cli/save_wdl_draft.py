@@ -324,8 +324,46 @@ def save_single_draft(
             error=msg,
         )
 
-    if not draft_id:
-        draft_id = data.get("id", data.get("draft_id", ""))
+    refreshed_draft_id = data.get("id", data.get("draft_id", ""))
+    if refreshed_draft_id:
+        draft_id = refreshed_draft_id
+
+    # Step 6b: Ensure statement (selection criteria) is set
+    statement = ""
+    metadata_path = workspace / "metadata.json"
+    if metadata_path.exists():
+        try:
+            meta_raw = json.loads(metadata_path.read_text())
+            statement = meta_raw.get("statement", "")
+        except (json.JSONDecodeError, OSError):
+            pass
+    if not statement:
+        for block in wdl:
+            if isinstance(block, dict) and "statement" in block:
+                statement = block["statement"]
+                break
+    if statement:
+        log("\n📝 Step 6b: Updating statement...")
+        ok, stmt_msg = client.update_statement(action_id, statement, draft_id=draft_id)
+        if ok:
+            log("   ✅ Statement updated")
+        else:
+            log(f"   ⚠️  Statement update failed: {stmt_msg}")
+    else:
+        log(
+            "\n⚠️  No statement found in metadata.json or WDL — action may not be matched during execution"
+        )
+
+    # Step 6c: Wait for draft to leave "regenerating" state
+    import time as _time
+
+    for _poll in range(30):
+        _ok, _d, _ = client.get_action(action_id)
+        if _ok and _d and not _d.get("is_regenerating", False):
+            break
+        if _poll == 0:
+            log("\n⏳ Step 6c: Waiting for draft regeneration to finish...")
+        _time.sleep(2)
 
     if not description:
         description = "WDL workflow update"
