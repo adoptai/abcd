@@ -23,6 +23,28 @@ from typing import Any
 
 CDP_PORT = 9222
 
+
+class ExecutionLog:
+    """Collects timestamped events during a CE test query."""
+
+    def __init__(self) -> None:
+        self._start = time.monotonic()
+        self.events: list[dict[str, Any]] = []
+
+    def log(self, event: str, **details: Any) -> None:
+        self.events.append(
+            {
+                "elapsed_s": round(time.monotonic() - self._start, 1),
+                "event": event,
+                **details,
+            }
+        )
+
+    def reset(self) -> None:
+        self._start = time.monotonic()
+        self.events = []
+
+
 LOADING_INDICATORS = [
     "Thinking...",
     "Determining the next step",
@@ -256,11 +278,20 @@ def _read_frame_text(ext_frame: Any) -> str:
         return ""
 
 
-def _wait_for_response(ext_frame: Any, before_text: str, max_wait_s: int = 120) -> str:
+def _wait_for_response(
+    ext_frame: Any,
+    before_text: str,
+    max_wait_s: int = 120,
+    exec_log: ExecutionLog | None = None,
+) -> str:
     """Poll extension frame content until text is stable and no loading indicators shown."""
     start = time.monotonic()
     last_text = ""
     stable_count = 0
+    loading_seen: set[str] = set()
+
+    if exec_log:
+        exec_log.log("waiting_for_response")
 
     while time.monotonic() - start < max_wait_s:
         time.sleep(3)
@@ -272,6 +303,13 @@ def _wait_for_response(ext_frame: Any, before_text: str, max_wait_s: int = 120) 
             if _is_still_loading(current_text):
                 elapsed = int(time.monotonic() - start)
                 print(f"  ... still loading ({elapsed}s)")
+                # Log each unique loading indicator once
+                if exec_log:
+                    tail = "\n".join(current_text.split("\n")[-8:])
+                    for indicator in LOADING_INDICATORS:
+                        if indicator in tail and indicator not in loading_seen:
+                            loading_seen.add(indicator)
+                            exec_log.log("loading_indicator", indicator=indicator)
                 last_text = current_text
                 stable_count = 0
                 continue
@@ -279,11 +317,17 @@ def _wait_for_response(ext_frame: Any, before_text: str, max_wait_s: int = 120) 
             if current_text == last_text:
                 stable_count += 1
                 if stable_count >= 2:
+                    if exec_log:
+                        exec_log.log("text_stabilized", chars=len(current_text))
                     return current_text
             else:
+                if exec_log and current_text != last_text and last_text:
+                    exec_log.log("text_changed", chars=len(current_text))
                 stable_count = 0
             last_text = current_text
 
+    if exec_log:
+        exec_log.log("timeout", max_wait_s=max_wait_s)
     return last_text or _read_frame_text(ext_frame)
 
 
@@ -355,6 +399,7 @@ def run_python_runner(
             qid = q.get("id", "?")
             query_text = q.get("query", "")
             start = time.monotonic()
+            exec_log = ExecutionLog()
 
             try:
                 before_text = _read_frame_text(ext_frame)
@@ -364,12 +409,17 @@ def run_python_runner(
                     'textarea[placeholder*="want"], textarea[placeholder*="type"], '
                     'textarea[placeholder*="message"], textarea'
                 ).first
+                exec_log.log("textarea_found")
                 textarea.fill(query_text)
                 time.sleep(0.3)
+                exec_log.log("sent_message", query=query_text[:80])
                 textarea.press("Enter")
+                exec_log.log("enter_pressed")
 
                 print(f"[{qid}] Waiting for response...")
-                after_text = _wait_for_response(ext_frame, before_text, max_wait_s=120)
+                after_text = _wait_for_response(
+                    ext_frame, before_text, max_wait_s=120, exec_log=exec_log
+                )
 
                 # Extract response: everything after the query in the page text
                 query_idx = after_text.rfind(query_text)
@@ -381,15 +431,31 @@ def run_python_runner(
                     response = after_text
 
                 elapsed = time.monotonic() - start
+                exec_log.log("response_captured", chars=len(response))
                 print(f"[{qid}] Response captured ({len(response)} chars, {elapsed:.1f}s)")
                 results.append(
-                    {**q, "response": response, "response_time_s": elapsed, "error": None}
+                    {
+                        **q,
+                        "response": response,
+                        "response_time_s": elapsed,
+                        "error": None,
+                        "execution_log": exec_log.events,
+                    }
                 )
 
             except Exception as e:
                 elapsed = time.monotonic() - start
+                exec_log.log("error", message=str(e))
                 print(f"[{qid}] ERROR: {e}")
-                results.append({**q, "response": None, "response_time_s": elapsed, "error": str(e)})
+                results.append(
+                    {
+                        **q,
+                        "response": None,
+                        "response_time_s": elapsed,
+                        "error": str(e),
+                        "execution_log": exec_log.events,
+                    }
+                )
 
         browser.close()
 

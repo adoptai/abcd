@@ -264,52 +264,133 @@ def evaluate_results(
                 if not ok:
                     passed = False
 
-        evaluated.append({**r, "passed": passed, "checks": checks})
+        result = {**r, "passed": passed, "checks": checks}
+
+        # Attach LLM evaluation criteria from expected_output if available
+        expected_output = tc.get("expected_output")
+        if expected_output and isinstance(expected_output, dict):
+            result["llm_eval_criteria"] = {
+                k: v
+                for k, v in {
+                    "description": expected_output.get("description"),
+                    "key_fields": expected_output.get("key_fields"),
+                    "validation": expected_output.get("validation"),
+                    "sample_output": expected_output.get("sample_output"),
+                }.items()
+                if v
+            }
+
+        evaluated.append(result)
 
     return evaluated
 
 
-def print_summary(results: list[dict[str, Any]], agent_name: str, target_url: str | None) -> None:
-    """Print LLM-friendly summary."""
+def print_results_for_llm(
+    results: list[dict[str, Any]], agent_name: str, target_url: str | None
+) -> None:
+    """Print detailed LLM-friendly results with expected criteria, execution log, and response.
+
+    Output is designed for a coding agent to evaluate whether the CE actually worked,
+    mirroring the format of test_runner.py's print_results().
+    """
+    total = len(results)
+    passed_count = sum(1 for r in results if r.get("passed") and not r.get("error"))
+    failed_count = sum(1 for r in results if not r.get("passed") and not r.get("error"))
+    error_count = sum(1 for r in results if r.get("error"))
+
     header = f"CE Test Results: {agent_name}"
     if target_url:
         header += f" ({target_url})"
-    print(f"\n{header}")
-    print("=" * len(header))
 
-    total = len(results)
-    passed_count = 0
-    failed_count = 0
-    error_count = 0
+    print(f"\n{'=' * 80}")
+    print(header)
+    print(f"{'=' * 80}")
+    print(
+        f"Total: {total} | Passed: {passed_count} | Failed: {failed_count} | Errors: {error_count}"
+    )
+    print(f"{'-' * 80}")
 
     for r in results:
         qid = r.get("id", "?")
         cat = r.get("category", "")
         query = r.get("query", "")
+        response = r.get("response") or ""
         resp_time = r.get("response_time_s")
-        resp_len = len(r.get("response") or "")
-        time_str = f"{resp_time:.1f}s" if resp_time else "?"
         error = r.get("error")
 
         if error:
-            error_count += 1
-            print(f"[ERROR] #{qid} {cat}: {query[:60]} -- {error}")
+            status = "ERROR"
         elif r.get("passed"):
-            passed_count += 1
-            print(f"[PASS]  #{qid} {cat}: {query[:60]} ({time_str}, {resp_len} chars)")
+            status = "PASS"
         else:
-            failed_count += 1
-            # Find first failing check
-            failing = [k for k, v in r.get("checks", {}).items() if not v]
-            reason = failing[0] if failing else "response too short"
-            print(f"[FAIL]  #{qid} {cat}: {query[:60]} -- {reason}")
+            status = "FAIL"
 
-    print(f"\nSummary: {passed_count}/{total} passed", end="")
+        print(f"\n{'─' * 80}")
+        print(f"[{status}] #{qid} {cat}: {query[:70]}")
+        print(f"{'─' * 80}")
+
+        # Query and basic metrics
+        print(f"  Query: {query}")
+        time_str = f"{resp_time:.1f}s" if resp_time else "?"
+        print(f"  Response Time: {time_str} | Length: {len(response)} chars")
+
+        # LLM evaluation criteria (from imported T1/T2/T3 test cases)
+        llm_criteria = r.get("llm_eval_criteria")
+        if llm_criteria:
+            print("\n  EXPECTED OUTPUT (for LLM evaluation):")
+            if llm_criteria.get("description"):
+                print(f"    Description: {llm_criteria['description']}")
+            if llm_criteria.get("key_fields"):
+                print(f"    Key Fields: {', '.join(llm_criteria['key_fields'])}")
+            if llm_criteria.get("validation"):
+                print(f"    Validation: {llm_criteria['validation']}")
+            if llm_criteria.get("sample_output"):
+                sample = json.dumps(llm_criteria["sample_output"], indent=4)
+                if len(sample) > 400:
+                    sample = sample[:400] + "..."
+                print(f"    Sample Output: {sample}")
+
+        # Automated checks
+        checks = r.get("checks", {})
+        if checks:
+            print("\n  AUTOMATED CHECKS:")
+            for check_name, check_result in checks.items():
+                print(f"    {check_name}: {'PASS' if check_result else 'FAIL'}")
+
+        # Execution log
+        exec_log = r.get("execution_log", [])
+        if exec_log:
+            print("\n  EXECUTION LOG:")
+            for event in exec_log:
+                elapsed = event.get("elapsed_s", 0)
+                evt = event.get("event", "")
+                details = {k: v for k, v in event.items() if k not in ("elapsed_s", "event")}
+                detail_str = (
+                    f" ({', '.join(f'{k}={v}' for k, v in details.items())})" if details else ""
+                )
+                print(f"    [{elapsed}s] {evt}{detail_str}")
+
+        # Error details
+        if error:
+            print(f"\n  ERROR: {error}")
+
+        # Actual response
+        if response:
+            display = response[:800]
+            if len(response) > 800:
+                display += "\n    ... (truncated)"
+            print("\n  ACTUAL RESPONSE:")
+            for line in display.split("\n"):
+                print(f"    {line}")
+
+    # Summary line
+    print(f"\n{'=' * 80}")
+    print(f"Summary: {passed_count}/{total} passed", end="")
     if failed_count:
         print(f", {failed_count} failed", end="")
     if error_count:
         print(f", {error_count} error(s)", end="")
-    print()
+    print(f"\n{'=' * 80}")
 
 
 # ---------------------------------------------------------------------------
@@ -462,8 +543,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     }
     results_path.write_text(json.dumps(run_data, indent=2))
 
-    # Print summary
-    print_summary(evaluated, agent_name, target_url)
+    # Print detailed results for LLM evaluation
+    print_results_for_llm(evaluated, agent_name, target_url)
     print(f"Results: {results_path}")
 
     failed = sum(1 for r in evaluated if not r.get("passed"))
@@ -500,8 +581,23 @@ def cmd_send(args: argparse.Namespace) -> int:
     results_path.unlink(missing_ok=True)
 
     if raw_results:
-        response = raw_results[0].get("response", "")
-        error = raw_results[0].get("error")
+        result = raw_results[0]
+        response = result.get("response", "")
+        error = result.get("error")
+
+        # Show execution log
+        exec_log = result.get("execution_log", [])
+        if exec_log:
+            print("\n--- Execution Log ---")
+            for event in exec_log:
+                elapsed = event.get("elapsed_s", 0)
+                evt = event.get("event", "")
+                details = {k: v for k, v in event.items() if k not in ("elapsed_s", "event")}
+                detail_str = (
+                    f" ({', '.join(f'{k}={v}' for k, v in details.items())})" if details else ""
+                )
+                print(f"  [{elapsed}s] {evt}{detail_str}")
+
         if error:
             print(f"\nError: {error}")
             return 1
@@ -512,8 +608,70 @@ def cmd_send(args: argparse.Namespace) -> int:
         return 1
 
 
+def _load_t123_test_cases(agent_path: Path) -> list[dict[str, Any]]:
+    """Load existing T1/T2/T3 test cases from agent and sub-action directories.
+
+    Scans both agent-level test_cases/ and actions/*/test_cases/ for test_*.json
+    files. Converts them to CE test case format, carrying expected_output verbatim.
+    Skips test cases with non-empty workflow_params (those need params the chat UI can't provide).
+    """
+    imported: list[dict[str, Any]] = []
+
+    # Agent-level tests (T2/T3)
+    agent_tests_dir = agent_path / "test_cases"
+    if agent_tests_dir.exists():
+        for f in sorted(agent_tests_dir.glob("test_*.json")):
+            try:
+                tc = json.loads(f.read_text())
+            except json.JSONDecodeError:
+                continue
+            if not tc.get("prompt"):
+                continue
+            # Skip tests that depend on workflow_params
+            if tc.get("workflow_params"):
+                continue
+            rel_path = f.relative_to(agent_path)
+            imported.append(
+                {
+                    "source_file": str(rel_path),
+                    "source_level": "agent",
+                    "prompt": tc["prompt"],
+                    "expected_output": tc.get("expected_output", {}),
+                }
+            )
+
+    # Sub-action-level tests (T1)
+    actions_dir = agent_path / "actions"
+    if actions_dir.exists():
+        for action_dir in sorted(actions_dir.iterdir()):
+            tests_dir = action_dir / "test_cases"
+            if not tests_dir.exists():
+                continue
+            for f in sorted(tests_dir.glob("test_*.json")):
+                try:
+                    tc = json.loads(f.read_text())
+                except json.JSONDecodeError:
+                    continue
+                if not tc.get("prompt"):
+                    continue
+                if tc.get("workflow_params"):
+                    continue
+                rel_path = f.relative_to(agent_path)
+                imported.append(
+                    {
+                        "source_file": str(rel_path),
+                        "source_level": "subaction",
+                        "source_action": action_dir.name,
+                        "prompt": tc["prompt"],
+                        "expected_output": tc.get("expected_output", {}),
+                    }
+                )
+
+    return imported
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
-    """Generate CE test cases from agent metadata."""
+    """Generate CE test cases from agent metadata and existing T1/T2/T3 test cases."""
     agent_name = args.agent
     agent_path, agent_meta = resolve_agent(agent_name)
 
@@ -538,63 +696,85 @@ def cmd_generate(args: argparse.Namespace) -> int:
     )
     test_id += 1
 
-    # Read sub-actions from agent metadata
-    sub_actions = agent_meta.get("sub_actions", []) if agent_meta else []
-    actions_dir = agent_path / "actions"
+    # Try to import existing T1/T2/T3 test cases first
+    t123_cases = _load_t123_test_cases(agent_path)
 
-    if sub_actions:
-        for sa in sub_actions:
-            sa_id = sa.get("action_id") or sa.get("id", "")
-            sa_title = sa.get("title", sa_id)
-            sa_desc = sa.get("description", "")
-            sa_statement = sa.get("statement", "")
+    if t123_cases:
+        print(f"  Importing {len(t123_cases)} test case(s) from existing T1/T2/T3 test files")
+        for tc in t123_cases:
+            test_cases.append(
+                {
+                    "id": test_id,
+                    "category": "core",
+                    "query": tc["prompt"],
+                    "description": f"From {tc['source_file']}",
+                    "source_file": tc["source_file"],
+                    "expected_output": tc["expected_output"],
+                    "expected_behavior": {
+                        "min_response_length": 50,
+                        "max_response_time_s": 120,
+                    },
+                }
+            )
+            test_id += 1
+    else:
+        # Fall back to generating from agent metadata
+        sub_actions = agent_meta.get("sub_actions", []) if agent_meta else []
+        actions_dir = agent_path / "actions"
 
-            # Try to load from local metadata for richer info
-            sa_path = actions_dir / sa_id / "metadata.json"
-            if sa_path.exists():
-                local_meta = json.loads(sa_path.read_text())
-                sa_title = local_meta.get("title", sa_title)
-                sa_desc = local_meta.get("description", sa_desc)
-                sa_statement = local_meta.get("statement", sa_statement)
+        if sub_actions:
+            for sa in sub_actions:
+                sa_id = sa.get("action_id") or sa.get("id", "")
+                sa_title = sa.get("title", sa_id)
+                sa_desc = sa.get("description", "")
+                sa_statement = sa.get("statement", "")
 
-            # Use statement or description as basis for a test query
-            query_basis = sa_statement or sa_desc or sa_title
-            if query_basis:
-                test_cases.append(
-                    {
-                        "id": test_id,
-                        "category": "core",
-                        "query": query_basis,
-                        "description": f"Tests sub-action: {sa_title}",
-                        "expected_behavior": {
-                            "min_response_length": 50,
-                            "max_response_time_s": 120,
-                        },
-                    }
+                # Try to load from local metadata for richer info
+                sa_path = actions_dir / sa_id / "metadata.json"
+                if sa_path.exists():
+                    local_meta = json.loads(sa_path.read_text())
+                    sa_title = local_meta.get("title", sa_title)
+                    sa_desc = local_meta.get("description", sa_desc)
+                    sa_statement = local_meta.get("statement", sa_statement)
+
+                query_basis = sa_statement or sa_desc or sa_title
+                if query_basis:
+                    test_cases.append(
+                        {
+                            "id": test_id,
+                            "category": "core",
+                            "query": query_basis,
+                            "description": f"Tests sub-action: {sa_title}",
+                            "expected_behavior": {
+                                "min_response_length": 50,
+                                "max_response_time_s": 120,
+                            },
+                        }
+                    )
+                    test_id += 1
+        elif actions_dir.exists():
+            for action_dir in sorted(actions_dir.iterdir()):
+                meta_path = action_dir / "metadata.json"
+                if not meta_path.exists():
+                    continue
+                meta = json.loads(meta_path.read_text())
+                query_basis = (
+                    meta.get("statement") or meta.get("description") or meta.get("title", "")
                 )
-                test_id += 1
-    elif actions_dir.exists():
-        # Fall back to scanning actions directory
-        for action_dir in sorted(actions_dir.iterdir()):
-            meta_path = action_dir / "metadata.json"
-            if not meta_path.exists():
-                continue
-            meta = json.loads(meta_path.read_text())
-            query_basis = meta.get("statement") or meta.get("description") or meta.get("title", "")
-            if query_basis:
-                test_cases.append(
-                    {
-                        "id": test_id,
-                        "category": "core",
-                        "query": query_basis,
-                        "description": f"Tests action: {meta.get('title', action_dir.name)}",
-                        "expected_behavior": {
-                            "min_response_length": 50,
-                            "max_response_time_s": 120,
-                        },
-                    }
-                )
-                test_id += 1
+                if query_basis:
+                    test_cases.append(
+                        {
+                            "id": test_id,
+                            "category": "core",
+                            "query": query_basis,
+                            "description": f"Tests action: {meta.get('title', action_dir.name)}",
+                            "expected_behavior": {
+                                "min_response_length": 50,
+                                "max_response_time_s": 120,
+                            },
+                        }
+                    )
+                    test_id += 1
 
     # Meta query: show all actions
     test_cases.append(
@@ -624,7 +804,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
     print(f"Generated {len(test_cases)} CE test case(s) for '{agent_name}'")
     print(f"  Suite: {suite_path}")
     for tc in test_cases:
-        print(f"  #{tc['id']} [{tc['category']}] {tc['query'][:70]}")
+        src = f" ({tc['source_file']})" if tc.get("source_file") else ""
+        print(f"  #{tc['id']} [{tc['category']}] {tc['query'][:70]}{src}")
 
     if not load_ce_config(agent_path):
         print(
