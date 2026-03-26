@@ -19,6 +19,38 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 
 ### ✅ REQUIRED Workflow
 
+**Step 0 (when target APIs are not yet in the discovery index) — API Elicitation:**
+
+If `cli/discover.py` returns no relevant results for the APIs you need, use the elicitation tool to record a live browser session and generate a draft workspace bundle:
+
+```bash
+# 1. Start the elicitation backend (uses abcd's Poetry venv)
+python cli/elicit.py backend start
+# → Follow the printed instructions to load the Chrome extension
+
+# 2. In Chrome: create Project → Process, start recording, navigate the target app
+#    (click through flows, narrate via voice what each step does), then stop capture
+
+# 3. Find your process_id and import the bundle into the active workspace
+python cli/elicit.py status                              # lists projects + process IDs
+python cli/elicit.py import <process_id>                # standalone action
+python cli/elicit.py import <process_id> --agent <id>   # sub-action under an agent
+
+# 4. Stop the backend when done
+python cli/elicit.py backend stop
+```
+
+The `import` command places a pre-populated workspace under `workspaces/{env}/actions/{action_id}/` containing:
+- `widdle.json` — draft WDL generated from recorded HTTP calls
+- `requirements.md` — requirements derived from narration and clicks
+- `test_cases/` — auto-generated test cases
+- `adopt_profile.json` — detected base URL and auth pattern
+- `metadata.json` — action metadata
+
+Continue from **Step 3** below (edit WDL) rather than starting from scratch.
+
+---
+
 1. **Discovery**: Use `cli/discover.py` to find APIs/actions
 2. **Creation**: Use `cli/manage_wdl_action.py --create` or `cli/workspace.py`
 3. **📚 DOCUMENTATION FIRST**: Before editing ANY operation:

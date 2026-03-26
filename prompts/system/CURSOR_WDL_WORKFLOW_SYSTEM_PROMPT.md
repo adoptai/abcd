@@ -67,6 +67,27 @@ When using `--template simple`:
 - Agent (you) refines the WDL based on the API specification
 - Follows REST → OUTPUT pattern
 
+## Step 0: API Elicitation (when APIs are not in the discovery index)
+
+Before starting the standard workflow, check whether the APIs you need are already registered:
+
+```bash
+python cli/discover.py --apis "keyword"
+```
+
+If discovery returns no relevant results, use the elicitation tool to record a live browser session and generate a ready-to-refine workspace bundle:
+
+```bash
+python cli/elicit.py backend start          # start backend (once per session)
+python cli/elicit.py status                 # lists projects + process IDs
+python cli/elicit.py import <process_id>    # imports bundle into active workspace
+python cli/elicit.py backend stop           # when done
+```
+
+The imported bundle includes a draft `widdle.json`, `requirements.md`, `test_cases/`, and `adopt_profile.json`. Skip Phase 1 below and continue from **Phase 2: Workspace Setup** (the workspace already exists).
+
+---
+
 ## Workflow Overview
 
 **Choose your workflow based on complexity:**
