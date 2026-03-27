@@ -569,6 +569,7 @@ def run_single_test(
                 action_info=action_info,
                 verbose=verbose,
                 inline_mode=inline_mode,
+                use_remote=use_remote,
             )
 
         prompt = test_case.get("prompt", "test")
@@ -803,8 +804,6 @@ def run_multi_turn_test(
 
         metadata = action_info.get("metadata", {})
 
-        # Remote mode: resolve remote action ID upfront
-        remote_action_id: str | None = None
         if use_remote:
             remote_action_id = metadata.get("action_id") or metadata.get("remote_action_id")
             if not remote_action_id:
@@ -818,14 +817,11 @@ def run_multi_turn_test(
                     workspace_path=str(workspace),
                     is_multi_turn=True,
                 )
-
-        # Direct/inline mode: load WDL and resolve inline subactions
-        execution_wdl: list[dict[str, Any]] = []
-        inline_actions_payload: dict[str, Any] | None = None
-        title = metadata.get("title", action_id)
-        if not use_remote:
+        else:
             wdl_path = workspace / "widdle.json"
             execution_wdl = json.loads(wdl_path.read_text())
+            title = metadata.get("title", action_id)
+            inline_actions_payload: dict[str, Any] | None = None
             if inline_mode:
                 agent_path = workspace.parent.parent if action_info.get("agent_name") else workspace
                 inline_filter = inline_mode if isinstance(inline_mode, list) else None
@@ -839,7 +835,6 @@ def run_multi_turn_test(
                         f"{', '.join(inline_names)}"
                     )
 
-        # Resolve profile
         resolved_profile = manager.resolve_adopt_profile(
             action_path=workspace,
             agent_name=action_info.get("agent_name"),
@@ -847,7 +842,6 @@ def run_multi_turn_test(
         )
 
         client = get_api_client_for_env()
-        # Shared trace_id for server-managed conversation state across turns
         trace_id = str(uuid.uuid4())
         turn_results: list[TurnResult] = []
         last_error: str | None = None
@@ -869,8 +863,9 @@ def run_multi_turn_test(
             )
 
             if use_remote:
+                assert remote_action_id is not None
                 success, response, msg = client.run_action(
-                    action_id=remote_action_id,  # type: ignore[arg-type]
+                    action_id=remote_action_id,
                     user_input=prompt,
                     profile=resolved_profile,
                     workflow_params=workflow_params,
