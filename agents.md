@@ -1342,6 +1342,7 @@ python cli/test_runner.py workflow-id --test test_2.json  # Run specific test ca
 python cli/test_runner.py workflow-id --verbose         # Verbose with traces
 python cli/test_runner.py agent-id --inline             # Uber agent with inline subactions
 python cli/test_runner.py agent-id --inline sub1,sub2   # Inline specific subactions only
+python cli/test_runner.py agent-id --multi-turn test_1.json test_2.json --inline  # Compose tests into multi-turn conversation
 # Note: Use --test test_2.json, NOT --test test_cases/test_2.json
 
 # Version management
@@ -1651,7 +1652,9 @@ python cli/validate.py my-workflow --orchestrator --auto-fix
    - `test_2.json` - Different input scenario
    - `test_3.json` - Edge case
 
-2. Each test case must include:
+2. Each test case must include either **single-turn** or **multi-turn** format:
+
+   **Single-turn format** (one prompt, one response):
    ```json
    {
      "prompt": "User input",
@@ -1663,6 +1666,33 @@ python cli/validate.py my-workflow --orchestrator --auto-fix
      }
    }
    ```
+
+   **Multi-turn format** (conversation with multiple exchanges):
+   ```json
+   {
+     "turns": [
+       {
+         "prompt": "I want to fly from SP to RJ",
+         "expected_output": {
+           "description": "Agent should ask for departure date",
+           "validation": "similarity"
+         }
+       },
+       {
+         "prompt": "April 8, 2026",
+         "expected_output": {
+           "description": "Returns flight results with prices",
+           "validation": "similarity",
+           "key_fields": ["airline", "price"]
+         }
+       }
+     ],
+     "workflow_params": {}
+   }
+   ```
+
+   Multi-turn tests use server-managed conversation state (`trace_id`) — each turn sends only
+   its prompt, and the server maintains conversation history across turns.
 
 ### Simplified Testing Commands
 
@@ -1678,6 +1708,9 @@ python cli/test_runner.py my-workflow --all
 
 # Test saved remote action (after save_wdl_draft)
 python cli/test_runner.py my-workflow --remote
+
+# Multi-turn: compose individual test files into one conversation
+python cli/test_runner.py my-agent --multi-turn test_1.json test_2.json --inline
 
 # Auto-fix validation issues
 python cli/validate.py my-workflow --auto-fix

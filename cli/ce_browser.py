@@ -81,8 +81,6 @@ def find_chrome_executable() -> str | None:
                 return c
         return shutil.which("google-chrome") or shutil.which("chromium")
     if system == "Windows":
-        import winreg  # type: ignore[import-not-found]
-
         pf = os.environ.get("PROGRAMFILES", r"C:\Program Files")
         pf86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
         local = os.environ.get("LOCALAPPDATA", "")
@@ -91,7 +89,6 @@ def find_chrome_executable() -> str | None:
             rf"{pf86}\Google\Chrome\Application\chrome.exe",
             rf"{local}\Google\Chrome\Application\chrome.exe",
         ]
-        del winreg  # imported only to confirm Windows; not actually used
         for c in candidates:
             if Path(c).exists():
                 return c
@@ -334,7 +331,6 @@ def _wait_for_response(
 def run_python_runner(
     queries: list[dict[str, Any]],
     results_path: Path,
-    profile_id: str | None = None,
     cdp_port: int = CDP_PORT,
 ) -> list[dict[str, Any]]:
     """

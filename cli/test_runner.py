@@ -719,6 +719,47 @@ def _extract_ai_message_text(ai_message: dict | None) -> str:
     return str(content)
 
 
+def compose_multi_turn_test_case(
+    test_files: list[str],
+    test_cases_dir: Path,
+) -> dict[str, Any]:
+    """
+    Load multiple test files and compose them into a single multi-turn test case.
+
+    Each file's prompt(s) become turns in the conversation. Supports both
+    single-turn format ({"prompt": "..."}) and multi-turn format ({"turns": [...]}).
+
+    Returns:
+        A test case dict with "turns" array and merged "workflow_params".
+    """
+    all_turns: list[dict[str, Any]] = []
+    merged_params: dict[str, Any] = {}
+
+    for filename in test_files:
+        path = test_cases_dir / filename
+        if not path.exists():
+            raise FileNotFoundError(f"Test file not found: {path}")
+
+        tc = json.loads(path.read_text())
+        merged_params.update(tc.get("workflow_params", {}))
+
+        if "turns" in tc:
+            all_turns.extend(tc["turns"])
+        else:
+            all_turns.append(
+                {
+                    "prompt": tc.get("prompt", ""),
+                    "expected_output": tc.get("expected_output", {}),
+                }
+            )
+
+    return {
+        "turns": all_turns,
+        "workflow_params": merged_params,
+        "_test_file": " + ".join(test_files),
+    }
+
+
 def run_multi_turn_test(
     action_id: str,
     manager: HierarchicalWorkspaceManager,
@@ -729,11 +770,10 @@ def run_multi_turn_test(
     inline_mode: list[str] | bool = False,
 ) -> TestResult:
     """
-    Run a multi-turn test using /run-wdl with composed user_message.
+    Run a multi-turn test using /run-wdl with server-managed conversation state.
 
-    Each turn re-executes the WDL with a user_message that includes the full
-    conversation history so far.  This ensures every WDL step (including
-    PAYLOAD operations like parseUserPrompt) sees the complete context.
+    A shared trace_id is sent with each turn so the server maintains conversation
+    history across calls. Each turn sends only the current prompt.
 
     Args:
         action_id: Action/workflow ID
@@ -748,6 +788,7 @@ def run_multi_turn_test(
         TestResult with per-turn results
     """
     import time
+    import uuid
 
     start_time = time.time()
 
@@ -785,7 +826,8 @@ def run_multi_turn_test(
         )
 
         client = get_api_client_for_env()
-        conversation_history: list[dict[str, str]] = []  # [{role, content}, ...]
+        # Shared trace_id for server-managed conversation state across turns
+        trace_id = str(uuid.uuid4())
         turn_results: list[TurnResult] = []
         last_error: str | None = None
 
@@ -801,30 +843,18 @@ def run_multi_turn_test(
             }
             turn_criteria = {k: v for k, v in turn_criteria.items() if v}
 
-            # Build user_message with full conversation context
-            conversation_history.append({"role": "user", "content": prompt})
-
-            if i == 1:
-                user_message = prompt
-            else:
-                # Compose a single message with full conversation history
-                parts = []
-                for entry in conversation_history:
-                    role_label = "User" if entry["role"] == "user" else "Assistant"
-                    parts.append(f"{role_label}: {entry['content']}")
-                user_message = "\n\n".join(parts)
-
             print(
                 f'   Turn {i}/{len(turns_data)}: "{prompt[:80]}{"..." if len(prompt) > 80 else ""}"'
             )
 
             success, response, msg = client.run_wdl_directly(
                 wdl=execution_wdl,
-                user_message=user_message,
+                user_message=prompt,
                 profile=resolved_profile,
                 title=title,
                 workflow_params=workflow_params,
                 inline_actions=inline_actions_payload,
+                trace_id=trace_id,
             )
 
             turn_duration = int((time.time() - turn_start) * 1000)
@@ -875,10 +905,6 @@ def run_multi_turn_test(
                     duration_ms=turn_duration,
                 )
             )
-
-            # Accumulate agent response for next turn's context
-            if ai_text:
-                conversation_history.append({"role": "assistant", "content": ai_text})
 
         # Build final result
         total_duration = int((time.time() - start_time) * 1000)
@@ -1464,6 +1490,13 @@ Key Features:
     )
     parser.add_argument("--test", "-t", help="Specific test file to run")
     parser.add_argument(
+        "--multi-turn",
+        nargs="+",
+        metavar="TEST_FILE",
+        help="Compose multiple test files into a single multi-turn conversation. "
+        "Each file's prompt(s) become turns in the conversation.",
+    )
+    parser.add_argument(
         "--all", action="store_true", help="Run all test cases in test_cases/ directory"
     )
     parser.add_argument(
@@ -1589,7 +1622,48 @@ Key Features:
                 mode = "direct WDL (/run-wdl)"
             print(f"\n🧪 Testing: {action_id} [{mode}]")
 
-            if args.all:
+            if args.multi_turn:
+                # Compose multiple test files into a single multi-turn conversation
+                action_info = manager.find_action(action_id)
+                if not action_info:
+                    results = [
+                        TestResult(
+                            action_id=action_id,
+                            success=False,
+                            message="Action not found",
+                            duration_ms=0,
+                            error="Action workspace not found",
+                        )
+                    ]
+                else:
+                    workspace = action_info["path"]
+                    test_cases_dir = workspace / "test_cases"
+                    try:
+                        composed = compose_multi_turn_test_case(args.multi_turn, test_cases_dir)
+                        file_list = ", ".join(args.multi_turn)
+                        print(f"   Composing {len(composed['turns'])} turn(s) from: {file_list}")
+                        result = run_multi_turn_test(
+                            action_id=action_id,
+                            manager=manager,
+                            test_case=composed,
+                            workspace=workspace,
+                            action_info=action_info,
+                            verbose=args.verbose,
+                            inline_mode=inline_mode,
+                        )
+                        results = [result]
+                    except FileNotFoundError as e:
+                        results = [
+                            TestResult(
+                                action_id=action_id,
+                                success=False,
+                                message="Test file not found",
+                                duration_ms=0,
+                                error=str(e),
+                            )
+                        ]
+
+            elif args.all:
                 # Run all test cases for this action
                 action_info = manager.find_action(action_id)
                 if action_info:

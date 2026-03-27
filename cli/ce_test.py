@@ -198,15 +198,6 @@ def get_target_url(agent_path: Path) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _run_tests(
-    queries: list[dict[str, Any]],
-    results_path: Path,
-    profile_id: str | None = None,
-) -> list[dict[str, Any]]:
-    """Run test queries via the Playwright-based Python runner."""
-    return run_python_runner(queries, results_path, profile_id=profile_id, cdp_port=CDP_PORT)
-
-
 # ---------------------------------------------------------------------------
 # Result evaluation
 # ---------------------------------------------------------------------------
@@ -472,7 +463,6 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     # Load CE config (profile + target URL)
     ce_config = load_ce_config(agent_path)
-    profile_id = ce_config.get("profile_id") if ce_config else None
     profile_name = ce_config.get("profile_name") if ce_config else None
     target_url = get_effective_target_url(agent_path)
 
@@ -519,7 +509,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     results_path = results_dir / f"ce_run_{timestamp}.json"
 
     # Run via Python/Playwright
-    raw_results = _run_tests(test_cases, results_path, profile_id=profile_id)
+    raw_results = run_python_runner(test_cases, results_path, cdp_port=CDP_PORT)
 
     if not raw_results:
         print("No results captured. Check Chrome/extension status.")
@@ -577,7 +567,7 @@ def cmd_send(args: argparse.Namespace) -> int:
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
         results_path = Path(f.name)
 
-    raw_results = _run_tests(queries, results_path)
+    raw_results = run_python_runner(queries, results_path, cdp_port=CDP_PORT)
     results_path.unlink(missing_ok=True)
 
     if raw_results:
@@ -915,6 +905,12 @@ def cmd_start(args: argparse.Namespace) -> int:
         return 1
 
     extension_path = os.environ.get("ADOPT_EXTENSION_PATH", str(PROJECT_ROOT / "../adoptce/dist"))
+    if not Path(extension_path).exists():
+        print(
+            f"Error: Extension path does not exist: {extension_path}\n"
+            f"  Set ADOPT_EXTENSION_PATH to the correct path, or ensure the default exists."
+        )
+        return 1
     profile_dir = PROJECT_ROOT / "user-profile"
 
     print("=== AdoptAI Extension Test Browser ===")

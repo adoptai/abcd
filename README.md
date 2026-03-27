@@ -303,7 +303,7 @@ Production validation by testing agents as end users experience them — through
 **First-time setup:**
 
 ```bash
-# Check prerequisites (Chrome, npm deps)
+# Check prerequisites (Chrome, Playwright)
 python cli/ce_test.py setup
 ```
 
