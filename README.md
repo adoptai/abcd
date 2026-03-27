@@ -296,6 +296,47 @@ python cli/test_runner.py --agent my-agent --all-subactions
 python cli/test_runner.py my-agent --via-agent --subaction get-data
 ```
 
+### Chrome Extension (CE) Testing
+
+Production validation by testing agents as end users experience them — through the Adopt Chrome Extension copilot.
+
+**First-time setup:**
+
+```bash
+# Check prerequisites (Chrome, Playwright)
+python cli/ce_test.py setup
+```
+
+**One-time agent setup:**
+
+```bash
+# Pick playground profile and target URL (saved to ce_test_cases/ce_config.json)
+python cli/ce_test.py configure my-agent
+
+# Generate test cases from agent metadata
+python cli/ce_test.py generate my-agent
+```
+
+**Testing workflow (every run):**
+
+```bash
+# Terminal 1: Launch Chrome with extension (blocking — Ctrl+C to stop)
+python cli/ce_test.py start my-agent
+
+# Terminal 2: Run tests (profile auto-selected)
+python cli/ce_test.py run my-agent
+
+# Run specific test(s)
+python cli/ce_test.py run my-agent --test 1,3
+
+# Send ad-hoc query
+python cli/ce_test.py send my-agent "What can you do?"
+```
+
+Config is stored in `workspaces/{env}/agents/{agent}/ce_test_cases/ce_config.json`.
+Test cases are in `ce_test_cases/ce_test_suite.json`.
+Results are saved to `workspaces/{env}/agents/{agent}/traces/ce_results/`.
+
 ### Version Management
 
 ```bash
@@ -346,6 +387,7 @@ abcd/
 │   ├── test_runner.py            # Testing workflows (parallel/batch)
 │   ├── save_wdl_draft.py         # Save drafts
 │   ├── publish_wdl_action.py     # Publish workflows
+│   ├── ce_test.py                # Chrome Extension agent testing
 │   ├── list_wdl_versions.py      # Version listing
 │   ├── checkout_wdl_version.py   # Version checkout
 │   ├── deployment_rules.py       # Tool mode management
@@ -401,6 +443,7 @@ abcd/
 8. **Test remotely**: `python cli/test_runner.py <id> --all`
 9. **Iterate** until all tests pass
 10. **Publish** when user confirms: `python cli/publish_wdl_action.py <id>`
+11. **CE Test** (optional): `python cli/ce_test.py start <agent>` + `run <agent>` — validate in Chrome Extension
 
 ## Key Concepts
 

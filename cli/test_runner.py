@@ -177,6 +177,19 @@ def build_inline_actions(
 
 
 @dataclass
+class TurnResult:
+    """Result of a single turn in a multi-turn test."""
+
+    turn_number: int
+    prompt: str
+    output: Any = None
+    ai_message: dict | None = None  # Full LangChain AI message for accumulation
+    execution_trace: dict | None = None
+    test_criteria: dict | None = None
+    duration_ms: int = 0
+
+
+@dataclass
 class TestResult:
     """Result of a single test run with full context for LLM evaluation."""
 
@@ -194,6 +207,8 @@ class TestResult:
     workspace_path: str = ""
     failed_operation: str | None = None  # Which operation failed
     trace_path: str | None = None  # Path to saved trace file
+    turns: list[TurnResult] | None = None  # Per-turn results for multi-turn tests
+    is_multi_turn: bool = False
 
 
 def extract_execution_trace(response: dict | None, error_msg: str | None) -> dict | None:
@@ -321,7 +336,7 @@ def save_trace(workspace: Path, result: "TestResult") -> Path | None:
     Returns:
         Path to saved trace file, or None if nothing to save
     """
-    if not result.execution_trace and not result.error:
+    if not result.execution_trace and not result.error and not result.turns:
         return None
 
     traces_dir = workspace / "traces"
@@ -331,20 +346,43 @@ def save_trace(workspace: Path, result: "TestResult") -> Path | None:
     test_name = result.test_name.replace(".json", "") if result.test_name else "test"
     trace_path = traces_dir / f"trace_{test_name}_{timestamp}.json"
 
-    trace_data = {
-        "timestamp": datetime.now().isoformat(),
-        "action_id": result.action_id,
-        "test_file": result.test_name,
-        "prompt": result.prompt,
-        "success": result.success,
-        "duration_ms": result.duration_ms,
-        "output": result.output if result.success else None,
-        "error_message": result.error if not result.success else None,
-        "execution_trace": result.execution_trace,
-        "test_criteria": result.test_criteria,
-        "failed_operation": result.failed_operation,
-        "wdl_operations": result.wdl_operations,
-    }
+    if result.is_multi_turn and result.turns:
+        trace_data = {
+            "timestamp": datetime.now().isoformat(),
+            "action_id": result.action_id,
+            "test_file": result.test_name,
+            "multi_turn": True,
+            "total_turns": len(result.turns),
+            "success": result.success,
+            "duration_ms": result.duration_ms,
+            "error_message": result.error if not result.success else None,
+            "turns": [
+                {
+                    "turn": t.turn_number,
+                    "prompt": t.prompt,
+                    "agent_response": t.output,
+                    "test_criteria": t.test_criteria,
+                    "duration_ms": t.duration_ms,
+                    "trace": t.execution_trace,
+                }
+                for t in result.turns
+            ],
+        }
+    else:
+        trace_data = {
+            "timestamp": datetime.now().isoformat(),
+            "action_id": result.action_id,
+            "test_file": result.test_name,
+            "prompt": result.prompt,
+            "success": result.success,
+            "duration_ms": result.duration_ms,
+            "output": result.output if result.success else None,
+            "error_message": result.error if not result.success else None,
+            "execution_trace": result.execution_trace,
+            "test_criteria": result.test_criteria,
+            "failed_operation": result.failed_operation,
+            "wdl_operations": result.wdl_operations,
+        }
 
     trace_path.write_text(json.dumps(trace_data, indent=2, default=str))
     return trace_path
@@ -519,6 +557,21 @@ def run_single_test(
             )
 
         test_case = json.loads(test_path.read_text())
+
+        # Dispatch multi-turn tests
+        if "turns" in test_case:
+            test_case["_test_file"] = test_path.name
+            return run_multi_turn_test(
+                action_id=action_id,
+                manager=manager,
+                test_case=test_case,
+                workspace=workspace,
+                action_info=action_info,
+                verbose=verbose,
+                inline_mode=inline_mode,
+                use_remote=use_remote,
+            )
+
         prompt = test_case.get("prompt", "test")
         workflow_params = test_case.get("workflow_params", {})
 
@@ -646,6 +699,274 @@ def run_single_test(
             message="Exception during test",
             duration_ms=int((time.time() - start_time) * 1000),
             error=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()[:500]}",
+        )
+
+
+def _extract_ai_message_text(ai_message: dict | None) -> str:
+    """Extract readable text from a LangChain-format AI message."""
+    if not ai_message or not isinstance(ai_message, dict):
+        return ""
+    content = ai_message.get("content", [])
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                parts.append(item.get("data", ""))
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(p for p in parts if p)
+    return str(content)
+
+
+def compose_multi_turn_test_case(
+    test_files: list[str],
+    test_cases_dir: Path,
+) -> dict[str, Any]:
+    """
+    Load multiple test files and compose them into a single multi-turn test case.
+
+    Each file's prompt(s) become turns in the conversation. Supports both
+    single-turn format ({"prompt": "..."}) and multi-turn format ({"turns": [...]}).
+
+    Returns:
+        A test case dict with "turns" array and merged "workflow_params".
+    """
+    all_turns: list[dict[str, Any]] = []
+    merged_params: dict[str, Any] = {}
+
+    for filename in test_files:
+        path = test_cases_dir / filename
+        if not path.exists():
+            raise FileNotFoundError(f"Test file not found: {path}")
+
+        tc = json.loads(path.read_text())
+        merged_params.update(tc.get("workflow_params", {}))
+
+        if "turns" in tc:
+            all_turns.extend(tc["turns"])
+        else:
+            all_turns.append(
+                {
+                    "prompt": tc.get("prompt", ""),
+                    "expected_output": tc.get("expected_output", {}),
+                }
+            )
+
+    return {
+        "turns": all_turns,
+        "workflow_params": merged_params,
+        "_test_file": " + ".join(test_files),
+    }
+
+
+def run_multi_turn_test(
+    action_id: str,
+    manager: HierarchicalWorkspaceManager,
+    test_case: dict[str, Any],
+    workspace: Path,
+    action_info: dict[str, Any],
+    verbose: bool = False,
+    inline_mode: list[str] | bool = False,
+    use_remote: bool = False,
+) -> TestResult:
+    """
+    Run a multi-turn test with server-managed conversation state.
+
+    A shared trace_id is sent with each turn so the server maintains conversation
+    history across calls. Each turn sends only the current prompt.
+
+    Supports both direct WDL execution (/run-wdl) and remote action testing
+    (/v1/actions/run) — controlled by use_remote flag.
+
+    Args:
+        action_id: Action/workflow ID
+        manager: Workspace manager instance
+        test_case: Parsed test case dict containing "turns" array
+        workspace: Path to action workspace
+        action_info: Action info from workspace manager
+        verbose: Include WDL operations in output
+        inline_mode: Inline subaction mode (True=all, list=specific, False=none)
+        use_remote: Use saved remote action via /v1/actions/run instead of /run-wdl
+
+    Returns:
+        TestResult with per-turn results
+    """
+    import time
+    import uuid
+
+    start_time = time.time()
+
+    try:
+        turns_data = test_case["turns"]
+        workflow_params = test_case.get("workflow_params", {})
+
+        metadata = action_info.get("metadata", {})
+
+        if use_remote:
+            remote_action_id = metadata.get("action_id") or metadata.get("remote_action_id")
+            if not remote_action_id:
+                return TestResult(
+                    action_id=action_id,
+                    success=False,
+                    message="Not linked to remote",
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    error="No remote action_id in metadata. Run: python cli/save_wdl_draft.py "
+                    "--workflow-id " + action_id,
+                    workspace_path=str(workspace),
+                    is_multi_turn=True,
+                )
+        else:
+            wdl_path = workspace / "widdle.json"
+            execution_wdl = json.loads(wdl_path.read_text())
+            title = metadata.get("title", action_id)
+            inline_actions_payload: dict[str, Any] | None = None
+            if inline_mode:
+                agent_path = workspace.parent.parent if action_info.get("agent_name") else workspace
+                inline_filter = inline_mode if isinstance(inline_mode, list) else None
+                execution_wdl, inline_actions_payload = build_inline_actions(
+                    execution_wdl, agent_path, inline_filter
+                )
+                if inline_actions_payload:
+                    inline_names = [k.removeprefix("inline::") for k in inline_actions_payload]
+                    print(
+                        f"   📦 Inlined {len(inline_actions_payload)} subaction(s): "
+                        f"{', '.join(inline_names)}"
+                    )
+
+        resolved_profile = manager.resolve_adopt_profile(
+            action_path=workspace,
+            agent_name=action_info.get("agent_name"),
+            env_name=action_info.get("env_name"),
+        )
+
+        client = get_api_client_for_env()
+        trace_id = str(uuid.uuid4())
+        turn_results: list[TurnResult] = []
+        last_error: str | None = None
+
+        for i, turn_data in enumerate(turns_data, start=1):
+            turn_start = time.time()
+            prompt = turn_data.get("prompt", "")
+            expected_output = turn_data.get("expected_output", {})
+            turn_criteria = {
+                "description": expected_output.get("description", ""),
+                "validation_type": expected_output.get("validation", "similarity"),
+                "key_fields": expected_output.get("key_fields", []),
+                "sample_output": expected_output.get("sample_output"),
+            }
+            turn_criteria = {k: v for k, v in turn_criteria.items() if v}
+
+            print(
+                f'   Turn {i}/{len(turns_data)}: "{prompt[:80]}{"..." if len(prompt) > 80 else ""}"'
+            )
+
+            if use_remote:
+                assert remote_action_id is not None
+                success, response, msg = client.run_action(
+                    action_id=remote_action_id,
+                    user_input=prompt,
+                    profile=resolved_profile,
+                    workflow_params=workflow_params,
+                    allow_draft=True,
+                    trace_id=trace_id,
+                )
+            else:
+                success, response, msg = client.run_wdl_directly(
+                    wdl=execution_wdl,
+                    user_message=prompt,
+                    profile=resolved_profile,
+                    title=title,
+                    workflow_params=workflow_params,
+                    inline_actions=inline_actions_payload,
+                    trace_id=trace_id,
+                )
+
+            turn_duration = int((time.time() - turn_start) * 1000)
+
+            if not success:
+                last_error = msg
+                turn_results.append(
+                    TurnResult(
+                        turn_number=i,
+                        prompt=prompt,
+                        test_criteria=turn_criteria if turn_criteria else None,
+                        duration_ms=turn_duration,
+                    )
+                )
+                break
+
+            # Extract AI message and trace
+            ai_message = response.get("ai_message") if response else None
+            execution_trace = extract_execution_trace(response, None)
+
+            # Extract clean output
+            ai_text = _extract_ai_message_text(ai_message)
+            output: Any = None
+            if ai_text:
+                output = ai_text
+            elif response and isinstance(response, dict):
+                data = response.get("data", {})
+                if isinstance(data, dict):
+                    output = {
+                        k: v
+                        for k, v in data.items()
+                        if k not in ("debug_tracing", "execution_trace")
+                    }
+                else:
+                    output = data
+
+            if ai_text:
+                print(f"   -> Agent response received ({len(ai_text)} chars)")
+
+            turn_results.append(
+                TurnResult(
+                    turn_number=i,
+                    prompt=prompt,
+                    output=output,
+                    ai_message=ai_message,
+                    execution_trace=execution_trace,
+                    test_criteria=turn_criteria if turn_criteria else None,
+                    duration_ms=turn_duration,
+                )
+            )
+
+        # Build final result
+        total_duration = int((time.time() - start_time) * 1000)
+        all_succeeded = last_error is None
+
+        # Use the last turn's output and criteria as the top-level result
+        last_turn = turn_results[-1] if turn_results else None
+
+        return TestResult(
+            action_id=action_id,
+            success=all_succeeded,
+            message="Multi-turn test passed"
+            if all_succeeded
+            else (last_error or "Unknown error")[:200],
+            duration_ms=total_duration,
+            test_name=test_case.get("_test_file", ""),
+            prompt=turns_data[0].get("prompt", "") if turns_data else "",
+            output=last_turn.output if last_turn else None,
+            error=last_error,
+            execution_trace=last_turn.execution_trace if last_turn else None,
+            test_criteria=last_turn.test_criteria if last_turn else None,
+            workspace_path=str(workspace),
+            turns=turn_results,
+            is_multi_turn=True,
+        )
+
+    except Exception as e:
+        import traceback
+
+        return TestResult(
+            action_id=action_id,
+            success=False,
+            message="Exception during multi-turn test",
+            duration_ms=int((time.time() - start_time) * 1000),
+            error=f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()[:500]}",
+            is_multi_turn=True,
         )
 
 
@@ -916,11 +1237,31 @@ def print_results(results: list[TestResult], start_time: datetime, verbose: bool
         print("\n✅ PASSED:")
         for r in passed:
             suffix = f" - {r.test_name}" if r.test_name else ""
-            print(f"\n   ✅ {r.action_id} ({r.duration_ms}ms){suffix}")
+            mt_tag = " (multi-turn)" if r.is_multi_turn else ""
+            print(f"\n   ✅ {r.action_id} ({r.duration_ms}ms){suffix}{mt_tag}")
             if r.message:
                 print(f"      💬 {r.message}")
             if r.workspace_path:
                 print(f"      📁 Workspace: {r.workspace_path}")
+
+            # Show multi-turn conversation flow
+            if r.is_multi_turn and r.turns:
+                is_last_turn = False
+                print(f"      🔄 Multi-turn conversation ({len(r.turns)} turns):")
+                for t in r.turns:
+                    is_last_turn = t.turn_number == len(r.turns)
+                    print(f'\n         Turn {t.turn_number}: "{t.prompt}"')
+                    if t.output:
+                        if is_last_turn:
+                            # Truncate last turn -- full output shown in Actual Output below
+                            preview = str(t.output)[:120]
+                            print(f'         → Agent: "{preview}..." (see full output below)')
+                        else:
+                            print("         → Agent:")
+                            for line in str(t.output).split("\n"):
+                                print(f"            {line}")
+                    if t.test_criteria and t.test_criteria.get("description"):
+                        print(f"         📝 Expected: {t.test_criteria['description']}")
 
             # Show WDL operations when verbose
             if verbose and r.wdl_operations:
@@ -960,15 +1301,28 @@ def print_results(results: list[TestResult], start_time: datetime, verbose: bool
 
         for r in failed:
             print(f"\n{'─' * 80}")
-            print(f"🔴 FAILED: {r.action_id}")
+            mt_tag = " (multi-turn)" if r.is_multi_turn else ""
+            print(f"🔴 FAILED: {r.action_id}{mt_tag}")
             print(f"{'─' * 80}")
             print(f"Test: {r.test_name}")
             print(f"Duration: {r.duration_ms}ms")
             if r.workspace_path:
                 print(f"Workspace: {r.workspace_path}")
 
+            # Show multi-turn conversation flow for failed tests
+            if r.is_multi_turn and r.turns:
+                print(f"\n🔄 CONVERSATION FLOW ({len(r.turns)} turns executed):")
+                for t in r.turns:
+                    print(f'\n   Turn {t.turn_number} ({t.duration_ms}ms): "{t.prompt}"')
+                    if t.output:
+                        print("   → Agent:")
+                        for line in str(t.output).split("\n"):
+                            print(f"      {line}")
+                    if t.test_criteria and t.test_criteria.get("description"):
+                        print(f"   📝 Expected: {t.test_criteria['description']}")
+
             # Show prompt used
-            if r.prompt:
+            if r.prompt and not r.is_multi_turn:
                 print("\n📝 PROMPT USED:")
                 print(f"   {r.prompt[:300]}{'...' if len(r.prompt) > 300 else ''}")
 
@@ -1162,6 +1516,13 @@ Key Features:
     )
     parser.add_argument("--test", "-t", help="Specific test file to run")
     parser.add_argument(
+        "--multi-turn",
+        nargs="+",
+        metavar="TEST_FILE",
+        help="Compose multiple test files into a single multi-turn conversation. "
+        "Each file's prompt(s) become turns in the conversation.",
+    )
+    parser.add_argument(
         "--all", action="store_true", help="Run all test cases in test_cases/ directory"
     )
     parser.add_argument(
@@ -1287,7 +1648,49 @@ Key Features:
                 mode = "direct WDL (/run-wdl)"
             print(f"\n🧪 Testing: {action_id} [{mode}]")
 
-            if args.all:
+            if args.multi_turn:
+                # Compose multiple test files into a single multi-turn conversation
+                action_info = manager.find_action(action_id)
+                if not action_info:
+                    results = [
+                        TestResult(
+                            action_id=action_id,
+                            success=False,
+                            message="Action not found",
+                            duration_ms=0,
+                            error="Action workspace not found",
+                        )
+                    ]
+                else:
+                    workspace = action_info["path"]
+                    test_cases_dir = workspace / "test_cases"
+                    try:
+                        composed = compose_multi_turn_test_case(args.multi_turn, test_cases_dir)
+                        file_list = ", ".join(args.multi_turn)
+                        print(f"   Composing {len(composed['turns'])} turn(s) from: {file_list}")
+                        result = run_multi_turn_test(
+                            action_id=action_id,
+                            manager=manager,
+                            test_case=composed,
+                            workspace=workspace,
+                            action_info=action_info,
+                            verbose=args.verbose,
+                            inline_mode=inline_mode,
+                            use_remote=args.remote,
+                        )
+                        results = [result]
+                    except FileNotFoundError as e:
+                        results = [
+                            TestResult(
+                                action_id=action_id,
+                                success=False,
+                                message="Test file not found",
+                                duration_ms=0,
+                                error=str(e),
+                            )
+                        ]
+
+            elif args.all:
                 # Run all test cases for this action
                 action_info = manager.find_action(action_id)
                 if action_info:

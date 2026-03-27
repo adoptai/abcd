@@ -366,6 +366,7 @@ class AdoptAPIClient:
         workflow_params: dict[str, Any] | None = None,
         version_number: int | None = None,
         allow_draft: bool = False,
+        trace_id: str | None = None,
     ) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Execute an action for testing.
@@ -436,6 +437,8 @@ class AdoptAPIClient:
             payload["version_number"] = version_number
         if allow_draft:
             payload["allow_draft"] = allow_draft
+        if trace_id:
+            payload["trace_id"] = trace_id
 
         try:
             response = requests.post(url, headers=self.headers, json=payload, timeout=120)
@@ -676,6 +679,7 @@ class AdoptAPIClient:
         title: str = "direct_wdl_execution",
         workflow_params: dict[str, Any] | None = None,
         inline_actions: dict[str, Any] | None = None,
+        trace_id: str | None = None,
     ) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Execute WDL payload directly via /run-wdl without saving to platform.
@@ -692,6 +696,9 @@ class AdoptAPIClient:
             workflow_params: Optional workflow parameters.
             inline_actions: Optional map of placeholder action IDs to inline WDL
                            definitions for uber agent testing without platform dependency.
+            trace_id: Optional trace ID for multi-turn conversation tracking.
+                     When provided, the server maintains conversation state across
+                     calls sharing the same trace_id.
 
         Returns:
             Tuple of (success, response_data, message)
@@ -712,6 +719,9 @@ class AdoptAPIClient:
             "security_params": profile.get("security_params", {}),
             "include_execution_trace": True,
         }
+
+        if trace_id:
+            payload["trace_id"] = trace_id
 
         profiles_map = profile.get("profiles_map")
         if profiles_map:

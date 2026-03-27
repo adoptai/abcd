@@ -144,3 +144,6 @@ Thumbs.db
 # Active environment pointer
 .active_env
 workspaces/.active_env
+
+# CE Testing
+user-profile/

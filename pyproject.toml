@@ -16,6 +16,12 @@ faiss-cpu = ">=1.7.4"
 numpy = ">=1.24.0"
 sentence-transformers = ">=2.2.0"
 
+[tool.poetry.group.ce]
+optional = true
+
+[tool.poetry.group.ce.dependencies]
+playwright = ">=1.58.0"
+
 [tool.poetry.group.lint]
 optional = true
 
