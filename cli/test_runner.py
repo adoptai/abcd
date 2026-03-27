@@ -768,12 +768,16 @@ def run_multi_turn_test(
     action_info: dict[str, Any],
     verbose: bool = False,
     inline_mode: list[str] | bool = False,
+    use_remote: bool = False,
 ) -> TestResult:
     """
-    Run a multi-turn test using /run-wdl with server-managed conversation state.
+    Run a multi-turn test with server-managed conversation state.
 
     A shared trace_id is sent with each turn so the server maintains conversation
     history across calls. Each turn sends only the current prompt.
+
+    Supports both direct WDL execution (/run-wdl) and remote action testing
+    (/v1/actions/run) — controlled by use_remote flag.
 
     Args:
         action_id: Action/workflow ID
@@ -783,6 +787,7 @@ def run_multi_turn_test(
         action_info: Action info from workspace manager
         verbose: Include WDL operations in output
         inline_mode: Inline subaction mode (True=all, list=specific, False=none)
+        use_remote: Use saved remote action via /v1/actions/run instead of /run-wdl
 
     Returns:
         TestResult with per-turn results
@@ -796,27 +801,43 @@ def run_multi_turn_test(
         turns_data = test_case["turns"]
         workflow_params = test_case.get("workflow_params", {})
 
-        # Load WDL
-        wdl_path = workspace / "widdle.json"
-        wdl = json.loads(wdl_path.read_text())
+        metadata = action_info.get("metadata", {})
 
-        # Handle inline subaction resolution for uber agents
-        inline_actions_payload: dict[str, Any] | None = None
-        execution_wdl = wdl
-        if inline_mode:
-            agent_path = workspace.parent.parent if action_info.get("agent_name") else workspace
-            inline_filter = inline_mode if isinstance(inline_mode, list) else None
-            execution_wdl, inline_actions_payload = build_inline_actions(
-                wdl, agent_path, inline_filter
-            )
-            if inline_actions_payload:
-                inline_names = [k.removeprefix("inline::") for k in inline_actions_payload]
-                print(
-                    f"   📦 Inlined {len(inline_actions_payload)} subaction(s): {', '.join(inline_names)}"
+        # Remote mode: resolve remote action ID upfront
+        remote_action_id: str | None = None
+        if use_remote:
+            remote_action_id = metadata.get("action_id") or metadata.get("remote_action_id")
+            if not remote_action_id:
+                return TestResult(
+                    action_id=action_id,
+                    success=False,
+                    message="Not linked to remote",
+                    duration_ms=int((time.time() - start_time) * 1000),
+                    error="No remote action_id in metadata. Run: python cli/save_wdl_draft.py "
+                    "--workflow-id " + action_id,
+                    workspace_path=str(workspace),
+                    is_multi_turn=True,
                 )
 
-        metadata = action_info.get("metadata", {})
+        # Direct/inline mode: load WDL and resolve inline subactions
+        execution_wdl: list[dict[str, Any]] = []
+        inline_actions_payload: dict[str, Any] | None = None
         title = metadata.get("title", action_id)
+        if not use_remote:
+            wdl_path = workspace / "widdle.json"
+            execution_wdl = json.loads(wdl_path.read_text())
+            if inline_mode:
+                agent_path = workspace.parent.parent if action_info.get("agent_name") else workspace
+                inline_filter = inline_mode if isinstance(inline_mode, list) else None
+                execution_wdl, inline_actions_payload = build_inline_actions(
+                    execution_wdl, agent_path, inline_filter
+                )
+                if inline_actions_payload:
+                    inline_names = [k.removeprefix("inline::") for k in inline_actions_payload]
+                    print(
+                        f"   📦 Inlined {len(inline_actions_payload)} subaction(s): "
+                        f"{', '.join(inline_names)}"
+                    )
 
         # Resolve profile
         resolved_profile = manager.resolve_adopt_profile(
@@ -847,15 +868,25 @@ def run_multi_turn_test(
                 f'   Turn {i}/{len(turns_data)}: "{prompt[:80]}{"..." if len(prompt) > 80 else ""}"'
             )
 
-            success, response, msg = client.run_wdl_directly(
-                wdl=execution_wdl,
-                user_message=prompt,
-                profile=resolved_profile,
-                title=title,
-                workflow_params=workflow_params,
-                inline_actions=inline_actions_payload,
-                trace_id=trace_id,
-            )
+            if use_remote:
+                success, response, msg = client.run_action(
+                    action_id=remote_action_id,  # type: ignore[arg-type]
+                    user_input=prompt,
+                    profile=resolved_profile,
+                    workflow_params=workflow_params,
+                    allow_draft=True,
+                    trace_id=trace_id,
+                )
+            else:
+                success, response, msg = client.run_wdl_directly(
+                    wdl=execution_wdl,
+                    user_message=prompt,
+                    profile=resolved_profile,
+                    title=title,
+                    workflow_params=workflow_params,
+                    inline_actions=inline_actions_payload,
+                    trace_id=trace_id,
+                )
 
             turn_duration = int((time.time() - turn_start) * 1000)
 
@@ -1650,6 +1681,7 @@ Key Features:
                             action_info=action_info,
                             verbose=args.verbose,
                             inline_mode=inline_mode,
+                            use_remote=args.remote,
                         )
                         results = [result]
                     except FileNotFoundError as e:

@@ -366,6 +366,7 @@ class AdoptAPIClient:
         workflow_params: dict[str, Any] | None = None,
         version_number: int | None = None,
         allow_draft: bool = False,
+        trace_id: str | None = None,
     ) -> tuple[bool, dict[str, Any] | None, str]:
         """
         Execute an action for testing.
@@ -436,6 +437,8 @@ class AdoptAPIClient:
             payload["version_number"] = version_number
         if allow_draft:
             payload["allow_draft"] = allow_draft
+        if trace_id:
+            payload["trace_id"] = trace_id
 
         try:
             response = requests.post(url, headers=self.headers, json=payload, timeout=120)
