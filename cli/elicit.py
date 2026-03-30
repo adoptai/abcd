@@ -51,7 +51,8 @@ PID_FILE = BACKEND_DIR / ".elicit.pid"
 ENV_FILE = ELICITATION_DIR / ".env"  # loaded by backend/app/config.py from elicitation/
 ENV_EXAMPLE_FILE = ELICITATION_DIR / ".env.example"
 
-BACKEND_HOST = "http://localhost:8000"
+_BACKEND_PORT = os.environ.get("ELIC_PORT", "8000")
+BACKEND_HOST = f"http://localhost:{_BACKEND_PORT}"
 PING_PATH = "/sessions/ping"
 PROJECTS_PATH = "/projects"
 
@@ -194,6 +195,8 @@ def cmd_backend_start(args: argparse.Namespace) -> int:  # noqa: ARG001
             print(_yellow(f"No .env found at {ENV_FILE} — backend will start without it."))
 
     # Start uvicorn using the same Python interpreter (abcd's Poetry venv)
+    log_file = BACKEND_DIR / "elicit.log"
+    log_fh = open(log_file, "a")  # noqa: SIM115
     proc = subprocess.Popen(
         [
             sys.executable,
@@ -201,21 +204,21 @@ def cmd_backend_start(args: argparse.Namespace) -> int:  # noqa: ARG001
             "uvicorn",
             "app.main:app",
             "--host",
-            "0.0.0.0",
+            "127.0.0.1",
             "--port",
-            "8000",
+            _BACKEND_PORT,
             "--log-level",
             "warning",
         ],
         cwd=str(BACKEND_DIR),
         env={**os.environ, "PYTHONPATH": str(BACKEND_DIR)},
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_fh,
+        stderr=log_fh,
         start_new_session=True,
     )
 
     _write_pid(proc.pid)
-    print(f"Starting elicitation backend (PID {proc.pid}) …", end="", flush=True)
+    print(f"Starting elicitation backend (PID {proc.pid}) … logs → {log_file}", end="", flush=True)
 
     # Poll until ready (up to 10s)
     for _ in range(20):
@@ -354,7 +357,7 @@ def cmd_import(args: argparse.Namespace) -> int:
 
     # Resolve workspace manager + active env
     manager = get_workspace_manager()
-    resolved_env = env or manager._active_env
+    resolved_env = env or manager.active_env
     if not resolved_env:
         print(
             _red("No active environment found. Create one with: python cli/workspace.py env create")
@@ -383,23 +386,28 @@ def cmd_import(args: argparse.Namespace) -> int:
     prefix = meta_entry.rsplit("/metadata.json", 1)[0] + "/"
     dest.mkdir(parents=True)
     extracted: list[str] = []
-    for name in zf.namelist():
-        if not name.startswith(prefix) or name == prefix:
-            continue
-        rel = name[len(prefix) :]
-        target = dest / rel
-        if name.endswith("/"):
-            target.mkdir(parents=True, exist_ok=True)
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(zf.read(name))
-            extracted.append(rel)
+    try:
+        for name in zf.namelist():
+            if not name.startswith(prefix) or name == prefix:
+                continue
+            rel = name[len(prefix) :]
+            target = dest / rel
+            if name.endswith("/"):
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(zf.read(name))
+                extracted.append(rel)
 
-    zf.close()
-
-    # Ensure expected directories exist (in case the bundle omitted empty ones)
-    for d in ("test_cases", "versions", "traces", "apis", "tools"):
-        (dest / d).mkdir(exist_ok=True)
+        # Ensure expected directories exist (in case the bundle omitted empty ones)
+        for d in ("test_cases", "versions", "traces", "apis", "tools"):
+            (dest / d).mkdir(exist_ok=True)
+    except Exception as exc:
+        shutil.rmtree(dest, ignore_errors=True)
+        print(_red(f"Extraction failed: {exc}"))
+        return 1
+    finally:
+        zf.close()
 
     print(_green(f"✓ Imported → {dest}"))
     print(f"  Files: {', '.join(f for f in extracted if not f.startswith('.'))}")

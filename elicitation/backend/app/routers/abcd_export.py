@@ -6,6 +6,7 @@ returns it as a downloadable zip file.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import json
 import logging
@@ -123,7 +124,7 @@ async def export_abcd_workspace(
 
     # Metadata
     metadata = {
-        "action_id": _slugify(process.name),
+        "action_id": f"{_slugify(process.name)}-{process.id[:8]}",
         "name": process.name,
         "description": description,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -258,11 +259,21 @@ async def _load_process_data(db: AsyncSession, process: Process) -> dict:
     )
     capture_sessions = cs_result.scalars().all()
 
+    _HAR_SIZE_LIMIT = 50 * 1024 * 1024  # 50 MB
+
     har_logs = []
     for cs in capture_sessions:
         if cs.har_file_path:
             try:
-                har_data = json.loads(Path(cs.har_file_path).read_text())
+                raw_text = await asyncio.to_thread(Path(cs.har_file_path).read_text)
+                if len(raw_text) > _HAR_SIZE_LIMIT:
+                    logger.warning(
+                        "HAR file %s exceeds size limit (%d bytes) — skipping",
+                        cs.har_file_path,
+                        len(raw_text),
+                    )
+                    continue
+                har_data = json.loads(raw_text)
                 har_logs.append(har_data)
             except Exception as e:
                 logger.warning("Failed to read HAR file %s: %s", cs.har_file_path, e)

@@ -56,7 +56,7 @@ web-api-spec-elicitation-agent/
 ## First-time setup
 
 ```bash
-cd /home/juancho/projects/specification_agent/web-api-spec-elicitation-agent
+cd <path-to-abcd>/elicitation
 
 # 1. Create virtualenv (if .venv doesn't exist)
 uv venv .venv --python 3.11

@@ -14,20 +14,16 @@ A Chrome extension + Python backend for recording enriched browser sessions (HAR
 
 ### 1. Start the backend
 
-```bash
-cd backend
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
+The backend runs inside the abcd Poetry venv — no separate install needed:
 
-Or use the dev script:
 ```bash
-./scripts/dev.sh
+# From the abcd repo root
+python cli/elicit.py backend start
 ```
 
 Verify: `curl http://localhost:8000/health`
+
+> For standalone setup (outside abcd) see [LOCAL_RUNBOOK.md](LOCAL_RUNBOOK.md).
 
 ### 2. Install the Chrome extension
 
