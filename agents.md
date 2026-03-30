@@ -4,6 +4,22 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 
 ---
 
+## ⛔ CRITICAL: ALWAYS USE THE VENV
+
+**NEVER call `python` or `python3` directly.** Always activate the project's virtual environment first, or prefix commands with the venv Python binary:
+
+```bash
+# Option A — activate once per shell session (run from repo root)
+source .venv/bin/activate
+
+# Option B — single-command prefix (no activation needed)
+.venv/bin/python cli/elicit.py ...
+```
+
+All `python` commands in this document assume the venv is active or you are using `.venv/bin/python`.
+
+---
+
 ## ⛔ CRITICAL: ALWAYS USE CLI SCRIPTS
 
 **NEVER bypass or circumvent the CLI tools.** All operations MUST be performed using the provided CLI scripts.

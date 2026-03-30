@@ -37,6 +37,7 @@ import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
+from urllib.parse import parse_qs
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -316,6 +317,78 @@ def cmd_status(args: argparse.Namespace) -> int:  # noqa: ARG001
     return 0
 
 
+def _normalize_widdle(dest: Path) -> None:
+    """Normalize a backend-generated widdle.json to the format the platform expects.
+
+    Fixes applied:
+    - Unwrap {"steps": [...]} root object → bare list
+    - Flatten nested "config" sub-dict to top level
+    - Add auto-generated "id" fields where missing
+    - Convert POST + URL-encoded "body" string → POST_FORM + "payload" dict
+    - Resolve "{{base_url}}" from adopt_profile.json
+    - Strip unsupported fields: "expected_status", "description"
+    """
+    widdle_path = dest / "widdle.json"
+    if not widdle_path.exists():
+        return
+
+    with open(widdle_path) as f:
+        data = json.load(f)
+
+    # 1. Unwrap {"steps": [...]} → bare list
+    if isinstance(data, dict) and "steps" in data:
+        data = data["steps"]
+
+    if not isinstance(data, list):
+        return
+
+    # 2. Resolve base_url from adopt_profile.json
+    profile_path = dest / "adopt_profile.json"
+    base_url = ""
+    if profile_path.exists():
+        try:
+            profile = json.loads(profile_path.read_text())
+            base_url = profile.get("base_url", "")
+        except Exception:
+            pass
+
+    _STRIP_FIELDS = {"expected_status", "description"}
+
+    normalized = []
+    for i, step in enumerate(data):
+        block: dict = {}
+
+        # 3. Flatten "config" sub-dict
+        if "config" in step:
+            config = step.pop("config")
+            step.update(config)
+
+        # 4. Ensure "id" exists
+        block["id"] = step.get("id") or f"block_{i}"
+        block["operation"] = step.get("operation", "")
+
+        # Copy remaining fields (excluding stripped ones and already-set keys)
+        for k, v in step.items():
+            if k in ("id", "operation") or k in _STRIP_FIELDS:
+                continue
+            block[k] = v
+
+        # 5. Convert POST + URL-encoded body string → POST_FORM + payload dict
+        if block.get("method") == "POST" and isinstance(block.get("body"), str):
+            block["method"] = "POST_FORM"
+            parsed = parse_qs(block.pop("body"), keep_blank_values=True)
+            block["payload"] = {k: v[0] for k, v in parsed.items()}
+
+        # 6. Resolve {{base_url}} in url
+        if base_url and "url" in block:
+            block["url"] = block["url"].replace("{{base_url}}", base_url)
+
+        normalized.append(block)
+
+    with open(widdle_path, "w") as f:
+        json.dump(normalized, f, indent=2)
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     """Download and unzip an elicitation workspace bundle into abcd workspaces."""
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -402,6 +475,9 @@ def cmd_import(args: argparse.Namespace) -> int:
         # Ensure expected directories exist (in case the bundle omitted empty ones)
         for d in ("test_cases", "versions", "traces", "apis", "tools"):
             (dest / d).mkdir(exist_ok=True)
+
+        # Normalize the generated widdle.json to the platform's expected schema
+        _normalize_widdle(dest)
     except Exception as exc:
         shutil.rmtree(dest, ignore_errors=True)
         print(_red(f"Extraction failed: {exc}"))
