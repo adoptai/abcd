@@ -1,18 +1,19 @@
 # ABCD - (Adopt | Agent | Action | Automation) Builder in  (Cursor | Copilot | Claude) for (Devs | Dreamers)
 
-A comprehensive CLI toolkit designed for AI agents (like Cursor) to build, test, and manage actions and workflows on the AdoptAI platform.
+A comprehensive CLI toolkit designed for AI agents (like Cursor) to build, test, and manage actions, pipelines, and workflows on the AdoptAI platform.
 
 ## Overview
 
-ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for building, testing, and managing AI-powered actions and workflows on the AdoptAI platform. Designed for AI agents (Cursor, Claude, etc.) to invoke as part of automated workflows.
+ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for building, testing, and managing AI-powered actions, data pipelines, and workflows on the AdoptAI platform. Designed for AI agents (Cursor, Claude, etc.) to invoke as part of automated workflows.
 
 ### Action Types
 
 | Type | Description | Use Case |
 |------|-------------|----------|
-| **Simple Tools** | Single-API wrappers (https://github.com/adoptai/abcd/pull/1REST → OUTPUT pattern) | Quick API integrations, data fetching |
+| **Simple Tools** | Single-API wrappers (REST → OUTPUT pattern) | Quick API integrations, data fetching |
 | **Complex Workflows** | Multi-step WDL with REST, JQ_FILTER, PROMPT, CONDITION, etc. | Business logic, data transformations, AI integration |
 | **Uber Agents** | Multi-action orchestrators using PROMPT_AND_TOOLS_AGENT | Composing atomic tools into intelligent workflows |
+| **Data Pipelines** | ETL / data sync workflows with connectors and table registry | Batch processing, data enrichment, scheduled data flows |
 
 ### Discovery & Search
 
@@ -23,10 +24,19 @@ ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for b
 
 ### Workspace Management
 
-- **Hierarchical Structure**: Environments → Agents → Actions
+- **Hierarchical Structure**: Environments → Agents → Actions / Pipelines
 - **Multi-Environment Support**: Separate staging/production, multiple clients
 - **Config Inheritance**: Action inherits from Agent inherits from Environment
 - **Profile Management**: Centralized `adopt_profile.json` for base URLs, security params
+- **Pipeline Workspaces**: Dedicated `pipelines/` directory within each environment
+
+### Pipeline & Connector Management
+
+- **Data Pipelines**: Create, test, and deploy ETL / data sync workflows
+- **Pipeline-Specific Operations**: `READ_FROM_DB`, `WRITE_TO_DB`, `FAN_OUT`, `RUN_ACTION`
+- **Connectors**: Manage pipeline data sources/destinations (S3, databases, REST APIs)
+- **Connector Catalog**: Browse available providers, create instances, test connections
+- **Test Mode**: Rapid iteration with `test_mode=true` (no concurrent-run checks)
 
 ### Testing & Validation
 
@@ -201,6 +211,14 @@ User Request
     ├─ "Create a complex workflow"
     │   → python cli/manage_wdl_action.py --create --template workflow -r requirements.md
     │
+    ├─ "Create a data pipeline / ETL"
+    │   → python cli/workspace.py pipeline create --name "Name"
+    │   → Edit widdle.json → python cli/test_pipeline.py <id>
+    │
+    ├─ "Set up connectors (S3, database, etc.)"
+    │   → python cli/workspace.py connector catalog
+    │   → python cli/workspace.py connector create --name "..." --provider <id> --mode source
+    │
     ├─ "Search for APIs/actions"
     │   → python cli/discover.py --apis "query"
     │   → python cli/discover.py --actions "query"
@@ -353,6 +371,39 @@ python cli/save_wdl_draft.py --workflow-id {workflow_id} --description "Fixed bu
 python cli/publish_wdl_action.py {action_id} --version 10 --description "Production release"
 ```
 
+### Pipeline Commands
+
+```bash
+# Create pipeline (remote + local workspace)
+python cli/workspace.py pipeline create --name "My Pipeline" --description "..."
+
+# List / show pipelines
+python cli/workspace.py pipeline list
+python cli/workspace.py pipeline show <pipeline-id>
+
+# Download existing pipeline from platform
+python cli/workspace.py pipeline checkout --remote-id <uuid>
+
+# Test pipeline WDL (always test_mode=true)
+python cli/test_pipeline.py <pipeline-id>
+
+# Save pipeline draft to remote
+python cli/save_pipeline_draft.py <pipeline-id> [--activate]
+```
+
+### Connector Commands
+
+```bash
+# Browse available connector providers
+python cli/workspace.py connector catalog [--mode source|destination]
+
+# Create / manage connectors
+python cli/workspace.py connector create --name "S3 Source" --provider amazon_s3 --mode source
+python cli/workspace.py connector list
+python cli/workspace.py connector test <connector-id>
+python cli/workspace.py connector delete <connector-id> --force
+```
+
 ### Diagnostic Commands
 
 ```bash
@@ -388,6 +439,8 @@ abcd/
 │   ├── save_wdl_draft.py         # Save drafts
 │   ├── publish_wdl_action.py     # Publish workflows
 │   ├── ce_test.py                # Chrome Extension agent testing
+│   ├── test_pipeline.py          # Pipeline WDL testing
+│   ├── save_pipeline_draft.py    # Pipeline draft save/publish
 │   ├── list_wdl_versions.py      # Version listing
 │   ├── checkout_wdl_version.py   # Version checkout
 │   ├── deployment_rules.py       # Tool mode management
@@ -406,6 +459,7 @@ abcd/
 ├── prompts/                      # System prompts & templates
 │   ├── system/                   # Agent system prompts
 │   │   ├── CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md
+│   │   ├── PIPELINE_WORKFLOW_PROMPT.md
 │   │   └── DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md
 │   ├── templates/                # WDL templates
 │   │   └── simple_tool_template.md
@@ -445,6 +499,16 @@ abcd/
 10. **Publish** when user confirms: `python cli/publish_wdl_action.py <id>`
 11. **CE Test** (optional): `python cli/ce_test.py start <agent>` + `run <agent>` — validate in Chrome Extension
 
+### For Data Pipeline Creation
+
+1. **Read** `prompts/system/PIPELINE_WORKFLOW_PROMPT.md`
+2. **Set up connectors** (if needed): `python cli/workspace.py connector catalog` → `connector create`
+3. **Create** pipeline: `python cli/workspace.py pipeline create --name "Name"`
+4. **Edit** `widdle.json` with pipeline operations (`READ_FROM_DB`, `WRITE_TO_DB`, `FAN_OUT`)
+5. **Test**: `python cli/test_pipeline.py <id>`
+6. **Iterate** until tests pass
+7. **Save**: `python cli/save_pipeline_draft.py <id>` → optionally `--activate`
+
 ## Key Concepts
 
 ### WDL (Workflow Definition Language)
@@ -456,12 +520,16 @@ WDL defines multi-step workflows with operations like:
 - `PROMPT` - LLM calls
 - `CONDITION` - Conditional branching
 - `OUTPUT_TEXT` / `OUTPUT_TABLE` - Output formatting
+- `READ_FROM_DB` / `WRITE_TO_DB` - Pipeline table operations
+- `FAN_OUT` - Batch iteration over rows (pipelines)
+- `RUN_ACTION` - Invoke published actions (pipelines)
 
 ### Workspaces
 
 Workflows are organized in workspaces:
 - **Standalone**: Created in `workspaces/{env}/actions/` directory
 - **Agent-based**: Created in `workspaces/{env}/agents/{agent-name}/actions/`
+- **Pipelines**: Created in `workspaces/{env}/pipelines/` directory
 
 ### Version Management
 
@@ -474,6 +542,7 @@ Workflows are organized in workspaces:
 
 - **Agent Instructions**: See `agents.md`
 - **WDL Workflow Guide**: See `prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`
+- **Pipeline Guide**: See `prompts/system/PIPELINE_WORKFLOW_PROMPT.md`
 - **Diagnostic Guide**: See `prompts/system/DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md`
 - **Issue Patterns**: See `prompts/guidelines/WDL_ISSUE_PATTERNS.md`
 - **CLI Help**: `python cli/[script_name].py --help`

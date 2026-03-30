@@ -16,8 +16,10 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 - **DO NOT** guess API endpoints or parameters - use `discover.py`
 - **DO NOT** skip testing before saving/publishing
 - **DO NOT** circumvent the workspace manager or context system
+- **DO NOT** confuse pipelines with actions - they are separate systems with separate APIs
+- **DO NOT** confuse connectors with integrations - connectors are for pipelines, integrations are for actions
 
-### ✅ REQUIRED Workflow
+### ✅ REQUIRED Workflow for Actions
 
 1. **Discovery**: Use `cli/discover.py` to find APIs/actions
 2. **Creation**: Use `cli/manage_wdl_action.py --create` or `cli/workspace.py`
@@ -49,16 +51,33 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
    - Run tests: `python cli/ce_test.py run <agent-name>`
    - Review results and iterate on WDL if issues found
 
+### ✅ REQUIRED Workflow for Pipelines
+
+1. **📚 Load prompt**: Read `prompts/system/PIPELINE_WORKFLOW_PROMPT.md` first
+2. **Connectors** (if needed): Browse catalog, create connectors, test connections
+3. **Creation**: Use `python cli/workspace.py pipeline create --name "Name"`
+4. **Edit WDL**: Directly edit `widdle.json` in the pipeline workspace
+5. **Testing**: Use `python cli/test_pipeline.py <pipeline-id>` (always test_mode=true)
+6. **Iterate**: Edit WDL → test → fix → test again
+7. **Saving**: Use `python cli/save_pipeline_draft.py <pipeline-id>` after tests pass
+8. **Activation** (optional): `python cli/save_pipeline_draft.py <pipeline-id> --activate`
+
 ### 📝 Editing WDL Files
 
 **You SHOULD directly edit `widdle.json` files.** This is your primary task.
 
-When editing WDL:
+When editing **action** WDL:
 - **Read the documentation first**: Load `prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`
 - **Use roaming RAG**: Fetch operation docs from `https://adoptai.github.io/widdle_docs/operations/`
 - **Follow templates**: Use patterns from `prompts/templates/`
 - **Check API specs**: Read files in `apis/` folder for endpoint details
 - **Compile**: Run `cli/test_runner.py --compile` after edits
+
+When editing **pipeline** WDL:
+- **Read the documentation first**: Load `prompts/system/PIPELINE_WORKFLOW_PROMPT.md`
+- **Use roaming RAG**: Same operation docs apply, plus pipeline-specific operations (READ_FROM_DB, WRITE_TO_DB, FAN_OUT, RUN_ACTION)
+- **No `required_inputs`**: Pipelines are data-driven, not prompt-driven
+- **Test directly**: Run `python cli/test_pipeline.py <pipeline-id>` after edits
 
 ### Why This Matters
 
@@ -76,15 +95,23 @@ The CLI scripts:
 
 ## 🚨 FIRST STEP: Create a TODO List
 
-**Before building any action or workflow, ALWAYS create a TODO list first.**
+**Before building any action, workflow, or pipeline, ALWAYS create a TODO list first.**
 
-When the user requests an action/workflow, immediately create todos with:
+When the user requests an **action/workflow**, immediately create todos with:
 1. Environment validation (check if request matches active env)
 2. Requirements analysis
 3. API/action discovery
 4. WDL creation
 5. Testing
 6. Publication (if requested)
+
+When the user requests a **pipeline**, immediately create todos with:
+1. Environment validation (check if request matches active env)
+2. Connector setup (browse catalog, create/test connectors if needed)
+3. Pipeline creation
+4. WDL editing (using pipeline-specific operations)
+5. Testing (`test_pipeline.py`)
+6. Save draft / activate (if requested)
 
 This ensures systematic progress and helps track complex multi-step tasks.
 
@@ -138,7 +165,7 @@ ADOPT_ACTIONS_ENDPOINT=https://api.adopt.ai
 
 ---
 
-## 🔀 WORKFLOW DECISION: New Action vs Edit Existing
+## 🔀 WORKFLOW DECISION: Actions vs Pipelines
 
 ### User wants to CREATE NEW action/workflow:
 → Load **`CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`**
@@ -155,6 +182,32 @@ python cli/checkout_wdl_version.py --workflow-id <action-id>
 # Edit, test, push
 python cli/save_wdl_draft.py --workflow-id <action-id>
 python cli/publish_wdl_action.py --workflow-id <action-id>
+```
+
+### User wants to CREATE a PIPELINE (data pipeline, ETL, data sync):
+→ Load **`PIPELINE_WORKFLOW_PROMPT.md`**
+```bash
+# Set up connectors first if needed
+python cli/workspace.py connector catalog
+python cli/workspace.py connector create --name "Source" --provider amazon_s3 --mode source ...
+
+# Create the pipeline
+python cli/workspace.py pipeline create --name "My Pipeline" --description "..."
+
+# Edit widdle.json, test, iterate
+python cli/test_pipeline.py my-pipeline
+python cli/save_pipeline_draft.py my-pipeline
+```
+
+### User wants to EDIT EXISTING pipeline:
+→ Load **`PIPELINE_WORKFLOW_PROMPT.md`**
+```bash
+# Download existing pipeline from platform
+python cli/workspace.py pipeline checkout --remote-id <pipeline-uuid>
+
+# Edit widdle.json, test, save
+python cli/test_pipeline.py my-pipeline
+python cli/save_pipeline_draft.py my-pipeline
 ```
 
 ---
@@ -209,8 +262,9 @@ For in-depth information, load the appropriate prompt from `prompts/system/`:
 
 | Prompt | When to Load |
 |--------|--------------|
-| **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** | Creating NEW WDL workflows from scratch |
+| **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** | Creating NEW WDL action workflows from scratch |
 | **REMOTE_ACTION_WORKFLOW_PROMPT.md** | Loading, editing, and pushing EXISTING remote actions |
+| **PIPELINE_WORKFLOW_PROMPT.md** | Creating, editing, testing, and managing data **pipelines** |
 | **WORKSPACE_HIERARCHY_PROMPT.md** | Managing workspaces, environments, config inheritance |
 | **UBER_AGENT_PROMPT.md** | Creating Uber Agents with sub-actions |
 | **TESTING_PROMPT.md** | Testing strategies, parallel tests, via-agent tests |
@@ -224,8 +278,10 @@ Templates: `prompts/templates/` (uber_agent, complex_workflow, simple_tool)
 
 - [Transparent CLI Behavior](#transparent-cli-behavior)
 - [Quick Command Reference](#quick-command-reference)
-- [Workspace Management (NEW)](#workspace-management-new)
+- [Workspace Management](#workspace-management)
 - [Testing Commands](#testing-commands)
+- [Pipeline Management](#pipeline-management)
+- [Connector Management](#connector-management)
 - [Overview](#overview)
 - [Quick Decision Tree](#quick-decision-tree)
 - [Functionality Categories](#functionality-categories)
@@ -299,7 +355,13 @@ workspaces/
 │   ├── env.json                # Environment metadata
 │   ├── agents/{agent}/         # Uber Agents
 │   │   └── actions/{action}/   # Sub-actions
-│   └── actions/{action}/       # Standalone actions
+│   ├── actions/{action}/       # Standalone actions
+│   └── pipelines/{pipeline}/   # Data pipelines
+│       ├── widdle.json         # Pipeline WDL
+│       ├── metadata.json       # Pipeline metadata
+│       ├── test_cases/         # Test cases
+│       ├── traces/             # Test run traces
+│       └── versions/           # Saved WDL versions
 └── {other_env}/                # Additional environments
     └── ...
 ```
@@ -321,6 +383,9 @@ python cli/workspace.py agent create --id my-agent --name "My Agent"
 
 # Create action in active environment
 python cli/workspace.py action create --id my-action --title "My Action"
+
+# Create pipeline in active environment
+python cli/workspace.py pipeline create --name "My Pipeline"
 
 # Profile (config inheritance)
 python cli/workspace.py profile show --action my-action
@@ -450,6 +515,116 @@ python cli/publish_wdl_action.py --agent my-agent --yes
 
 ---
 
+## Pipeline Management
+
+**📖 Full details: `prompts/system/PIPELINE_WORKFLOW_PROMPT.md`**
+
+Pipelines are data-driven ETL / sync workflows that operate on data sources and destinations using connectors. They are completely separate from actions -- different APIs, different database models, different lifecycle.
+
+### Pipeline Commands
+
+```bash
+# Create pipeline (creates remote + local workspace)
+python cli/workspace.py pipeline create --name "My Pipeline" --description "..."
+
+# List local pipelines
+python cli/workspace.py pipeline list
+
+# List remote pipelines from platform
+python cli/workspace.py pipeline list --remote
+
+# Show pipeline details
+python cli/workspace.py pipeline show <pipeline-id>
+
+# Download existing pipeline from platform
+python cli/workspace.py pipeline checkout --remote-id <uuid>
+
+# Delete pipeline
+python cli/workspace.py pipeline delete <pipeline-id> --force
+```
+
+### Pipeline Testing
+
+```bash
+# Test pipeline WDL (always test_mode=true)
+python cli/test_pipeline.py <pipeline-id>
+
+# With custom timeout
+python cli/test_pipeline.py <pipeline-id> --timeout 600
+```
+
+### Pipeline Saving
+
+```bash
+# Save pipeline WDL to remote platform
+python cli/save_pipeline_draft.py <pipeline-id>
+
+# Save and activate (requires passing test)
+python cli/save_pipeline_draft.py <pipeline-id> --activate
+
+# Dry run (preview without saving)
+python cli/save_pipeline_draft.py <pipeline-id> --dry-run
+```
+
+### Pipeline Workflow
+
+```
+1. Create pipeline → workspace.py pipeline create
+2. Edit widdle.json → use pipeline-specific operations (READ_FROM_DB, WRITE_TO_DB, FAN_OUT)
+3. Test → test_pipeline.py (always test_mode=true)
+4. Iterate → edit WDL → test → fix → test again
+5. Save → save_pipeline_draft.py (creates draft, overwrites with local WDL, publishes)
+6. Activate (optional) → save_pipeline_draft.py --activate
+```
+
+---
+
+## Connector Management
+
+Connectors are pipeline-specific data sources/destinations (S3, databases, REST APIs). They are NOT the same as integrations (mail, drive, hubspot which are for the actions system).
+
+### Connector Commands
+
+```bash
+# Browse available connector providers
+python cli/workspace.py connector catalog
+python cli/workspace.py connector catalog --mode source
+python cli/workspace.py connector catalog --mode destination
+
+# List org connectors
+python cli/workspace.py connector list
+
+# Show connector details
+python cli/workspace.py connector show <connector-id>
+
+# Create connector
+python cli/workspace.py connector create \
+  --name "Production S3" \
+  --provider amazon_s3 \
+  --mode source \
+  --config '{"bucket": "my-bucket", "region": "us-east-1"}' \
+  --credentials '{"access_key_id": "...", "secret_access_key": "..."}'
+
+# Create from files (for complex configs)
+python cli/workspace.py connector create \
+  --name "My DB" \
+  --provider postgres \
+  --mode source \
+  --config-file db_config.json \
+  --credentials-file db_creds.json
+
+# Update connector
+python cli/workspace.py connector update <id> --name "New Name" --config '{"key": "val"}'
+
+# Test connector connection
+python cli/workspace.py connector test <connector-id>
+
+# Delete connector
+python cli/workspace.py connector delete <connector-id> --force
+```
+
+---
+
 ## Security Headers & Token Management
 
 **Remote playground profiles must NEVER contain hardcoded secrets.** All security header values must reference published token configs by name. The CLI enforces this — `playground-profile create` and `playground-profile update` will reject hardcoded values.
@@ -541,16 +716,18 @@ python cli/publish_wdl_action.py abc123-action-id --version 5
 
 ## Overview
 
-ABCD provides a comprehensive CLI toolkit for building and managing actions, agents, and automations on the AdoptAI platform. It supports three main types of operations:
+ABCD provides a comprehensive CLI toolkit for building and managing actions, agents, pipelines, and automations on the AdoptAI platform. It supports four main types of operations:
 
 1. **Simple Actions**: Single-API wrappers (REST → OUTPUT pattern)
 2. **Complex Workflows**: Multi-step WDL workflows with multiple operations, AI integration, and data transformations
 3. **Uber Agents**: Multi-action orchestrators using PROMPT_AND_TOOLS_AGENT
+4. **Data Pipelines**: ETL / data sync workflows with connectors, table registry, and batch processing
 
 ### Key Files
 
 - **`cli/`**: All CLI scripts organized by functionality
-- **`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`**: Comprehensive guide for creating complex WDL workflows
+- **`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`**: Guide for creating complex WDL action workflows
+- **`prompts/system/PIPELINE_WORKFLOW_PROMPT.md`**: Guide for creating and managing data pipelines
 - **`README.md`**: User-facing documentation
 
 ---
@@ -569,6 +746,23 @@ User Request
     │   → python cli/discover.py --list-all
     │   → python cli/checkout_wdl_version.py --workflow-id <id>
     │
+    ├─ "Create a PIPELINE" / "Build a data pipeline" / "ETL" / "Data sync"
+    │   → Read: PIPELINE_WORKFLOW_PROMPT.md
+    │   → python cli/workspace.py connector catalog  (if connectors needed)
+    │   → python cli/workspace.py pipeline create --name "Name"
+    │   → Edit widdle.json → python cli/test_pipeline.py <id>
+    │
+    ├─ "Edit EXISTING pipeline" / "Download pipeline"
+    │   → Read: PIPELINE_WORKFLOW_PROMPT.md
+    │   → python cli/workspace.py pipeline checkout --remote-id <uuid>
+    │   → Edit widdle.json → python cli/test_pipeline.py <id>
+    │
+    ├─ "Set up connectors" / "Connect to S3/database/REST"
+    │   → Read: PIPELINE_WORKFLOW_PROMPT.md
+    │   → python cli/workspace.py connector catalog
+    │   → python cli/workspace.py connector create --name "..." --provider <id> --mode source
+    │   → python cli/workspace.py connector test <connector-id>
+    │
     ├─ "Create new environment" / "Work on [new client]"
     │   → Read: REMOTE_ACTION_WORKFLOW_PROMPT.md (Environment section)
     │   → python cli/workspace.py env create --id <client>-prod --target production --use
@@ -581,6 +775,9 @@ User Request
     │
     ├─ "Test a tool/action"
     │   → python cli/test_runner.py <workflow_id>
+    │
+    ├─ "Test a pipeline"
+    │   → python cli/test_pipeline.py <pipeline-id>
     │
     ├─ "Diagnose and fix issues"
     │   → Read: DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md
@@ -596,20 +793,24 @@ User Request
 
 ### Agent/Workspace Management
 
-**Purpose**: Organize actions and workflows into hierarchical workspaces (environments, agents, actions)
+**Purpose**: Organize actions, pipelines, and workflows into hierarchical workspaces (environments, agents, actions, pipelines)
 
 **Tools**:
-- `cli/workspace.py`: Manage environments, agents, and actions
+- `cli/workspace.py`: Manage environments, agents, actions, pipelines, and connectors
 - Used by all other tools for workspace organization
 
 **When to Use**:
 - User wants to organize actions by project/team/feature
 - Need to set up multi-environment workspaces (staging, production)
 - Creating Uber Agents with sub-actions
+- Creating or managing data pipelines
+- Managing connectors (data sources/destinations)
 
 **CLI Access**:
 - `python cli/workspace.py env list` - List environments
 - `python cli/workspace.py agent create --id my-agent` - Create agent
+- `python cli/workspace.py pipeline create --name "Name"` - Create pipeline
+- `python cli/workspace.py connector catalog` - Browse connector providers
 - See `prompts/system/WORKSPACE_HIERARCHY_PROMPT.md` for full details
 
 ---
@@ -871,6 +1072,36 @@ python cli/discover.py --requirements requirements.md
 
 ---
 
+### Data Pipelines
+
+**Purpose**: Create data-driven ETL / sync workflows that process data from sources (S3, databases, REST APIs) to destinations
+
+**Guide**: See `prompts/system/PIPELINE_WORKFLOW_PROMPT.md` for the complete guide.
+
+**Characteristics**:
+- Data-driven (no `required_inputs` -- not prompt-triggered)
+- Pipeline-specific operations: `READ_FROM_DB`, `WRITE_TO_DB`, `FAN_OUT`, `RUN_ACTION`
+- Table registry for persistent data storage
+- Connectors for external data sources/destinations
+- Test with `test_mode=true` for development iteration
+
+**Tools**:
+- `cli/workspace.py pipeline` -- Pipeline workspace CRUD
+- `cli/workspace.py connector` -- Connector management (catalog, create, test, etc.)
+- `cli/test_pipeline.py` -- Test pipeline WDL
+- `cli/save_pipeline_draft.py` -- Save and publish pipeline WDL
+
+**When to Use**:
+- User needs to build a data pipeline / ETL / data sync
+- Processing data from external sources (S3, databases, APIs)
+- Batch processing with `FAN_OUT` over rows
+- Scheduled or manual data workflows
+- User mentions "pipeline", "data sync", "ETL", "data processing"
+
+**👉 For detailed pipeline instructions, see: [`prompts/system/PIPELINE_WORKFLOW_PROMPT.md`](PIPELINE_WORKFLOW_PROMPT.md)**
+
+---
+
 ## CLI Tools Reference
 
 ### Main Entry Point
@@ -900,6 +1131,24 @@ python cli/<script>.py --help
 11. Publish WDL workflow
 12. List WDL versions
 13. Checkout WDL version
+
+--- Data Pipelines ---
+workspace.py pipeline create    Create pipeline
+workspace.py pipeline list      List pipelines
+workspace.py pipeline show      Show pipeline details
+workspace.py pipeline checkout  Download existing pipeline
+workspace.py pipeline delete    Delete pipeline
+test_pipeline.py                Test pipeline WDL
+save_pipeline_draft.py          Save pipeline draft
+
+--- Connectors ---
+workspace.py connector catalog  Browse connector providers
+workspace.py connector list     List org connectors
+workspace.py connector create   Create connector
+workspace.py connector show     Show connector details
+workspace.py connector update   Update connector
+workspace.py connector delete   Delete connector
+workspace.py connector test     Test connector connection
 
 --- Diagnostics & Fixes ---
 15. Diagnose APIs & Tools (scan for issues)
@@ -978,6 +1227,28 @@ python cli/save_wdl_draft.py [OPTIONS]        # Save draft
 python cli/publish_wdl_action.py [OPTIONS]    # Publish workflow
 python cli/list_wdl_versions.py [OPTIONS]    # List versions
 python cli/checkout_wdl_version.py [OPTIONS] # Checkout version
+```
+
+#### Data Pipelines
+```bash
+python cli/workspace.py pipeline create [OPTIONS]   # Create pipeline
+python cli/workspace.py pipeline list [OPTIONS]     # List pipelines
+python cli/workspace.py pipeline show <id>          # Show pipeline details
+python cli/workspace.py pipeline checkout [OPTIONS] # Download existing pipeline
+python cli/workspace.py pipeline delete <id>        # Delete pipeline
+python cli/test_pipeline.py <id> [OPTIONS]          # Test pipeline WDL
+python cli/save_pipeline_draft.py <id> [OPTIONS]    # Save pipeline draft
+```
+
+#### Connectors
+```bash
+python cli/workspace.py connector catalog [OPTIONS] # Browse connector providers
+python cli/workspace.py connector list [OPTIONS]    # List org connectors
+python cli/workspace.py connector show <id>         # Show connector details
+python cli/workspace.py connector create [OPTIONS]  # Create connector
+python cli/workspace.py connector update <id>       # Update connector
+python cli/workspace.py connector delete <id>       # Delete connector
+python cli/workspace.py connector test <id>         # Test connector connection
 ```
 
 #### Diagnostics & Fixes
@@ -1156,6 +1427,21 @@ See these files for AI agent guidance:
 - Test draft versions directly
 - Iterate safely with version descriptions
 
+#### "I need to build a data pipeline / ETL / data sync"
+→ **Use Pipelines** (`cli/workspace.py pipeline` + `cli/test_pipeline.py`)
+- **👉 Read [`prompts/system/PIPELINE_WORKFLOW_PROMPT.md`](PIPELINE_WORKFLOW_PROMPT.md)**
+- Set up connectors if needed (`cli/workspace.py connector`)
+- Create pipeline (`cli/workspace.py pipeline create`)
+- Edit `widdle.json` with pipeline operations
+- Test with `cli/test_pipeline.py`
+
+#### "I need to connect to S3/database/REST API for a pipeline"
+→ **Use Connectors** (`cli/workspace.py connector`)
+- Browse catalog (`connector catalog`)
+- Create connector with provider, config, credentials
+- Test connection (`connector test`)
+- Use connector ID when creating pipelines
+
 #### "I need to organize tools by project"
 → **Use Agent Management** (`tool_agents.py`)
 - Create agents
@@ -1177,9 +1463,9 @@ All tools share common infrastructure:
 
 2. **API Client** (`cli/wdl_common/api_client.py`)
    - Consolidated AdoptAI API client
-   - CRUD operations
-   - Testing and versioning
-   - Used by WDL workflow tools
+   - Action CRUD, pipeline CRUD, connector CRUD
+   - Testing and versioning (actions + pipelines)
+   - Used by WDL workflow tools and pipeline tools
 
 3. **Discovery** (`cli/wdl_common/discovery.py` / `cli/discover.py`)
    - Unified action and API discovery
@@ -1188,9 +1474,9 @@ All tools share common infrastructure:
    - Used for finding relevant actions/APIs for new workflows
 
 4. **Workspace Management** (`cli/wdl_common/workspace_manager.py`)
-   - Agent integration
+   - Agent, action, and pipeline workspace management
    - Standalone mode support
-   - Used by WDL workflow tools
+   - Used by WDL workflow tools and pipeline tools
 
 5. **WDL Documentation** (`cli/wdl_common/wdl_documentation.py`)
    - Roaming RAG support
@@ -1200,39 +1486,51 @@ All tools share common infrastructure:
 ### Workspace Structure
 
 ```
-workspaces/{env}/agents/
-└── {agent_name}/
-    ├── actions/            # Simple actions
-    │   └── {action_id}.json
-    ├── workflows/          # Complex workflows
-    │   └── {workflow_id}/
-    │       ├── widdle.json
-    │       ├── requirements.md
-    │       ├── apis/        # API specifications
-    │       │   ├── manifest.json
-    │       │   └── {api_id}.json
-    │       ├── tools/       # Tool definitions (for reference)
-    │       │   ├── manifest.json
-    │       │   └── {tool_id}.json
-    │       ├── tool_context.md  # Markdown-formatted tool WDLs
-    │       ├── test_cases/
-    │       └── traces/
-    └── agent.json          # Agent metadata
+workspaces/{env}/
+├── agents/
+│   └── {agent_name}/
+│       ├── actions/            # Sub-actions
+│       │   └── {action_id}/
+│       │       ├── widdle.json
+│       │       ├── metadata.json
+│       │       ├── apis/
+│       │       ├── tools/
+│       │       ├── test_cases/
+│       │       └── traces/
+│       └── agent.json          # Agent metadata
+├── actions/                    # Standalone actions
+│   └── {action_id}/
+│       ├── widdle.json
+│       ├── metadata.json
+│       ├── apis/
+│       ├── tools/
+│       ├── test_cases/
+│       └── traces/
+└── pipelines/                  # Data pipelines
+    └── {pipeline_id}/
+        ├── widdle.json         # Pipeline WDL
+        ├── metadata.json       # Pipeline metadata
+        ├── test_cases/
+        ├── traces/
+        └── versions/
 ```
 
 ---
 
-## Key Differences: Simple Actions vs WDL Workflows
+## Key Differences: Actions vs Pipelines
 
-| Feature | Simple Actions | WDL Workflows |
-|---------|-------------|---------------|
-| **Complexity** | Single API call | Multiple operations |
-| **Operations** | REST → OUTPUT | REST, JQ_FILTER, EXTRACT, PROJECT, PROMPT, CONDITION, etc. |
-| **Data Flow** | Simple | Complex with transformations |
-| **AI Integration** | No | Yes (PROMPT, PROMPT_AND_TOOLS_AGENT) |
-| **Control Flow** | Linear | Conditional branching |
-| **Creation Time** | Minutes | Hours (with iteration) |
-| **Use Case** | API wrappers | Complex business logic, agents |
+| Feature | Simple Actions | WDL Workflows | Data Pipelines |
+|---------|-------------|---------------|----------------|
+| **Purpose** | Single API wrapper | Multi-step workflows | Data ETL / sync |
+| **Operations** | REST → OUTPUT | REST, JQ_FILTER, EXTRACT, PROMPT, etc. | Same + READ_FROM_DB, WRITE_TO_DB, FAN_OUT, RUN_ACTION |
+| **Trigger** | User prompt | User prompt | Manual / scheduled / external |
+| **Inputs** | `required_inputs` | `required_inputs` | Data-driven (no required_inputs) |
+| **Data Storage** | N/A | N/A | Table registry (`table_label`) |
+| **Connectors** | Integrations (mail, drive) | Integrations | Connectors (S3, databases, REST APIs) |
+| **Test CLI** | `test_runner.py` | `test_runner.py` | `test_pipeline.py` |
+| **Save CLI** | `save_wdl_draft.py` | `save_wdl_draft.py` | `save_pipeline_draft.py` |
+| **Workspace** | `actions/` or `agents/*/actions/` | Same | `pipelines/` |
+| **Prompt** | CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md | Same | PIPELINE_WORKFLOW_PROMPT.md |
 
 ---
 
@@ -1292,24 +1590,56 @@ workspaces/{env}/agents/
 10. **Save** draft ONLY after all tests pass (`cli/save_wdl_draft.py`) - Auto-creates remote action if needed
 11. **Publish** when user confirms (`cli/publish_wdl_action.py`)
 
+### For Data Pipeline Creation
+
+1. **👉 Read [`prompts/system/PIPELINE_WORKFLOW_PROMPT.md`](PIPELINE_WORKFLOW_PROMPT.md)**
+2. **Set up connectors** (if pipeline needs external data sources/destinations):
+   ```bash
+   python cli/workspace.py connector catalog
+   python cli/workspace.py connector create --name "Source" --provider <id> --mode source ...
+   python cli/workspace.py connector test <connector-id>
+   ```
+3. **Create** pipeline workspace:
+   ```bash
+   python cli/workspace.py pipeline create --name "My Pipeline" --description "..."
+   ```
+4. **Edit** `widdle.json` in the pipeline workspace using pipeline-specific operations
+5. **Test** pipeline WDL:
+   ```bash
+   python cli/test_pipeline.py my-pipeline
+   ```
+6. **Iterate**: Edit WDL → test → fix → test again
+7. **Save** draft after tests pass:
+   ```bash
+   python cli/save_pipeline_draft.py my-pipeline
+   ```
+8. **Activate** (optional, requires passing test):
+   ```bash
+   python cli/save_pipeline_draft.py my-pipeline --activate
+   ```
+
 ---
 
 ## Important Notes for Agents
 
 1. **Always ask for confirmation before publishing** - Publishing makes workflows live
-2. **Compile first** - Always run `--compile` before testing
+2. **Compile first** (actions only) - Always run `--compile` before testing actions
    - **Step 1**: JSON syntax validation catches parsing errors (invalid JSON, malformed strings, etc.)
    - **Step 2**: Remote WDL compilation catches structural and logical errors (missing fields, invalid references, etc.)
    - Fix compilation errors before proceeding to testing
-3. **Test directly** - Default test mode executes local `widdle.json` via /run-wdl — no save/draft needed
-4. **Save draft only after tests pass** - Use `save_wdl_draft.py` only when all tests pass and output is verified
-5. **Automatic remote action creation** - `save_wdl_draft.py` automatically creates remote action and publishes WDL if needed
-6. **Remote testing** - Use `--remote` flag to test the saved remote action (requires `save_wdl_draft` first)
+3. **Test directly** - Default test mode executes local `widdle.json` — no save/draft needed
+   - Actions: `test_runner.py` (via /run-wdl)
+   - Pipelines: `test_pipeline.py` (via /v1/pipelines/workflows/test-run, always test_mode=true)
+4. **Save draft only after tests pass** - Use `save_wdl_draft.py` (actions) or `save_pipeline_draft.py` (pipelines) only when tests pass
+5. **Automatic remote creation** - `save_wdl_draft.py` creates remote action if needed; `save_pipeline_draft.py` creates remote draft + overwrites with local WDL
+6. **Remote testing** - For actions, use `--remote` flag; for pipelines, testing always goes through the remote API
 7. **Version management** - Every draft creates a version with descriptions, users can checkout and test any version
 8. **Version descriptions** - All versions can have descriptions stored locally and synced from API
 9. **Roaming RAG** - For WDL generation, fetch the index from `https://adoptai.github.io/widdle_docs/operations/index.md`, then fetch specific operation docs as needed
 10. **Tool discovery** - Use semantic search to find relevant building blocks
 11. **Agent organization** - Use agents to group related tools/workflows
+12. **Pipelines are separate** - Never confuse pipelines with actions. Different APIs, different CLI tools, different workspace locations
+13. **Connectors are separate from integrations** - Connectors are for pipelines (S3, databases, REST APIs); integrations are for actions (mail, drive, hubspot)
 
 ---
 
@@ -1357,6 +1687,20 @@ python cli/test_runner.py workflow-id --remote
 
 # Publish (requires confirmation)
 python cli/publish_wdl_action.py workflow-id
+
+# === Pipeline commands ===
+python cli/workspace.py pipeline create --name "Pipeline Name"
+python cli/workspace.py pipeline list
+python cli/workspace.py pipeline checkout --remote-id <uuid>
+python cli/test_pipeline.py my-pipeline
+python cli/save_pipeline_draft.py my-pipeline
+python cli/save_pipeline_draft.py my-pipeline --activate
+
+# === Connector commands ===
+python cli/workspace.py connector catalog
+python cli/workspace.py connector create --name "S3 Source" --provider amazon_s3 --mode source
+python cli/workspace.py connector test <connector-id>
+python cli/workspace.py connector list
 ```
 
 ---
@@ -1365,6 +1709,7 @@ python cli/publish_wdl_action.py workflow-id
 
 - **User Documentation**: See `README.md`
 - **WDL Workflow Guide**: See [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)
+- **Pipeline Guide**: See [`prompts/system/PIPELINE_WORKFLOW_PROMPT.md`](PIPELINE_WORKFLOW_PROMPT.md)
 - **CLI Help**: `python cli/[script_name].py --help`
 
 ---
@@ -1374,12 +1719,14 @@ python cli/publish_wdl_action.py workflow-id
 - **Simple Actions**: Use for single-API wrappers → See `prompts/templates/simple_tool_template.md`
 - **Complex Workflows**: Use for multi-step operations → **See [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
 - **Uber Agents**: Use for multi-action orchestrators → **See [`prompts/system/UBER_AGENT_PROMPT.md`](UBER_AGENT_PROMPT.md)**
+- **Data Pipelines**: Use for ETL / data sync / batch processing → **See [`prompts/system/PIPELINE_WORKFLOW_PROMPT.md`](PIPELINE_WORKFLOW_PROMPT.md)**
+- **Connectors**: Pipeline-specific data sources/destinations → Managed via `workspace.py connector`
 - **Discovery**: Use `--search-apis` / `--search` / `--auto-discover` options
-- **Testing**: Always compile first (`--compile`), then test directly (`--all`) — no save needed
+- **Testing**: Actions: compile first (`--compile`), then test. Pipelines: `test_pipeline.py` directly
 - **Saving**: Save draft only after all tests pass
 - **Publishing**: Only when user explicitly confirms
 
-**Workflow Order**:
+**Action Workflow Order**:
 1. Create/Generate WDL
 2. Compile (`test_runner.py --compile`) — **MANDATORY**
 3. Test directly (`test_runner.py --all`) — executes local WDL via /run-wdl, no save needed
@@ -1387,7 +1734,17 @@ python cli/publish_wdl_action.py workflow-id
 5. Save draft (`save_wdl_draft.py`) — only after tests pass
 6. Publish (`publish_wdl_action.py`)
 
-For detailed WDL workflow creation instructions, **always refer to [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**.
+**Pipeline Workflow Order**:
+1. Set up connectors if needed (`workspace.py connector create/test`)
+2. Create pipeline (`workspace.py pipeline create`)
+3. Edit `widdle.json` with pipeline operations
+4. Test (`test_pipeline.py`) — always test_mode=true
+5. Iterate (edit → test) until tests pass
+6. Save draft (`save_pipeline_draft.py`) — only after tests pass
+7. Activate (`save_pipeline_draft.py --activate`) — optional
+
+For action WDL instructions, see **[`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**.
+For pipeline instructions, see **[`prompts/system/PIPELINE_WORKFLOW_PROMPT.md`](PIPELINE_WORKFLOW_PROMPT.md)**.
 
 ---
 
@@ -1736,7 +2093,7 @@ No need to save a draft before testing. Save draft only after tests pass.
 ## Quick Reference
 
 ```bash
-# === TRANSPARENT COMMANDS (auto-detect everything) ===
+# === ACTION COMMANDS (auto-detect everything) ===
 
 # Check status
 python cli/status.py my-workflow
@@ -1746,7 +2103,7 @@ python cli/validate.py my-workflow
 python cli/validate.py my-workflow --auto-fix
 python cli/validate.py my-workflow --orchestrator  # For sub-tool use
 
-# Compile and test
+# Compile and test actions
 python cli/test_runner.py my-workflow --compile    # Compile WDL (MANDATORY first)
 python cli/test_runner.py my-workflow              # Direct WDL test (no save needed)
 python cli/test_runner.py my-workflow --all        # All test cases
@@ -1766,6 +2123,36 @@ python cli/checkout_wdl_version.py --workflow-id my-workflow --version 3
 # Reconnect workspace to action
 python cli/reconnect.py my-workflow --search  # Search by title
 python cli/reconnect.py my-workflow abc-123-action-id
+
+# === PIPELINE COMMANDS ===
+
+# Create/manage pipelines
+python cli/workspace.py pipeline create --name "My Pipeline" --description "..."
+python cli/workspace.py pipeline list
+python cli/workspace.py pipeline list --remote
+python cli/workspace.py pipeline show my-pipeline
+python cli/workspace.py pipeline checkout --remote-id <uuid>
+python cli/workspace.py pipeline delete my-pipeline --force
+
+# Test pipeline (always test_mode=true)
+python cli/test_pipeline.py my-pipeline
+python cli/test_pipeline.py my-pipeline --timeout 600
+
+# Save pipeline draft
+python cli/save_pipeline_draft.py my-pipeline
+python cli/save_pipeline_draft.py my-pipeline --activate
+python cli/save_pipeline_draft.py my-pipeline --dry-run
+
+# === CONNECTOR COMMANDS ===
+
+python cli/workspace.py connector catalog               # Browse providers
+python cli/workspace.py connector catalog --mode source  # Filter by mode
+python cli/workspace.py connector list                   # List org connectors
+python cli/workspace.py connector show <id>              # Show details
+python cli/workspace.py connector create --name "..." --provider <id> --mode source
+python cli/workspace.py connector update <id> --name "New Name"
+python cli/workspace.py connector test <id>              # Test connection
+python cli/workspace.py connector delete <id> --force    # Delete
 
 # === USE THESE FLAGS ONLY WHEN AUTO-DETECTION FAILS ===
 --version N       # Force specific version

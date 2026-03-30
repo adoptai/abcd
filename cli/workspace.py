@@ -22,6 +22,20 @@ Commands:
     action move   - Move action to different agent
     action promote - Promote standalone to sub-action
 
+    pipeline create   - Create a new pipeline (local + remote)
+    pipeline list     - List pipelines (local or remote)
+    pipeline show     - Show pipeline details
+    pipeline checkout - Download pipeline from remote
+    pipeline delete   - Delete a pipeline
+
+    connector catalog - List available connector providers
+    connector list    - List org connectors
+    connector show    - Show connector details
+    connector create  - Create a connector
+    connector update  - Update a connector
+    connector delete  - Delete a connector
+    connector test    - Test connector connection
+
     profile show  - Show resolved profile
     profile update - Update profile
     profile copy  - Copy profile between levels
@@ -171,6 +185,16 @@ def cmd_env_show(args: argparse.Namespace) -> int:
         print(f"\n  Standalone Actions ({len(actions)}):")
         for action in actions:
             print(f"    - {action.get('action_id')}")
+
+    # List pipelines
+    pipelines = manager.list_pipelines(env_name=args.id)
+    if pipelines:
+        print(f"\n  Pipelines ({len(pipelines)}):")
+        for p in pipelines:
+            state = p.get("state", "?")
+            print(
+                f"    - {p.get('local_id', p.get('pipeline_id', '?'))}: {p.get('name', 'Untitled')} [{state}]"
+            )
 
     print("=" * 60)
     return 0
@@ -1136,6 +1160,646 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
     print(f"{'=' * 80}")
 
     return 0 if error_count == 0 else 1
+
+
+# =========================================================================
+# Pipeline Command Handlers
+# =========================================================================
+
+
+def cmd_pipeline_create(args: argparse.Namespace) -> int:
+    """Create a new pipeline (locally + remote)."""
+    dry_run = getattr(args, "dry_run", False)
+    manager = get_workspace_manager()
+
+    env = args.env or manager.active_env
+    if not env:
+        print("❌ No environment specified.")
+        return 1
+
+    local_id = args.id or args.name.lower().replace(" ", "-")[:50]
+
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would create pipeline '{local_id}' (name={args.name}, env={env})")
+        return 0
+
+    # Parse source if provided
+    source = None
+    if args.source:
+        try:
+            source = json.loads(args.source)
+        except json.JSONDecodeError:
+            source = {"integration_id": args.source, "integration_type": "", "integration_name": ""}
+
+    # Parse destinations if provided
+    destinations = None
+    if args.destinations:
+        try:
+            destinations = json.loads(args.destinations)
+        except json.JSONDecodeError:
+            destinations = [{"type": "internal_data_store"}]
+
+    # Create on remote first
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    if env != manager.active_env:
+        manager.active_env = env
+
+    client = get_api_client_for_env()
+    print("\n🔧 Creating pipeline on remote...")
+    success, data, msg = client.create_pipeline(
+        name=args.name,
+        description=args.description or "",
+        prompt=args.prompt or f"Pipeline: {args.name}",
+        source=source,
+        destinations=destinations,
+        schedule_type=args.schedule or "manual",
+    )
+
+    if not success:
+        print(f"❌ Failed to create remote pipeline: {msg}")
+        return 1
+
+    remote_pipeline_id = data.get("id") if data else None
+    print(f"   ✅ Remote pipeline created: {remote_pipeline_id}")
+
+    # Create local workspace
+    success, path, msg = manager.create_pipeline(
+        pipeline_id=local_id,
+        name=args.name,
+        description=args.description or "",
+        prompt=args.prompt or f"Pipeline: {args.name}",
+        source=source,
+        destinations=destinations,
+        remote_pipeline_id=remote_pipeline_id,
+        env_name=env,
+    )
+
+    if success:
+        print(f"✅ {msg}")
+        print(f"   Path: {path}")
+        print(f"   Remote ID: {remote_pipeline_id}")
+        return 0
+    else:
+        print(f"❌ Local workspace creation failed: {msg}")
+        if remote_pipeline_id:
+            print(f"   ⚠️  Remote pipeline was created: {remote_pipeline_id}")
+            print(
+                f"   💡 Recover with: python cli/workspace.py pipeline checkout "
+                f"--remote-id {remote_pipeline_id}"
+            )
+        return 1
+
+
+def cmd_pipeline_list(args: argparse.Namespace) -> int:
+    """List pipelines (local + optionally remote)."""
+    manager = get_workspace_manager()
+    env = args.env or manager.active_env
+
+    if args.remote:
+        from cli.wdl_common.api_client import get_api_client_for_env
+
+        if env and env != manager.active_env:
+            manager.active_env = env
+        client = get_api_client_for_env()
+        page = getattr(args, "page", 1) or 1
+        page_size = getattr(args, "page_size", 50) or 50
+        success, data, msg = client.list_pipelines(
+            state=args.state,
+            search=args.search,
+            page=page,
+            page_size=page_size,
+        )
+        if not success:
+            print(f"❌ {msg}")
+            return 1
+
+        items = (
+            data.get("items", [])
+            if isinstance(data, dict)
+            else data
+            if isinstance(data, list)
+            else []
+        )
+        print(f"\n{'=' * 90}")
+        print(f"🔄 REMOTE PIPELINES ({len(items)})")
+        print(f"{'=' * 90}")
+        print(f"{'ID':<38} {'Name':<30} {'State':<10} {'Last Test'}")
+        print("-" * 90)
+        for p in items:
+            pid = str(p.get("id", "?"))[:36]
+            name = str(p.get("name", "Untitled"))[:28]
+            state = str(p.get("state", "?"))[:8]
+            test_status = p.get("last_test_run_status") or "-"
+            print(f"{pid:<38} {name:<30} {state:<10} {test_status}")
+        print(f"{'=' * 90}")
+        return 0
+
+    # Local pipelines
+    pipelines = manager.list_pipelines(env_name=env)
+
+    # Apply local filters
+    if args.state:
+        pipelines = [p for p in pipelines if p.get("state") == args.state]
+    if args.search:
+        search_lower = args.search.lower()
+        pipelines = [
+            p
+            for p in pipelines
+            if search_lower in (p.get("name") or "").lower()
+            or search_lower in (p.get("local_id") or "").lower()
+        ]
+
+    if not pipelines:
+        print(f"No local pipelines in environment: {env or '(none)'}")
+        print("💡 Create one with: python cli/workspace.py pipeline create --name 'My Pipeline'")
+        return 0
+
+    print(f"\n{'=' * 90}")
+    print(f"🔄 PIPELINES in {env}")
+    print(f"{'=' * 90}")
+    print(f"{'Local ID':<25} {'Name':<30} {'State':<10} {'Remote ID'}")
+    print("-" * 90)
+
+    for p in pipelines:
+        local_id = str(p.get("local_id", p.get("pipeline_id", "?")))[:23]
+        name = str(p.get("name", "Untitled"))[:28]
+        state = str(p.get("state", "?"))[:8]
+        remote_id = str(p.get("pipeline_id") or "Not linked")[:36]
+        print(f"{local_id:<25} {name:<30} {state:<10} {remote_id}")
+
+    print(f"{'=' * 90}")
+    return 0
+
+
+def cmd_pipeline_show(args: argparse.Namespace) -> int:
+    """Show pipeline details."""
+    manager = get_workspace_manager()
+    pipeline = manager.find_pipeline(args.id, env_name=args.env)
+
+    if not pipeline:
+        print(f"❌ Pipeline not found: {args.id}")
+        return 1
+
+    print(f"\n{'=' * 60}")
+    print(f"🔄 PIPELINE: {pipeline.get('name', args.id)}")
+    print(f"{'=' * 60}")
+    print(f"  Local ID:      {pipeline.get('local_id', '-')}")
+    print(f"  Remote ID:     {pipeline.get('pipeline_id') or 'Not linked'}")
+    print(f"  Name:          {pipeline.get('name', '-')}")
+    print(f"  Description:   {pipeline.get('description', '-')}")
+    print(f"  State:         {pipeline.get('state', '-')}")
+    print(f"  Version ID:    {pipeline.get('version_id') or '-'}")
+    print(f"  Schedule:      {pipeline.get('schedule_type', '-')}")
+    print(f"  Last Test:     {pipeline.get('last_test_run_status') or '-'}")
+    print(f"  Environment:   {pipeline.get('env_name', '-')}")
+    print(f"  Path:          {pipeline.get('path', '-')}")
+    print(f"  Created:       {str(pipeline.get('created_at', '-'))[:19]}")
+
+    source = pipeline.get("source")
+    if source:
+        print("\n  Source:")
+        if isinstance(source, dict):
+            print(f"    Type: {source.get('integration_type', '-')}")
+            print(f"    Name: {source.get('integration_name', '-')}")
+            print(f"    ID:   {source.get('integration_id', '-')}")
+        elif isinstance(source, list):
+            for s in source:
+                if isinstance(s, dict):
+                    print(
+                        f"    - {s.get('integration_type', s.get('type', '?'))}: "
+                        f"{s.get('integration_name', s.get('name', '-'))} "
+                        f"(ID: {s.get('integration_id', s.get('id', '-'))})"
+                    )
+                else:
+                    print(f"    - {s}")
+        else:
+            print(f"    {source}")
+
+    dests = pipeline.get("destinations", [])
+    if dests:
+        print(f"\n  Destinations ({len(dests)}):")
+        for d in dests:
+            if isinstance(d, dict):
+                print(f"    - {d.get('type', '?')}: {d.get('label', d.get('name', '-'))}")
+            else:
+                print(f"    - {d}")
+
+    # Show WDL summary
+    path_str = pipeline.get("path")
+    if not path_str:
+        print(f"{'=' * 60}")
+        return 0
+    path = Path(path_str)
+    wdl_path = path / "widdle.json"
+    if wdl_path.exists():
+        try:
+            wdl = json.loads(wdl_path.read_text())
+            ops = [s.get("operation", "?") for s in wdl if isinstance(s, dict) and "operation" in s]
+            print(
+                f"\n  WDL: {len(wdl)} steps ({', '.join(ops[:5])}{'...' if len(ops) > 5 else ''})"
+            )
+        except Exception:
+            pass
+
+    print(f"{'=' * 60}")
+    return 0
+
+
+def cmd_pipeline_checkout(args: argparse.Namespace) -> int:
+    """Download an existing pipeline from remote."""
+    dry_run = getattr(args, "dry_run", False)
+    manager = get_workspace_manager()
+
+    env = args.env or manager.active_env
+    if not env:
+        print("❌ No environment specified.")
+        return 1
+
+    if env != manager.active_env:
+        manager.active_env = env
+
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    client = get_api_client_for_env()
+
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(f"DRY RUN: Would checkout pipeline '{args.remote_id}' into env '{env}'")
+        return 0
+
+    print(f"\n⏳ Fetching pipeline from remote: {args.remote_id}")
+
+    success, data, msg = client.get_pipeline(args.remote_id)
+    if not success or not data:
+        print(f"❌ Failed to fetch pipeline: {msg}")
+        return 1
+
+    pipeline_name = data.get("name", "Untitled")
+    local_id = args.id or pipeline_name.lower().replace(" ", "-")[:50]
+
+    # Check if already exists
+    existing = manager.get_pipeline(local_id, env_name=env)
+    if existing and not args.force:
+        print(f"❌ Pipeline already exists locally: {local_id}")
+        print("   Use --force to overwrite")
+        return 1
+
+    if existing and args.force:
+        import shutil
+
+        shutil.rmtree(Path(existing["path"]))
+
+    # Create local workspace
+    success_create, path, msg_create = manager.create_pipeline(
+        pipeline_id=local_id,
+        name=pipeline_name,
+        description=data.get("description", ""),
+        prompt=data.get("prompt", ""),
+        source=data.get("source"),
+        destinations=data.get("destinations", []),
+        remote_pipeline_id=args.remote_id,
+        env_name=env,
+    )
+
+    if not success_create:
+        print(f"❌ {msg_create}")
+        return 1
+
+    # Save WDL if present
+    wdl = data.get("wdl")
+    if wdl:
+        wdl_path = path / "widdle.json"
+        wdl_content = (
+            wdl if isinstance(wdl, list) else json.loads(wdl) if isinstance(wdl, str) else []
+        )
+        wdl_path.write_text(json.dumps(wdl_content, indent=2))
+        print(f"   ✅ WDL saved ({len(wdl_content)} steps)")
+
+    # Update metadata with remote state
+    manager.update_pipeline_metadata(
+        local_id,
+        env_name=env,
+        state=data.get("state", "draft"),
+        version_id=data.get("version_id"),
+        schedule_type=data.get("schedule_type", "manual"),
+        cron_expr=data.get("cron_expr"),
+        last_test_run_status=data.get("last_test_run_status"),
+    )
+
+    print(f"✅ Pipeline checked out: {local_id}")
+    print(f"   Path: {path}")
+    print(f"   Name: {pipeline_name}")
+    print(f"   State: {data.get('state', 'draft')}")
+    return 0
+
+
+def cmd_pipeline_delete(args: argparse.Namespace) -> int:
+    """Delete a pipeline (local only by default, --remote for remote too)."""
+    manager = get_workspace_manager()
+    pipeline = manager.find_pipeline(args.id, env_name=args.env)
+
+    if not pipeline:
+        print(f"❌ Pipeline not found: {args.id}")
+        return 1
+
+    if not args.force:
+        confirm = input(f"Delete pipeline '{args.id}'? [y/N]: ")
+        if confirm.lower() != "y":
+            print("Cancelled.")
+            return 0
+
+    # Delete remote if requested
+    if args.remote and pipeline.get("pipeline_id"):
+        from cli.wdl_common.api_client import get_api_client_for_env
+
+        env = pipeline.get("env_name") or manager.active_env
+        if env and env != manager.active_env:
+            manager.active_env = env
+        client = get_api_client_for_env()
+        ok, msg = client.delete_pipeline(pipeline["pipeline_id"])
+        if ok:
+            print("   ✅ Remote pipeline deleted")
+        else:
+            print(f"   ⚠️  Failed to delete remote: {msg}")
+
+    # Delete local
+    import shutil
+
+    shutil.rmtree(Path(pipeline["path"]))
+    print(f"✅ Pipeline deleted: {args.id}")
+    return 0
+
+
+# =========================================================================
+# Connector Command Handlers
+# =========================================================================
+
+
+def cmd_connector_catalog(args: argparse.Namespace) -> int:
+    """List available connector providers."""
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    get_workspace_manager()
+    client = get_api_client_for_env()
+
+    success, providers, msg = client.list_connector_catalog(mode=args.mode)
+    if not success:
+        print(f"❌ {msg}")
+        return 1
+
+    if not providers:
+        print("No connector providers found.")
+        return 0
+
+    print(f"\n{'=' * 80}")
+    print(f"🔌 CONNECTOR CATALOG ({len(providers)} providers)")
+    print(f"{'=' * 80}")
+    print(f"{'ID':<18} {'Name':<25} {'Category':<15} {'Modes':<12} {'Active'}")
+    print("-" * 80)
+
+    for p in providers:
+        pid = str(p.get("id", "?"))[:16]
+        name = str(p.get("name", "?"))[:23]
+        category = str(p.get("category", "?"))[:13]
+        modes = str(p.get("supported_modes", "both"))[:10]
+        active = "Yes" if p.get("is_active", True) else "No"
+        print(f"{pid:<18} {name:<25} {category:<15} {modes:<12} {active}")
+
+    print(f"{'=' * 80}")
+    return 0
+
+
+def cmd_connector_list(args: argparse.Namespace) -> int:
+    """List org connectors."""
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    get_workspace_manager()
+    client = get_api_client_for_env()
+
+    success, data, msg = client.list_connectors(
+        mode=args.mode,
+        provider_id=args.provider,
+        search=args.search,
+        page=args.page,
+        page_size=args.page_size,
+    )
+    if not success:
+        print(f"❌ {msg}")
+        return 1
+
+    items = (
+        data.get("items", []) if isinstance(data, dict) else data if isinstance(data, list) else []
+    )
+    total = data.get("total", len(items)) if isinstance(data, dict) else len(items)
+
+    print(f"\n{'=' * 90}")
+    print(f"🔌 CONNECTORS ({total} total)")
+    print(f"{'=' * 90}")
+    print(f"{'ID':<18} {'Name':<25} {'Provider':<18} {'Mode':<12} {'Test Status'}")
+    print("-" * 90)
+
+    for c in items:
+        cid = str(c.get("id", "?"))[:16]
+        name = str(c.get("name", "?"))[:23]
+        provider = str(c.get("provider_name") or c.get("provider_id", "?"))[:16]
+        mode = str(c.get("mode", "?"))[:10]
+        test_status = str(c.get("test_status") or "-")[:10]
+        print(f"{cid:<18} {name:<25} {provider:<18} {mode:<12} {test_status}")
+
+    print(f"{'=' * 90}")
+    return 0
+
+
+def cmd_connector_show(args: argparse.Namespace) -> int:
+    """Show connector details."""
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    get_workspace_manager()
+    client = get_api_client_for_env()
+
+    success, data, msg = client.get_connector(args.id)
+    if not success or data is None:
+        print(f"❌ {msg}")
+        return 1
+
+    print(f"\n{'=' * 60}")
+    print(f"🔌 CONNECTOR: {data.get('name', args.id)}")
+    print(f"{'=' * 60}")
+    print(f"  ID:          {data.get('id')}")
+    print(f"  Name:        {data.get('name')}")
+    print(f"  Provider:    {data.get('provider_name', data.get('provider_id'))}")
+    print(f"  Category:    {data.get('provider_category', '-')}")
+    print(f"  Mode:        {data.get('mode')}")
+    print(f"  Test Status: {data.get('test_status') or '-'}")
+    print(f"  Last Tested: {str(data.get('last_tested_at') or '-')[:19]}")
+    print(f"  Created:     {str(data.get('created_at') or '-')[:19]}")
+
+    config = data.get("config")
+    if config:
+        print("\n  Config:")
+        for k, v in (config if isinstance(config, dict) else {}).items():
+            print(f"    {k}: {v}")
+
+    print(f"{'=' * 60}")
+    return 0
+
+
+def cmd_connector_create(args: argparse.Namespace) -> int:
+    """Create a new connector."""
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    get_workspace_manager()
+    dry_run = getattr(args, "dry_run", False)
+
+    if dry_run:
+        print("--- DRY RUN MODE ---")
+        print(
+            f"DRY RUN: Would create connector '{args.name}' (provider={args.provider}, mode={args.mode})"
+        )
+        return 0
+
+    # Parse config (inline JSON or file -- mutually exclusive via argparse)
+    config = None
+    if args.config:
+        try:
+            config = json.loads(args.config)
+        except json.JSONDecodeError:
+            print("❌ Invalid JSON for --config")
+            return 1
+    elif args.config_file:
+        try:
+            config = json.loads(Path(args.config_file).read_text())
+        except Exception as e:
+            print(f"❌ Failed to read config file: {e}")
+            return 1
+
+    # Parse credentials (inline JSON or file -- mutually exclusive via argparse)
+    credentials = None
+    if args.credentials:
+        try:
+            credentials = json.loads(args.credentials)
+        except json.JSONDecodeError:
+            print("❌ Invalid JSON for --credentials")
+            return 1
+    elif args.credentials_file:
+        try:
+            credentials = json.loads(Path(args.credentials_file).read_text())
+        except Exception as e:
+            print(f"❌ Failed to read credentials file: {e}")
+            return 1
+
+    client = get_api_client_for_env()
+    success, data, msg = client.create_connector(
+        name=args.name,
+        provider_id=args.provider,
+        mode=args.mode or "source",
+        config=config,
+        credentials=credentials,
+    )
+
+    if success:
+        connector_id = data.get("id") if data else None
+        print(f"✅ Connector created: {connector_id}")
+        print(f"   Name: {args.name}")
+        print(f"   Provider: {args.provider}")
+        print(f"   Mode: {args.mode or 'source'}")
+        if connector_id:
+            print(f"\n💡 Test it: python cli/workspace.py connector test {connector_id}")
+        return 0
+    else:
+        print(f"❌ {msg}")
+        return 1
+
+
+def cmd_connector_update(args: argparse.Namespace) -> int:
+    """Update a connector."""
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    get_workspace_manager()
+
+    config = None
+    if args.config:
+        try:
+            config = json.loads(args.config)
+        except json.JSONDecodeError:
+            print("❌ Invalid JSON for --config")
+            return 1
+
+    credentials = None
+    if args.credentials:
+        try:
+            credentials = json.loads(args.credentials)
+        except json.JSONDecodeError:
+            print("❌ Invalid JSON for --credentials")
+            return 1
+
+    client = get_api_client_for_env()
+    success, data, msg = client.update_connector(
+        connector_id=args.id,
+        name=args.name,
+        config=config,
+        credentials=credentials,
+        mode=args.mode,
+    )
+
+    if success:
+        print(f"✅ Connector updated: {args.id}")
+        return 0
+    else:
+        print(f"❌ {msg}")
+        return 1
+
+
+def cmd_connector_delete(args: argparse.Namespace) -> int:
+    """Delete a connector."""
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    if not args.force:
+        confirm = input(f"Delete connector '{args.id}'? [y/N]: ")
+        if confirm.lower() != "y":
+            print("Cancelled.")
+            return 0
+
+    get_workspace_manager()
+    client = get_api_client_for_env()
+    success, msg = client.delete_connector(args.id)
+
+    if success:
+        print(f"✅ {msg}")
+        return 0
+    else:
+        print(f"❌ {msg}")
+        return 1
+
+
+def cmd_connector_test(args: argparse.Namespace) -> int:
+    """Test a connector connection."""
+    from cli.wdl_common.api_client import get_api_client_for_env
+
+    get_workspace_manager()
+    client = get_api_client_for_env()
+
+    print(f"\n⏳ Testing connector: {args.id}")
+    success, data, msg = client.test_connector(args.id)
+
+    if success and data:
+        status = data.get("test_status", "unknown")
+        message = data.get("message", "")
+        tested_at = str(data.get("tested_at", ""))[:19]
+
+        if status == "success":
+            print("✅ Connection test PASSED")
+        else:
+            print("❌ Connection test FAILED")
+        print(f"   Status:  {status}")
+        print(f"   Message: {message}")
+        print(f"   Tested:  {tested_at}")
+        return 0 if status == "success" else 1
+    else:
+        print(f"❌ {msg}")
+        return 1
 
 
 def cmd_profile_show(args: argparse.Namespace) -> int:
@@ -2182,6 +2846,125 @@ Examples:
     action_checkout_all.set_defaults(func=cmd_action_checkout_all)
 
     # =========================================================================
+    # PIPELINE commands
+    # =========================================================================
+    pipeline_parser = subparsers.add_parser("pipeline", help="Pipeline management")
+    pipeline_subparsers = pipeline_parser.add_subparsers(dest="pipeline_command")
+
+    # pipeline create
+    pipeline_create = pipeline_subparsers.add_parser("create", help="Create pipeline")
+    pipeline_create.add_argument("--name", "-n", required=True, help="Pipeline name")
+    pipeline_create.add_argument("--id", help="Local pipeline ID (auto-generated from name)")
+    pipeline_create.add_argument("--description", "-d", help="Description")
+    pipeline_create.add_argument("--prompt", help="Pipeline prompt")
+    pipeline_create.add_argument("--source", help="Source connector (JSON or connector_id)")
+    pipeline_create.add_argument("--destinations", help="Destinations (JSON array)")
+    pipeline_create.add_argument("--schedule", choices=["manual", "cron"], default="manual")
+    pipeline_create.add_argument("--env", help="Environment")
+    pipeline_create.add_argument("--dry-run", action="store_true", help="Simulate")
+    pipeline_create.set_defaults(func=cmd_pipeline_create)
+
+    # pipeline list
+    pipeline_list = pipeline_subparsers.add_parser("list", help="List pipelines")
+    pipeline_list.add_argument("--env", help="Environment")
+    pipeline_list.add_argument("--remote", action="store_true", help="List remote pipelines")
+    pipeline_list.add_argument("--state", help="Filter by state (draft, running, paused)")
+    pipeline_list.add_argument("--search", help="Search by name")
+    pipeline_list.add_argument("--page", type=int, default=1, help="Page number (remote only)")
+    pipeline_list.add_argument("--page-size", type=int, default=50, help="Page size (remote only)")
+    pipeline_list.set_defaults(func=cmd_pipeline_list)
+
+    # pipeline show
+    pipeline_show = pipeline_subparsers.add_parser("show", help="Show pipeline details")
+    pipeline_show.add_argument("id", help="Pipeline ID (local or remote)")
+    pipeline_show.add_argument("--env", help="Environment")
+    pipeline_show.set_defaults(func=cmd_pipeline_show)
+
+    # pipeline checkout
+    pipeline_checkout = pipeline_subparsers.add_parser(
+        "checkout", help="Download pipeline from remote"
+    )
+    pipeline_checkout.add_argument("--remote-id", required=True, help="Remote pipeline ID")
+    pipeline_checkout.add_argument("--env", help="Environment")
+    pipeline_checkout.add_argument("--id", help="Local pipeline ID (auto-generated)")
+    pipeline_checkout.add_argument("--force", action="store_true", help="Overwrite existing")
+    pipeline_checkout.add_argument("--dry-run", action="store_true", help="Simulate")
+    pipeline_checkout.set_defaults(func=cmd_pipeline_checkout)
+
+    # pipeline delete
+    pipeline_delete = pipeline_subparsers.add_parser("delete", help="Delete pipeline")
+    pipeline_delete.add_argument("id", help="Pipeline ID")
+    pipeline_delete.add_argument("--env", help="Environment")
+    pipeline_delete.add_argument("--remote", action="store_true", help="Also delete on remote")
+    pipeline_delete.add_argument("--force", action="store_true", help="Skip confirmation")
+    pipeline_delete.set_defaults(func=cmd_pipeline_delete)
+
+    # =========================================================================
+    # CONNECTOR commands
+    # =========================================================================
+    connector_parser = subparsers.add_parser("connector", help="Pipeline connector management")
+    connector_subparsers = connector_parser.add_subparsers(dest="connector_command")
+
+    # connector catalog
+    connector_catalog = connector_subparsers.add_parser("catalog", help="List connector providers")
+    connector_catalog.add_argument(
+        "--mode", choices=["source", "destination"], help="Filter by mode"
+    )
+    connector_catalog.set_defaults(func=cmd_connector_catalog)
+
+    # connector list
+    connector_list = connector_subparsers.add_parser("list", help="List org connectors")
+    connector_list.add_argument("--mode", choices=["source", "destination"], help="Filter by mode")
+    connector_list.add_argument("--provider", help="Filter by provider ID")
+    connector_list.add_argument("--search", help="Search by name")
+    connector_list.add_argument("--page", type=int, default=1, help="Page number")
+    connector_list.add_argument("--page-size", type=int, default=20, help="Page size")
+    connector_list.set_defaults(func=cmd_connector_list)
+
+    # connector show
+    connector_show = connector_subparsers.add_parser("show", help="Show connector details")
+    connector_show.add_argument("id", help="Connector ID")
+    connector_show.set_defaults(func=cmd_connector_show)
+
+    # connector create
+    connector_create = connector_subparsers.add_parser("create", help="Create connector")
+    connector_create.add_argument("--name", "-n", required=True, help="Connector name")
+    connector_create.add_argument(
+        "--provider", "-p", required=True, help="Provider ID (e.g. amazon_s3)"
+    )
+    connector_create.add_argument(
+        "--mode", "-m", choices=["source", "destination"], default="source"
+    )
+    config_group = connector_create.add_mutually_exclusive_group()
+    config_group.add_argument("--config", help="Config as JSON string")
+    config_group.add_argument("--config-file", help="Path to config JSON file")
+    creds_group = connector_create.add_mutually_exclusive_group()
+    creds_group.add_argument("--credentials", help="Credentials as JSON string")
+    creds_group.add_argument("--credentials-file", help="Path to credentials JSON file")
+    connector_create.add_argument("--dry-run", action="store_true", help="Simulate")
+    connector_create.set_defaults(func=cmd_connector_create)
+
+    # connector update
+    connector_update = connector_subparsers.add_parser("update", help="Update connector")
+    connector_update.add_argument("id", help="Connector ID")
+    connector_update.add_argument("--name", help="New name")
+    connector_update.add_argument("--config", help="Config as JSON string")
+    connector_update.add_argument("--credentials", help="Credentials as JSON string")
+    connector_update.add_argument("--mode", choices=["source", "destination"], help="Mode")
+    connector_update.set_defaults(func=cmd_connector_update)
+
+    # connector delete
+    connector_delete = connector_subparsers.add_parser("delete", help="Delete connector")
+    connector_delete.add_argument("id", help="Connector ID")
+    connector_delete.add_argument("--force", action="store_true", help="Skip confirmation")
+    connector_delete.set_defaults(func=cmd_connector_delete)
+
+    # connector test
+    connector_test = connector_subparsers.add_parser("test", help="Test connector connection")
+    connector_test.add_argument("id", help="Connector ID")
+    connector_test.set_defaults(func=cmd_connector_test)
+
+    # =========================================================================
     # PROFILE commands
     # =========================================================================
     profile_parser = subparsers.add_parser("profile", help="Profile management")
@@ -2425,18 +3208,19 @@ Examples:
         return args.func(args)
     else:
         # Print subcommand help
-        if args.command == "env":
-            env_parser.print_help()
-        elif args.command == "agent":
-            agent_parser.print_help()
-        elif args.command == "action":
-            action_parser.print_help()
-        elif args.command == "profile":
-            profile_parser.print_help()
-        elif args.command == "playground-profile":
-            pg_parser.print_help()
-        elif args.command == "token-config":
-            tc_parser.print_help()
+        subparser_map = {
+            "env": env_parser,
+            "agent": agent_parser,
+            "action": action_parser,
+            "pipeline": pipeline_parser,
+            "connector": connector_parser,
+            "profile": profile_parser,
+            "playground-profile": pg_parser,
+            "token-config": tc_parser,
+        }
+        sub = subparser_map.get(args.command)
+        if sub:
+            sub.print_help()
         return 0
 
 

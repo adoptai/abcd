@@ -6,10 +6,11 @@ Workspace Manager - Hierarchical Workspace Management.
 'default' environment that is active by default. Create additional environments
 for different targets (staging, production) or clients.
 
-Supports three-level hierarchy:
+Supports hierarchical workspace types:
 1. Environment (Env) Level - Top-level workspace with shared config (REQUIRED)
 2. Agent Level - Uber Agent containing sub-actions
 3. Action Level - Individual action workspace
+4. Pipeline Level - Data pipeline workspace (separate from actions)
 
 Directory Structure:
     workspaces/
@@ -20,13 +21,20 @@ Directory Structure:
     │   ├── env.json
     │   ├── agents/
     │   │   └── {agent_name}/
-    │   │       ├── agent.json
+    │   │       ├── metadata.json
     │   │       ├── widdle.json
     │   │       ├── adopt_profile.json (optional)
     │   │       └── actions/
     │   │           └── {action_id}/
-    │   └── actions/             # Standalone actions in env
-    │       └── {action_id}/
+    │   ├── actions/             # Standalone actions in env
+    │   │   └── {action_id}/
+    │   └── pipelines/           # Pipelines in env
+    │       └── {pipeline_id}/
+    │           ├── metadata.json
+    │           ├── widdle.json
+    │           ├── test_cases/
+    │           ├── traces/
+    │           └── versions/
     └── {other_env}/             # Additional environments
         └── ...
 """
@@ -128,6 +136,7 @@ class WorkspaceType(Enum):
     ENVIRONMENT = "environment"
     AGENT = "agent"
     ACTION = "action"
+    PIPELINE = "pipeline"
 
 
 # Default environment name
@@ -398,6 +407,7 @@ class HierarchicalWorkspaceManager:
             env_path.mkdir(parents=True)
             (env_path / "agents").mkdir()
             (env_path / "actions").mkdir()
+            (env_path / "pipelines").mkdir()
 
             # Create env.json
             env_meta = {
@@ -494,11 +504,17 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         actions_count = (
             len(list((env_path / "actions").iterdir())) if (env_path / "actions").exists() else 0
         )
+        pipelines_count = (
+            len(list((env_path / "pipelines").iterdir()))
+            if (env_path / "pipelines").exists()
+            else 0
+        )
 
-        if (agents_count > 0 or actions_count > 0) and not force:
+        if (agents_count > 0 or actions_count > 0 or pipelines_count > 0) and not force:
             return (
                 False,
-                f"Environment has {agents_count} agents and {actions_count} actions. Use --force to delete.",
+                f"Environment has {agents_count} agents, {actions_count} actions, "
+                f"and {pipelines_count} pipelines. Use --force to delete.",
             )
 
         try:
@@ -1461,6 +1477,248 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         return actions
 
     # =========================================================================
+    # Pipeline Management
+    # =========================================================================
+
+    def create_pipeline(
+        self,
+        pipeline_id: str,
+        name: str,
+        description: str = "",
+        prompt: str = "",
+        source: dict[str, Any] | None = None,
+        destinations: list[dict[str, Any]] | None = None,
+        remote_pipeline_id: str | None = None,
+        env_name: str | None = None,
+    ) -> tuple[bool, Path, str]:
+        """
+        Create a new pipeline workspace.
+
+        Args:
+            pipeline_id: Local pipeline identifier (directory name)
+            name: Human-readable name
+            description: Pipeline description
+            prompt: Pipeline prompt
+            source: Source connector config
+            destinations: Destination configs
+            remote_pipeline_id: Remote pipeline ID (from platform)
+            env_name: Environment (uses active env if None)
+
+        Returns:
+            Tuple of (success, path, message)
+        """
+        env = env_name or self._active_env
+        if not env:
+            return (
+                False,
+                Path(),
+                "No environment specified. Use --env or set active environment.",
+            )
+
+        if not self.env_exists(env):
+            return False, Path(), f"Environment not found: {env}"
+
+        pipeline_path = WORKSPACES_DIR / env / "pipelines" / pipeline_id
+
+        if pipeline_path.exists():
+            return False, pipeline_path, f"Pipeline already exists: {pipeline_id}"
+
+        try:
+            pipeline_path.mkdir(parents=True)
+            (pipeline_path / "test_cases").mkdir()
+            (pipeline_path / "traces").mkdir()
+            (pipeline_path / "versions").mkdir()
+
+            # Create initial empty WDL
+            (pipeline_path / "widdle.json").write_text(json.dumps([], indent=2))
+
+            # Create pipeline metadata
+            metadata: dict[str, Any] = {
+                "pipeline_id": remote_pipeline_id,
+                "local_id": pipeline_id,
+                "name": name,
+                "description": description,
+                "prompt": prompt,
+                "type": "pipeline",
+                "env_name": env,
+                "source": source,
+                "destinations": destinations or [],
+                "state": "draft",
+                "version_id": None,
+                "schedule_type": "manual",
+                "cron_expr": None,
+                "last_test_run_status": None,
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+            }
+            (pipeline_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+            return True, pipeline_path, f"Pipeline created: {pipeline_id} in {env}"
+
+        except Exception as e:
+            if pipeline_path.exists():
+                shutil.rmtree(pipeline_path)
+            return False, pipeline_path, f"Failed to create pipeline: {e}"
+
+    def list_pipelines(self, env_name: str | None = None) -> list[dict[str, Any]]:
+        """List all pipelines in an environment."""
+        env = env_name or self._active_env
+        if not env or not self.env_exists(env):
+            return []
+
+        pipelines_dir = WORKSPACES_DIR / env / "pipelines"
+        if not pipelines_dir.exists():
+            return []
+
+        pipelines = []
+        for item in pipelines_dir.iterdir():
+            if not item.is_dir():
+                continue
+            meta_path = item / "metadata.json"
+            if not meta_path.exists():
+                continue
+            try:
+                meta = json.loads(meta_path.read_text())
+                meta["path"] = str(item)
+                meta["env_name"] = env
+                pipelines.append(meta)
+            except Exception:
+                pipelines.append(
+                    {
+                        "local_id": item.name,
+                        "path": str(item),
+                        "env_name": env,
+                        "type": "pipeline",
+                    }
+                )
+        return pipelines
+
+    def get_pipeline(
+        self,
+        pipeline_id: str,
+        env_name: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get pipeline workspace details by local ID or remote pipeline_id."""
+        env = env_name or self._active_env
+        if not env:
+            return None
+
+        pipelines_dir = WORKSPACES_DIR / env / "pipelines"
+        if not pipelines_dir.exists():
+            return None
+
+        # Direct match by directory name
+        direct_path = pipelines_dir / pipeline_id
+        if direct_path.exists() and (direct_path / "metadata.json").exists():
+            try:
+                meta = json.loads((direct_path / "metadata.json").read_text())
+                meta["path"] = str(direct_path)
+                meta["env_name"] = env
+                return meta
+            except Exception:
+                return None
+
+        # Search by remote pipeline_id in metadata
+        for item in pipelines_dir.iterdir():
+            if not item.is_dir():
+                continue
+            meta_path = item / "metadata.json"
+            if not meta_path.exists():
+                continue
+            try:
+                meta = json.loads(meta_path.read_text())
+                if meta.get("pipeline_id") == pipeline_id:
+                    meta["path"] = str(item)
+                    meta["env_name"] = env
+                    return meta
+            except Exception:
+                continue
+
+        return None
+
+    def find_pipeline(
+        self,
+        pipeline_id: str,
+        env_name: str | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Find a pipeline by local ID or remote pipeline_id.
+        Searches active env first, then all environments.
+        """
+        envs_to_search: list[str] = []
+
+        if env_name:
+            envs_to_search = [env_name]
+        else:
+            if self._active_env:
+                envs_to_search.append(self._active_env)
+            for env_item in WORKSPACES_DIR.iterdir():
+                if env_item.is_dir() and (env_item / "env.json").exists():
+                    if env_item.name not in envs_to_search:
+                        envs_to_search.append(env_item.name)
+
+        for env in envs_to_search:
+            result = self.get_pipeline(pipeline_id, env_name=env)
+            if result:
+                return result
+
+        return None
+
+    def update_pipeline_metadata(
+        self,
+        pipeline_id: str,
+        env_name: str | None = None,
+        **fields: Any,
+    ) -> tuple[bool, str]:
+        """Update pipeline metadata fields."""
+        pipeline = self.get_pipeline(pipeline_id, env_name=env_name)
+        if not pipeline:
+            return False, f"Pipeline not found: {pipeline_id}"
+
+        pipeline_path = Path(pipeline["path"])
+        meta_path = pipeline_path / "metadata.json"
+
+        try:
+            meta = json.loads(meta_path.read_text())
+            for k, v in fields.items():
+                if v is not None:
+                    meta[k] = v
+            meta["updated_at"] = datetime.now().isoformat()
+            meta_path.write_text(json.dumps(meta, indent=2))
+            return True, "Pipeline metadata updated"
+        except Exception as e:
+            return False, f"Failed to update metadata: {e}"
+
+    def get_pipeline_context(
+        self,
+        pipeline_id: str,
+        env_name: str | None = None,
+    ) -> dict[str, Any] | None:
+        """
+        Get full pipeline context with environment loaded.
+        Analogous to get_action_context but for pipelines.
+        """
+        if not self._active_env and not env_name:
+            return None
+
+        pipeline = self.find_pipeline(pipeline_id, env_name=env_name)
+        if not pipeline:
+            return None
+
+        env = pipeline.get("env_name") or env_name or self._active_env
+        self.load_env_vars(env)
+
+        return {
+            "pipeline_id": pipeline_id,
+            "remote_pipeline_id": pipeline.get("pipeline_id"),
+            "path": Path(pipeline["path"]),
+            "env_name": env,
+            "metadata": pipeline,
+            "wdl_path": Path(pipeline["path"]) / "widdle.json",
+            "metadata_path": Path(pipeline["path"]) / "metadata.json",
+        }
+
+    # =========================================================================
     # Configuration Inheritance
     # =========================================================================
 
@@ -1573,6 +1831,8 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         if meta_path.exists():
             try:
                 meta = json.loads(meta_path.read_text())
+                if meta.get("type") == "pipeline":
+                    return WorkspaceType.PIPELINE
                 if meta.get("type") in ("agent", "uber_agent"):
                     return WorkspaceType.AGENT
                 if meta.get("type") in ("action", "sub_action", "workflow", "tool"):

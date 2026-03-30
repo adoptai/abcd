@@ -1227,6 +1227,632 @@ class AdoptAPIClient:
             return False, f"Network error: {e}"
 
     # =========================================================================
+    # Pipeline CRUD Operations
+    # =========================================================================
+
+    def create_pipeline(
+        self,
+        name: str,
+        prompt: str = "",
+        description: str = "",
+        source: dict[str, Any] | None = None,
+        destinations: list[dict[str, Any]] | None = None,
+        schedule_type: str = "manual",
+        cron_expr: str | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Create a new pipeline.
+
+        Returns:
+            Tuple of (success, pipeline_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines"
+        payload: dict[str, Any] = {
+            "name": name.strip()[:100],
+            "description": description.strip(),
+            "prompt": prompt or f"Pipeline: {name}",
+            "schedule_type": schedule_type,
+        }
+        if source:
+            payload["source"] = source
+        if destinations:
+            payload["destinations"] = destinations
+        if cron_expr:
+            payload["cron_expr"] = cron_expr
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Pipeline created successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_pipeline(
+        self,
+        pipeline_id: str,
+        version_id: str | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Get pipeline details. Pass version_id to get draft WDL.
+
+        Returns:
+            Tuple of (success, pipeline_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/{pipeline_id}"
+        params: dict[str, Any] = {}
+        if version_id:
+            params["version_id"] = version_id
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Pipeline fetched successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def list_pipelines(
+        self,
+        state: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        List pipelines (paginated).
+
+        Returns:
+            Tuple of (success, paginated_response, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines"
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if state:
+            params["state"] = state
+        if search:
+            params["search"] = search
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Pipelines listed successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    _PIPELINE_UPDATE_FIELDS = frozenset(
+        {
+            "name",
+            "description",
+            "state",
+            "schedule_type",
+            "cron_expr",
+            "source",
+            "destinations",
+            "prompt",
+        }
+    )
+
+    def update_pipeline(
+        self,
+        pipeline_id: str,
+        **fields: Any,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Update pipeline fields or state.
+
+        Returns:
+            Tuple of (success, pipeline_data, message)
+        """
+        unknown = set(fields) - self._PIPELINE_UPDATE_FIELDS
+        if unknown:
+            return False, None, f"Unknown pipeline fields: {', '.join(sorted(unknown))}"
+
+        url = f"{self.actions_endpoint}/v1/pipelines/{pipeline_id}/update"
+        payload = {k: v for k, v in fields.items() if v is not None}
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Pipeline updated successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def delete_pipeline(
+        self,
+        pipeline_id: str,
+    ) -> tuple[bool, str]:
+        """
+        Soft-delete a pipeline.
+
+        Returns:
+            Tuple of (success, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/{pipeline_id}"
+
+        try:
+            response = requests.delete(url, headers=self.headers, timeout=30)
+            if response.status_code not in (200, 204):
+                return False, f"Failed: {response.status_code} - {response.text}"
+            return True, "Pipeline deleted successfully"
+        except requests.exceptions.RequestException as e:
+            return False, f"Network error: {e}"
+
+    # =========================================================================
+    # Pipeline Workflow Draft & Execution
+    # =========================================================================
+
+    def create_pipeline_workflow_draft(
+        self,
+        pipeline_id: str,
+        prompt: str,
+        sources: list[dict[str, Any]] | None = None,
+        destinations: list[dict[str, Any]] | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Create a WDL draft from prompt. Returns version_id.
+        WDL generation is async -- use poll_pipeline_wdl() to wait.
+
+        Returns:
+            Tuple of (success, response_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/workflows/draft"
+        payload: dict[str, Any] = {
+            "pipeline_id": pipeline_id,
+            "prompt": prompt,
+            "sources": sources or [],
+            "destinations": destinations or [],
+        }
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=60)
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Draft created successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def update_pipeline_workflow_draft(
+        self,
+        pipeline_id: str,
+        version_id: str | None = None,
+        prompt: str | None = None,
+        wdl: list[dict[str, Any]] | None = None,
+        sources: list[dict[str, Any]] | None = None,
+        destinations: list[dict[str, Any]] | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Update a WDL draft. Sending wdl without prompt saves directly (no LLM).
+
+        Returns:
+            Tuple of (success, response_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/workflows/draft"
+        payload: dict[str, Any] = {"pipeline_id": pipeline_id}
+        if version_id is not None:
+            payload["version_id"] = version_id
+        if prompt is not None:
+            payload["prompt"] = prompt
+        if wdl is not None:
+            payload["wdl"] = wdl
+        if sources is not None:
+            payload["sources"] = sources
+        if destinations is not None:
+            payload["destinations"] = destinations
+
+        try:
+            response = requests.put(url, headers=self.headers, json=payload, timeout=60)
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Draft updated successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def publish_pipeline_workflow_draft(
+        self,
+        pipeline_id: str,
+        version_id: str,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Publish a pipeline draft (finalizes WDL version).
+
+        Returns:
+            Tuple of (success, response_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/workflows/draft/publish"
+        payload = {"pipeline_id": pipeline_id, "version_id": version_id}
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Draft published successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def test_pipeline_wdl(
+        self,
+        pipeline_id: str,
+        wdl: list[dict[str, Any]],
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Execute a pipeline test run. Always uses test_mode=true.
+
+        Returns:
+            Tuple of (success, response_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/workflows/test-run"
+        payload = {"pipeline_id": pipeline_id, "wdl": wdl, "test_mode": True}
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=300)
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Test run started successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def update_pipeline_test_run_status(
+        self,
+        pipeline_id: str,
+        status: str,
+    ) -> tuple[bool, str]:
+        """
+        Persist test run result. status must be "passed" or "failed".
+
+        Returns:
+            Tuple of (success, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/{pipeline_id}/test-run-status"
+        payload = {"status": status}
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            if response.status_code not in (200, 201):
+                return False, f"Failed: {response.status_code} - {response.text}"
+            return True, f"Test run status set to {status}"
+        except requests.exceptions.RequestException as e:
+            return False, f"Network error: {e}"
+
+    def poll_pipeline_wdl(
+        self,
+        pipeline_id: str,
+        version_id: str,
+        interval: int = 2,
+        max_attempts: int = 30,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Poll until pipeline draft WDL is ready (non-null).
+
+        Returns:
+            Tuple of (success, pipeline_data_with_wdl, message)
+        """
+        for _attempt in range(max_attempts):
+            success, data, msg = self.get_pipeline(pipeline_id, version_id=version_id)
+            if not success:
+                return False, None, msg
+            if data and data.get("wdl"):
+                return True, data, "WDL is ready"
+            sleep(interval)
+
+        return False, None, f"Timeout after {max_attempts * interval}s waiting for WDL generation"
+
+    # =========================================================================
+    # Pipeline Runs & Data
+    # =========================================================================
+
+    def get_pipeline_runs(
+        self,
+        pipeline_id: str,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Get pipeline run history (paginated).
+
+        Returns:
+            Tuple of (success, paginated_response, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/{pipeline_id}/runs"
+        params = {"page": page, "page_size": page_size}
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Runs fetched successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_pipeline_tables(
+        self,
+        pipeline_id: str,
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
+        """
+        Get registered tables for a pipeline.
+
+        Returns:
+            Tuple of (success, tables_list, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/{pipeline_id}/tables"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            data = response.json()
+            tables = data if isinstance(data, list) else data.get("tables", [])
+            return True, tables, f"Found {len(tables)} tables"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_pipeline_table_data(
+        self,
+        pipeline_id: str,
+        table_id: str,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Get data from a pipeline table (paginated).
+
+        Returns:
+            Tuple of (success, paginated_response, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/{pipeline_id}/tables/{table_id}/data"
+        params = {"page": page, "page_size": page_size}
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Table data fetched successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_pipeline_sync_data(
+        self,
+        pipeline_id: str,
+        run_id: str | None = None,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Get pipeline sync data (paginated, filterable by run).
+
+        Returns:
+            Tuple of (success, paginated_response, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipelines/{pipeline_id}/data"
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if run_id:
+            params["run_id"] = run_id
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Sync data fetched successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    # =========================================================================
+    # Connector Catalog Operations
+    # =========================================================================
+
+    def list_connector_catalog(
+        self,
+        mode: str | None = None,
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
+        """
+        List available connector providers.
+
+        Args:
+            mode: Filter by "source" or "destination"
+
+        Returns:
+            Tuple of (success, providers_list, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipeline-connectors/catalog"
+        params: dict[str, Any] = {}
+        if mode:
+            params["mode"] = mode
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            data = response.json()
+            providers = data if isinstance(data, list) else []
+            return True, providers, f"Found {len(providers)} providers"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_connector_catalog_item(
+        self,
+        provider_id: str,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Get a single connector provider (includes auth_config_schema).
+
+        Returns:
+            Tuple of (success, provider_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipeline-connectors/catalog/{provider_id}"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Provider fetched successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    # =========================================================================
+    # Connector Instance Operations
+    # =========================================================================
+
+    def list_connectors(
+        self,
+        mode: str | None = None,
+        provider_id: str | None = None,
+        search: str | None = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        List org connectors (paginated).
+
+        Returns:
+            Tuple of (success, paginated_response, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipeline-connectors"
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if mode:
+            params["mode"] = mode
+        if provider_id:
+            params["provider_id"] = provider_id
+        if search:
+            params["search"] = search
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Connectors listed successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_connector(
+        self,
+        connector_id: str,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Get connector details.
+
+        Returns:
+            Tuple of (success, connector_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipeline-connectors/{connector_id}"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Connector fetched successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def create_connector(
+        self,
+        name: str,
+        provider_id: str,
+        mode: str = "source",
+        config: dict[str, Any] | None = None,
+        credentials: dict[str, Any] | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Create a new connector instance.
+
+        Returns:
+            Tuple of (success, connector_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipeline-connectors"
+        payload: dict[str, Any] = {
+            "name": name.strip()[:100],
+            "provider_id": provider_id,
+            "mode": mode,
+        }
+        if config:
+            payload["config"] = config
+        if credentials:
+            payload["credentials"] = credentials
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Connector created successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def update_connector(
+        self,
+        connector_id: str,
+        name: str | None = None,
+        config: dict[str, Any] | None = None,
+        credentials: dict[str, Any] | None = None,
+        mode: str | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Update a connector instance.
+
+        Returns:
+            Tuple of (success, connector_data, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipeline-connectors/{connector_id}"
+        payload: dict[str, Any] = {}
+        if name is not None:
+            payload["name"] = name
+        if config is not None:
+            payload["config"] = config
+        if credentials is not None:
+            payload["credentials"] = credentials
+        if mode is not None:
+            payload["mode"] = mode
+
+        try:
+            response = requests.put(url, headers=self.headers, json=payload, timeout=30)
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Connector updated successfully"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def delete_connector(
+        self,
+        connector_id: str,
+    ) -> tuple[bool, str]:
+        """
+        Delete a connector instance.
+
+        Returns:
+            Tuple of (success, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipeline-connectors/{connector_id}"
+
+        try:
+            response = requests.delete(url, headers=self.headers, timeout=30)
+            if response.status_code not in (200, 204):
+                return False, f"Failed: {response.status_code} - {response.text}"
+            return True, "Connector deleted successfully"
+        except requests.exceptions.RequestException as e:
+            return False, f"Network error: {e}"
+
+    def test_connector(
+        self,
+        connector_id: str,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """
+        Test a connector connection.
+
+        Returns:
+            Tuple of (success, test_response, message)
+        """
+        url = f"{self.actions_endpoint}/v1/pipeline-connectors/{connector_id}/test"
+
+        try:
+            response = requests.post(url, headers=self.headers, json={}, timeout=60)
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            data = response.json()
+            test_status = data.get("test_status", "unknown")
+            return True, data, f"Connection test: {test_status}"
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    # =========================================================================
     # Network Log Operations (for Diagnostics)
     # =========================================================================
 
