@@ -45,8 +45,8 @@ from urllib.parse import urlparse
 # ---------------------------------------------------------------------------
 
 CLI_DIR = Path(__file__).parent
-PROJECT_ROOT = CLI_DIR.parent.parent          # …/adopt/
-ABCD_DIR = CLI_DIR.parent                     # …/adopt/abcd/
+PROJECT_ROOT = CLI_DIR.parent.parent  # …/adopt/
+ABCD_DIR = CLI_DIR.parent  # …/adopt/abcd/
 TABBY_DIR = PROJECT_ROOT / "tabby"
 PID_FILE = TABBY_DIR / ".tabby-api.pid"
 LOG_FILE = TABBY_DIR / ".tabby-api.log"
@@ -86,16 +86,27 @@ try:
         return f"{Style.BRIGHT}{s}{Style.RESET_ALL}"
 
 except ImportError:
-    def _green(s: str) -> str: return s
-    def _red(s: str) -> str: return s
-    def _yellow(s: str) -> str: return s
-    def _cyan(s: str) -> str: return s
-    def _bold(s: str) -> str: return s
+
+    def _green(s: str) -> str:
+        return s
+
+    def _red(s: str) -> str:
+        return s
+
+    def _yellow(s: str) -> str:
+        return s
+
+    def _cyan(s: str) -> str:
+        return s
+
+    def _bold(s: str) -> str:
+        return s
 
 
 # ---------------------------------------------------------------------------
 # Cache helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_cache() -> dict[str, Any]:
     if not CREDS_CACHE.exists():
@@ -113,6 +124,7 @@ def _save_cache(cache: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # Low-level helpers
 # ---------------------------------------------------------------------------
+
 
 def _api_alive() -> bool:
     try:
@@ -175,7 +187,9 @@ def _docker_compose_services() -> dict[str, str]:
     try:
         out = subprocess.check_output(
             ["docker", "compose", "ps", "--format", "json"],
-            cwd=str(TABBY_DIR), stderr=subprocess.DEVNULL, timeout=10,
+            cwd=str(TABBY_DIR),
+            stderr=subprocess.DEVNULL,
+            timeout=10,
         )
         services: dict[str, str] = {}
         for line in out.decode().splitlines():
@@ -197,6 +211,7 @@ def _docker_compose_services() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 # HTTP helpers
 # ---------------------------------------------------------------------------
+
 
 def _http(
     method: str,
@@ -248,6 +263,7 @@ def _get_admin_token() -> str | None:
 # ---------------------------------------------------------------------------
 # Profile resolution helpers
 # ---------------------------------------------------------------------------
+
 
 def _prompt_profiles() -> list[str]:
     print()
@@ -301,6 +317,7 @@ def _discover_tabby_profile_ids() -> list[str]:
 # Application + ServiceProfile provisioning
 # ---------------------------------------------------------------------------
 
+
 def _secret_name(profile_id: str) -> str:
     """K8s-safe secret name derived from profile_id."""
     return f"tabby-abcd-{profile_id.lower().replace('_', '-')}"
@@ -321,8 +338,11 @@ def _find_active_profile(
             resp.get("data", []) if isinstance(resp, dict) else list(resp)  # type: ignore[union-attr]
         )
         return next(
-            (p for p in profiles
-             if p.get("profile_id") == profile_id and p.get("version_state") == "ACTIVE"),
+            (
+                p
+                for p in profiles
+                if p.get("profile_id") == profile_id and p.get("version_state") == "ACTIVE"
+            ),
             None,
         )
     except RuntimeError:
@@ -341,8 +361,20 @@ def _bypass_canary_gate(profile_db_id: str) -> bool:
     )
     try:
         subprocess.run(
-            ["docker", "compose", "exec", "-T", "postgres",
-             "psql", "-U", "browser_hitl", "-d", "browser_hitl", "-c", sql],
+            [
+                "docker",
+                "compose",
+                "exec",
+                "-T",
+                "postgres",
+                "psql",
+                "-U",
+                "browser_hitl",
+                "-d",
+                "browser_hitl",
+                "-c",
+                sql,
+            ],
             cwd=str(TABBY_DIR),
             check=True,
             capture_output=True,
@@ -428,13 +460,22 @@ def _build_app_payload(profile_id: str, cfg: dict[str, Any]) -> dict[str, Any]:
     if requires_login:
         steps += [
             {"action": "fill", "selector": cfg["email_sel"], "value": "${USERNAME}"},
-            {"action": "fill", "selector": cfg["pass_sel"], "value": "${PASSWORD}", "sensitive": True},
+            {
+                "action": "fill",
+                "selector": cfg["pass_sel"],
+                "value": "${PASSWORD}",
+                "sensitive": True,
+            },
             {"action": "click", "selector": cfg["submit_sel"]},
         ]
         if cfg.get("otp_required") and cfg.get("otp_sel"):
             steps += [
-                {"action": "wait_for", "selector": cfg["otp_sel"],
-                 "timeout_ms": 120000, "sensitive": True},
+                {
+                    "action": "wait_for",
+                    "selector": cfg["otp_sel"],
+                    "timeout_ms": 120000,
+                    "sensitive": True,
+                },
                 {"action": "click", "selector": "[type='submit']"},
             ]
     if cfg.get("success_sel"):
@@ -521,26 +562,32 @@ def _ensure_service_profile(
             print(_red(f"  App creation failed: {exc}"))
             return False
 
-        entry.update({
-            "app_id": app_id,
-            "login_url": cfg["login_url"],
-            "username": cfg.get("username", ""),
-            "credential_ref": app_payload["login_config"]["credential_ref"],
-            "login_config": app_payload["login_config"],
-        })
+        entry.update(
+            {
+                "app_id": app_id,
+                "login_url": cfg["login_url"],
+                "username": cfg.get("username", ""),
+                "credential_ref": app_payload["login_config"]["credential_ref"],
+                "login_config": app_payload["login_config"],
+            }
+        )
         # Store worker credentials in .env.local only when login is required
         if cfg.get("username") and cfg.get("password"):
             secret = _secret_name(profile_id)
             prefix = _env_prefix(secret)
-            _write_env_vars(ENV_LOCAL, {
-                f"{prefix}_USERNAME": cfg["username"],
-                f"{prefix}_PASSWORD": cfg["password"],
-            })
+            _write_env_vars(
+                ENV_LOCAL,
+                {
+                    f"{prefix}_USERNAME": cfg["username"],
+                    f"{prefix}_PASSWORD": cfg["password"],
+                },
+            )
 
     login_config = entry.get("login_config", {})
 
     # ---- Create ServiceProfile (STAGING) ----
     import time as _time
+
     t = _time.localtime()
     version = f"{t.tm_year % 100}.{t.tm_mon}.{t.tm_mday}"
 
@@ -599,6 +646,7 @@ def _ensure_service_profile(
 # Subcommands: health / start / stop
 # ---------------------------------------------------------------------------
 
+
 def cmd_health(args: argparse.Namespace) -> int:  # noqa: ARG001
     print(_bold("Tabby infrastructure:"))
     services = _docker_compose_services()
@@ -636,10 +684,13 @@ def cmd_start(args: argparse.Namespace) -> int:  # noqa: ARG001
     if not ENV_LOCAL.exists():
         if ENV_EXAMPLE.exists():
             import shutil
+
             shutil.copy(ENV_EXAMPLE, ENV_LOCAL)
             print(_yellow(f"Created {ENV_LOCAL} from template."))
             print(_yellow("Edit it and set JWT_SIGNING_KEY, TENANT_ENCRYPTION_KEY,"))
-            print(_yellow("AGENT_SECRET_HMAC_KEY, ADMIN_BOOTSTRAP_EMAIL, ADMIN_BOOTSTRAP_PASSWORD."))
+            print(
+                _yellow("AGENT_SECRET_HMAC_KEY, ADMIN_BOOTSTRAP_EMAIL, ADMIN_BOOTSTRAP_PASSWORD.")
+            )
             print()
         else:
             print(_red(f"No .env.local found at {ENV_LOCAL}"))
@@ -649,7 +700,9 @@ def cmd_start(args: argparse.Namespace) -> int:  # noqa: ARG001
     try:
         subprocess.run(
             ["docker", "compose", "up", "-d"],
-            cwd=str(TABBY_DIR), check=True, capture_output=True,
+            cwd=str(TABBY_DIR),
+            check=True,
+            capture_output=True,
         )
         print(_green(" ✓"))
     except subprocess.CalledProcessError as exc:
@@ -667,8 +720,10 @@ def cmd_start(args: argparse.Namespace) -> int:  # noqa: ARG001
     log_fh = open(LOG_FILE, "a")  # noqa: SIM115
     proc = subprocess.Popen(
         ["pnpm", "--filter", "@browser-hitl/api", "start:dev"],
-        cwd=str(TABBY_DIR), env=env,
-        stdout=log_fh, stderr=log_fh,
+        cwd=str(TABBY_DIR),
+        env=env,
+        stdout=log_fh,
+        stderr=log_fh,
         start_new_session=True,
     )
     PID_FILE.write_text(str(proc.pid))
@@ -723,7 +778,9 @@ def cmd_stop(args: argparse.Namespace) -> int:
         try:
             subprocess.run(
                 ["docker", "compose", "stop"],
-                cwd=str(TABBY_DIR), check=True, capture_output=True,
+                cwd=str(TABBY_DIR),
+                check=True,
+                capture_output=True,
             )
             print(_green(" ✓"))
         except Exception as exc:
@@ -736,6 +793,7 @@ def cmd_stop(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Subcommand: setup
 # ---------------------------------------------------------------------------
+
 
 def cmd_setup(args: argparse.Namespace) -> int:
     """
@@ -761,7 +819,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
     admin_email = env_local.get("ADMIN_BOOTSTRAP_EMAIL", "")
     admin_password = env_local.get("ADMIN_BOOTSTRAP_PASSWORD", "")
     if not admin_email or not admin_password:
-        print(_red(f"ADMIN_BOOTSTRAP_EMAIL and ADMIN_BOOTSTRAP_PASSWORD must be set in {ENV_LOCAL}"))
+        print(
+            _red(f"ADMIN_BOOTSTRAP_EMAIL and ADMIN_BOOTSTRAP_PASSWORD must be set in {ENV_LOCAL}")
+        )
         return 1
 
     print(f"Logging in as {_cyan(admin_email)} …", end=" ", flush=True)
@@ -821,26 +881,24 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
     if not (client_id and client_secret):
         try:
-            existing_clients = _http(
-                "GET", f"/admin/agent-clients/{tenant_id}", token=admin_token
-            )
+            existing_clients = _http("GET", f"/admin/agent-clients/{tenant_id}", token=admin_token)
             if not isinstance(existing_clients, list):
                 existing_clients = []
         except RuntimeError:
             existing_clients = []
 
-        match = next(
-            (c for c in existing_clients if c.get("name") == AGENT_CLIENT_NAME), None
-        )
+        match = next((c for c in existing_clients if c.get("name") == AGENT_CLIENT_NAME), None)
 
         if match and not args.force:
             print(
                 f"Agent client '{AGENT_CLIENT_NAME}' already exists — rotating secret …",
-                end=" ", flush=True,
+                end=" ",
+                flush=True,
             )
             try:
                 rotated = _http(
-                    "POST", f"/admin/agent-clients/{match['id']}/rotate-secret",
+                    "POST",
+                    f"/admin/agent-clients/{match['id']}/rotate-secret",
                     token=admin_token,
                 )
                 assert isinstance(rotated, dict)
@@ -853,9 +911,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
                 return 1
         else:
             action = "Force-recreating" if (match and args.force) else "Registering"
-            print(
-                f"{action} agent client '{AGENT_CLIENT_NAME}' …", end=" ", flush=True
-            )
+            print(f"{action} agent client '{AGENT_CLIENT_NAME}' …", end=" ", flush=True)
             if match and args.force:
                 try:
                     _http("DELETE", f"/admin/agent-clients/{match['id']}", token=admin_token)
@@ -863,7 +919,8 @@ def cmd_setup(args: argparse.Namespace) -> int:
                     pass
             try:
                 created = _http(
-                    "POST", "/admin/agent-clients",
+                    "POST",
+                    "/admin/agent-clients",
                     {
                         "name": AGENT_CLIENT_NAME,
                         "tenant_id": tenant_id,
@@ -885,11 +942,13 @@ def cmd_setup(args: argparse.Namespace) -> int:
             print(_red("No client_secret in response — cannot proceed."))
             return 1
 
-    cache.update({
-        "client_id": client_id,
-        "client_secret": client_secret,
-        "default_profiles": allowed_profiles,
-    })
+    cache.update(
+        {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "default_profiles": allowed_profiles,
+        }
+    )
     _save_cache(cache)
 
     # 5. Ensure Application + ACTIVE ServiceProfile for each profile
@@ -904,11 +963,14 @@ def cmd_setup(args: argparse.Namespace) -> int:
 
     # 6. Write TABBY_* vars to target .env
     env_file = Path(args.env_file) if args.env_file else ABCD_DIR / ".env"
-    _write_env_vars(env_file, {
-        "TABBY_API_URL": TABBY_API_HOST,
-        "TABBY_CLIENT_ID": client_id,
-        "TABBY_CLIENT_SECRET": client_secret,
-    })
+    _write_env_vars(
+        env_file,
+        {
+            "TABBY_API_URL": TABBY_API_HOST,
+            "TABBY_CLIENT_ID": client_id,
+            "TABBY_CLIENT_SECRET": client_secret,
+        },
+    )
 
     print()
     print(_green("✓ Setup complete!"))
@@ -924,6 +986,7 @@ def cmd_setup(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 # Subcommand: session
 # ---------------------------------------------------------------------------
+
 
 def _seed_session(app_id: str, tenant_id: str) -> str | None:
     """
@@ -1018,7 +1081,9 @@ def cmd_session_status(args: argparse.Namespace) -> int:  # noqa: ARG001
 
     if shown == 0:
         print(_yellow(f"  No sessions for profile '{profile_filter}'."))
-        print(f"  Start one with: {_bold('python cli/tabby_setup.py session ensure --profile ' + (profile_filter or ''))}")
+        print(
+            f"  Start one with: {_bold('python cli/tabby_setup.py session ensure --profile ' + (profile_filter or ''))}"
+        )
     return 0
 
 
@@ -1058,7 +1123,9 @@ def cmd_session_ensure(args: argparse.Namespace) -> int:
 
     entry = apps.get(profile_id)
     if not entry:
-        print(_red(f"Profile '{profile_id}' not found in cache. Run: python cli/tabby_setup.py setup"))
+        print(
+            _red(f"Profile '{profile_id}' not found in cache. Run: python cli/tabby_setup.py setup")
+        )
         return 1
 
     app_id: str = entry.get("app_id", "")
@@ -1092,12 +1159,14 @@ def cmd_session_ensure(args: argparse.Namespace) -> int:
     # Build worker env
     env = {**os.environ}
     env.update(_load_env_local())
-    env.update({
-        "SESSION_ID": session_id,
-        "APP_ID": app_id,
-        "TENANT_ID": tenant_id,
-        "STREAMING_MODE": "cdp",               # headless, no X11 required
-    })
+    env.update(
+        {
+            "SESSION_ID": session_id,
+            "APP_ID": app_id,
+            "TENANT_ID": tenant_id,
+            "STREAMING_MODE": "cdp",  # headless, no X11 required
+        }
+    )
 
     # The worker resolves credentials via mounted files (primary path) or env vars
     # (fallback).  Env var fallback is unreliable on Ubuntu because pnpm spawns
@@ -1200,9 +1269,23 @@ def cmd_session_ensure(args: argparse.Namespace) -> int:
         sql = f"UPDATE sessions SET state='HEALTHY' WHERE id='{session_id}'"
         try:
             subprocess.run(
-                ["docker", "compose", "exec", "-T", "postgres",
-                 "psql", "-U", "browser_hitl", "-d", "browser_hitl", "-c", sql],
-                cwd=str(TABBY_DIR), check=True, capture_output=True,
+                [
+                    "docker",
+                    "compose",
+                    "exec",
+                    "-T",
+                    "postgres",
+                    "psql",
+                    "-U",
+                    "browser_hitl",
+                    "-d",
+                    "browser_hitl",
+                    "-c",
+                    sql,
+                ],
+                cwd=str(TABBY_DIR),
+                check=True,
+                capture_output=True,
             )
             print(_green("✓"))
         except Exception as exc:
@@ -1249,6 +1332,7 @@ def cmd_session_stop(args: argparse.Namespace) -> int:  # noqa: ARG001
 # Argument parsing
 # ---------------------------------------------------------------------------
 
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python cli/tabby_setup.py",
@@ -1260,23 +1344,28 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("start", help="Start infra (docker compose) and Tabby API in background")
 
     stop_p = sub.add_parser("stop", help="Stop the Tabby API process")
-    stop_p.add_argument("--infra", action="store_true",
-                        help="Also stop Docker Compose services")
+    stop_p.add_argument("--infra", action="store_true", help="Also stop Docker Compose services")
 
     setup_p = sub.add_parser(
         "setup",
         help="Full provisioning: start + agent client + ServiceProfile + write .env",
     )
     setup_p.add_argument(
-        "--profiles", nargs="+", metavar="PROFILE_ID", default=None,
+        "--profiles",
+        nargs="+",
+        metavar="PROFILE_ID",
+        default=None,
         help="Tabby profile IDs (default: auto-discovered from adopt_profile.json files)",
     )
     setup_p.add_argument(
-        "--force", action="store_true",
+        "--force",
+        action="store_true",
         help="Revoke and recreate the agent client even if one exists",
     )
     setup_p.add_argument(
-        "--env-file", metavar="PATH", default=None,
+        "--env-file",
+        metavar="PATH",
+        default=None,
         help="Path to write TABBY_* vars into (default: abcd/.env)",
     )
 
@@ -1291,13 +1380,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Ensure a HEALTHY session exists, starting the worker if needed",
     )
     ensure_p.add_argument(
-        "--profile", metavar="PROFILE_ID", default=None,
+        "--profile",
+        metavar="PROFILE_ID",
+        default=None,
         help="Profile to ensure (default: the only configured profile)",
     )
 
     stop_sess_p = session_sub.add_parser("stop", help="Stop a locally-running worker")
     stop_sess_p.add_argument(
-        "--profile", metavar="PROFILE_ID", default=None,
+        "--profile",
+        metavar="PROFILE_ID",
+        default=None,
         help="Profile whose worker to stop (currently stops by PID file)",
     )
 
@@ -1309,8 +1402,12 @@ def main() -> int:
     args = parser.parse_args()
 
     # Ensure attributes used across subcommands always exist
-    for attr, default in [("infra", False), ("force", False),
-                          ("env_file", None), ("profiles", None)]:
+    for attr, default in [
+        ("infra", False),
+        ("force", False),
+        ("env_file", None),
+        ("profiles", None),
+    ]:
         if not hasattr(args, attr):
             setattr(args, attr, default)
 

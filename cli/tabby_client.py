@@ -82,9 +82,7 @@ class TabbyClient:
     # Credential fetch
     # ------------------------------------------------------------------
 
-    def fetch_credentials(
-        self, profile_id: str, force_refresh: bool = False
-    ) -> dict[str, Any]:
+    def fetch_credentials(self, profile_id: str, force_refresh: bool = False) -> dict[str, Any]:
         """
         POST /credentials/request and return the raw CredentialResponseEnvelope
         as a dict.
