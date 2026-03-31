@@ -52,7 +52,7 @@ PID_FILE = BACKEND_DIR / ".elicit.pid"
 ENV_FILE = ELICITATION_DIR / ".env"  # loaded by backend/app/config.py from elicitation/
 ENV_EXAMPLE_FILE = ELICITATION_DIR / ".env.example"
 
-_BACKEND_PORT = os.environ.get("ELIC_PORT", "8000")
+_BACKEND_PORT = os.environ.get("ELIC_PORT", "8002")
 BACKEND_HOST = f"http://localhost:{_BACKEND_PORT}"
 PING_PATH = "/sessions/ping"
 PROJECTS_PATH = "/projects"

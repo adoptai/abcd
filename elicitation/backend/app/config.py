@@ -19,7 +19,7 @@ class Settings:
     cors_origins: list[str] = field(default_factory=lambda: [
         "chrome-extension://*",
         "http://localhost:3000",
-        "http://localhost:8000",
+        "http://localhost:8002",
     ])
 
     data_dir: str = ""
@@ -38,7 +38,7 @@ class Settings:
 
 settings = Settings(
     debug=os.environ.get("ELIC_DEBUG", "true").lower() == "true",
-    port=int(os.environ.get("ELIC_PORT", "8000")),
+    port=int(os.environ.get("ELIC_PORT", "8002")),
     anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
     claude_model=os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
 )
