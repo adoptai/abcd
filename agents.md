@@ -101,6 +101,22 @@ Continue from **Step 3** below (edit WDL) rather than starting from scratch.
    **Always progress bottom-up**: fix subaction failures before testing the uber agent.
    Never skip to Tier 2/3 if any subaction is failing at Tier 1.
 
+   **Tabby Credential Enrichment (when `tabby_profile_id` is set in `adopt_profile.json`):**
+
+   If the action's `adopt_profile.json` contains a `tabby_profile_id`, the test runner automatically fetches live credentials from Tabby before each test run. This requires Tabby to be running and configured:
+
+   ```bash
+   # One-time setup (interactive — run once per local dev environment)
+   python cli/tabby_setup.py start          # start infra + API
+   python cli/tabby_setup.py setup          # register agent client + ServiceProfile
+   python cli/tabby_setup.py session ensure # start browser session
+   source .env                              # load TABBY_* vars
+   ```
+
+   After setup, `python cli/test_runner.py <action>` will automatically overlay Tabby credentials onto `security_params`. If Tabby is unreachable, it falls back to static `security_params` (with a warning) or fails hard if no static fallback exists.
+
+   **📖 Full details: `prompts/system/TABBY_CREDENTIALS_PROMPT.md`**
+
 7. **Saving**: Use `cli/save_wdl_draft.py` ONLY after all tests pass
 8. **Publishing**: Use `cli/publish_wdl_action.py` when approved
 9. **CE Testing** (production validation via Chrome Extension):
@@ -280,6 +296,7 @@ For in-depth information, load the appropriate prompt from `prompts/system/`:
 | **UBER_AGENT_PROMPT.md** | Creating Uber Agents with sub-actions |
 | **TESTING_PROMPT.md** | Testing strategies, parallel tests, via-agent tests |
 | **DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md** | Debugging failures, analyzing traces |
+| **TABBY_CREDENTIALS_PROMPT.md** | Setting up Tabby live credentials for WDL testing, configuring `tabby_profile_id`, troubleshooting auth |
 
 Templates: `prompts/templates/` (uber_agent, complex_workflow, simple_tool)
 
@@ -290,6 +307,7 @@ Templates: `prompts/templates/` (uber_agent, complex_workflow, simple_tool)
 - [Transparent CLI Behavior](#transparent-cli-behavior)
 - [Quick Command Reference](#quick-command-reference)
 - [Workspace Management (NEW)](#workspace-management-new)
+- [Tabby Credential Service](#tabby-credential-service)
 - [Testing Commands](#testing-commands)
 - [Overview](#overview)
 - [Quick Decision Tree](#quick-decision-tree)
@@ -427,6 +445,56 @@ See `prompts/system/WORKSPACE_HIERARCHY_PROMPT.md` for full workflow.
 ```
 Action adopt_profile.json → Agent → Environment
 ```
+
+---
+
+## Tabby Credential Service
+
+**📖 Full details: `prompts/system/TABBY_CREDENTIALS_PROMPT.md`**
+
+Tabby provides live browser-session credentials to `abcd test`, eliminating manual cookie/header copy-paste from DevTools.
+
+### Setup (One-Time)
+
+```bash
+python cli/tabby_setup.py start            # start Docker infra + NestJS API
+python cli/tabby_setup.py setup            # interactive: register agent client + ServiceProfile
+python cli/tabby_setup.py session ensure   # start browser session, wait for HEALTHY
+source .env                                # load TABBY_* env vars
+```
+
+### Daily Use
+
+```bash
+python cli/tabby_setup.py health           # check everything is up
+python cli/tabby_setup.py session status   # check browser session state
+python cli/test_runner.py <action>         # credentials auto-injected
+```
+
+### Configuration
+
+Add `tabby_profile_id` to `adopt_profile.json`:
+
+```json
+{
+  "tabby_profile_id": "my-profile",
+  "security_params": { "user_org_id": "acme" }
+}
+```
+
+Tabby credentials are overlaid onto `security_params` — existing keys are preserved.
+
+### Key Commands
+
+| Command | Purpose |
+|---------|---------|
+| `tabby_setup.py start` | Start Tabby infra + API (background) |
+| `tabby_setup.py stop [--infra]` | Stop API (and optionally infra) |
+| `tabby_setup.py setup [--profiles ...]` | Full provisioning (interactive) |
+| `tabby_setup.py session ensure` | Start browser session + worker |
+| `tabby_setup.py session status` | Show session health |
+| `tabby_setup.py session stop` | Stop local worker |
+| `tabby_setup.py health` | Health check for all services |
 
 ---
 
