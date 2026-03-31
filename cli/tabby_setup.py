@@ -316,7 +316,7 @@ def _find_active_profile(
 ) -> dict[str, Any] | None:
     """Return the ACTIVE ServiceProfile dict for profile_id, or None."""
     try:
-        resp = _http("GET", f"/admin/profiles?limit=200", token=admin_token)
+        resp = _http("GET", "/admin/profiles?limit=200", token=admin_token)
         profiles: list[dict[str, Any]] = (
             resp.get("data", []) if isinstance(resp, dict) else list(resp)  # type: ignore[union-attr]
         )
@@ -566,7 +566,7 @@ def _ensure_service_profile(
     entry["profile_db_id"] = profile_db_id
 
     # ---- Promote STAGING → CANARY ----
-    print(f"  Promoting STAGING → CANARY …", end=" ", flush=True)
+    print("  Promoting STAGING → CANARY …", end=" ", flush=True)
     try:
         _http("POST", f"/admin/profiles/{profile_db_id}/promote", token=admin_token)
         print(_green("✓"))
@@ -576,14 +576,14 @@ def _ensure_service_profile(
         return False
 
     # ---- Bypass canary gate (direct DB update via docker compose exec) ----
-    print(f"  Bypassing canary gate …", end=" ", flush=True)
+    print("  Bypassing canary gate …", end=" ", flush=True)
     if not _bypass_canary_gate(profile_db_id):
         print()
         return False
     print(_green("✓"))
 
     # ---- Promote CANARY → ACTIVE ----
-    print(f"  Promoting CANARY → ACTIVE …", end=" ", flush=True)
+    print("  Promoting CANARY → ACTIVE …", end=" ", flush=True)
     try:
         _http("POST", f"/admin/profiles/{profile_db_id}/promote", token=admin_token)
         print(_green("✓"))
