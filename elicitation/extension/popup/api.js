@@ -324,3 +324,75 @@ export const listChatSessions = (params) => {
 };
 export const deleteChatSession = (id) => api("DELETE", `/chat/sessions/${id}`);
 export const updateChatSession = (id, data) => api("PATCH", `/chat/sessions/${id}`, data);
+
+// ── Login Sessions ──────────────────────────────────────────────────────────
+
+export const createLoginSession = (data) => api("POST", "/login-sessions", data);
+export const listLoginSessions = () => api("GET", "/login-sessions");
+export const getLoginSession = (id) => api("GET", `/login-sessions/${id}`);
+export const startLoginSession = (id) => api("PUT", `/login-sessions/${id}/start`);
+export const completeLoginSession = (id) => api("PUT", `/login-sessions/${id}/complete`);
+export const analyzeLoginSession = (id) => api("POST", `/login-sessions/${id}/analyze`);
+export const getLoginBundle = (id) => api("GET", `/login-sessions/${id}/bundle`);
+
+export function startLoginRecording({ captureSessionId, projectId, processId }) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: "SET_LOGIN_RECORDING_STATE", captureSessionId, projectId, processId },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(response?.data);
+      }
+    );
+  });
+}
+
+export function stopLoginRecording() {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: "CLEAR_LOGIN_RECORDING_STATE" },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(response?.data);
+      }
+    );
+  });
+}
+
+export function injectLoginRecorder(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: "INJECT_LOGIN_RECORDER", tabId },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (response?.success) resolve(response.data);
+        else reject(new Error(response?.error || "Failed to inject login recorder"));
+      }
+    );
+  });
+}
+
+export function removeLoginRecorder(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(
+      { type: "REMOVE_LOGIN_RECORDER", tabId },
+      (response) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        if (response?.success) resolve(response.data);
+        else reject(new Error(response?.error || "Failed to remove login recorder"));
+      }
+    );
+  });
+}

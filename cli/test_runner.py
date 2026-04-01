@@ -60,6 +60,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cli.tabby_client import enrich_profile_with_tabby
 from cli.wdl_common.api_client import get_api_client_for_env
 from cli.wdl_common.workspace_manager import HierarchicalWorkspaceManager, get_workspace_manager
 
@@ -594,6 +595,7 @@ def run_single_test(
             agent_name=action_info.get("agent_name"),
             env_name=action_info.get("env_name"),
         )
+        resolved_profile = enrich_profile_with_tabby(resolved_profile)
 
         client = get_api_client_for_env()
 
@@ -840,6 +842,7 @@ def run_multi_turn_test(
             agent_name=action_info.get("agent_name"),
             env_name=action_info.get("env_name"),
         )
+        resolved_profile = enrich_profile_with_tabby(resolved_profile)
 
         client = get_api_client_for_env()
         trace_id = str(uuid.uuid4())
@@ -1072,6 +1075,7 @@ def run_via_agent_test(
             agent_name=agent_id,
             env_name=env,
         )
+        resolved_profile = enrich_profile_with_tabby(resolved_profile)
 
         # Run agent with prompt designed to trigger sub-action
         client = get_api_client_for_env()  # Uses active environment

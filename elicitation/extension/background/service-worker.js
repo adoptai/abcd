@@ -21,13 +21,16 @@ let harState = null; // { tabId, requestMap: {}, captureSessionId }
 // Narration capture state
 let narrationCaptureState = null; // { tabId, active: true }
 
+// Login recording mode state
+let loginRecordingState = null; // { captureSessionId, projectId, processId }
+
 // ── Session storage persistence (survives MV3 worker restarts) ──────────
 
 let _harPersistTimer = null;
 const HAR_PERSIST_INTERVAL = 2000; // ms
 
 // Restore harState + captureState + urlMonitoringState + narrationCaptureState on worker startup
-chrome.storage.session.get(["harMeta", "harRequests", "captureState", "urlMonitoringState", "narrationCaptureState"], (result) => {
+chrome.storage.session.get(["harMeta", "harRequests", "captureState", "urlMonitoringState", "narrationCaptureState", "loginRecordingState"], (result) => {
   if (!result) return;
   if (result.harMeta?.active) {
     harState = {
@@ -46,6 +49,9 @@ chrome.storage.session.get(["harMeta", "harRequests", "captureState", "urlMonito
   }
   if (result.narrationCaptureState) {
     narrationCaptureState = result.narrationCaptureState;
+  }
+  if (result.loginRecordingState) {
+    loginRecordingState = result.loginRecordingState;
   }
 });
 
@@ -382,6 +388,65 @@ const handlers = {
       func: () => { if (window.__adoptClickTracker) window.__adoptClickTracker(); },
     });
     return { status: "removed", tabId: targetTabId };
+  },
+
+  INJECT_LOGIN_RECORDER: async ({ tabId }) => {
+    const targetTabId = tabId || (await getActiveTabId());
+    if (!targetTabId) throw new Error("No active tab found");
+    await chrome.scripting.executeScript({ target: { tabId: targetTabId }, files: ["content/login-recorder.js"] });
+    return { status: "injected", tabId: targetTabId };
+  },
+
+  REMOVE_LOGIN_RECORDER: async ({ tabId }) => {
+    const targetTabId = tabId || (await getActiveTabId());
+    if (!targetTabId) throw new Error("No active tab found");
+    await chrome.scripting.executeScript({
+      target: { tabId: targetTabId },
+      func: () => { if (window.__adoptLoginRecorder) window.__adoptLoginRecorder(); },
+    });
+    return { status: "removed", tabId: targetTabId };
+  },
+
+  SET_LOGIN_RECORDING_STATE: async ({ captureSessionId, projectId, processId }) => {
+    loginRecordingState = { captureSessionId, projectId, processId };
+    chrome.storage.session.set({ loginRecordingState });
+    return { status: "set" };
+  },
+
+  CLEAR_LOGIN_RECORDING_STATE: async () => {
+    loginRecordingState = null;
+    chrome.storage.session.remove(["loginRecordingState"]);
+    return { status: "cleared" };
+  },
+
+  GET_LOGIN_RECORDING_STATE: async () => {
+    return { state: loginRecordingState };
+  },
+
+  LOGIN_CLICK_EVENT: async ({ data }) => {
+    if (loginRecordingState) {
+      data.project_id = data.project_id || loginRecordingState.projectId;
+      data.process_id = data.process_id || loginRecordingState.processId;
+      data.capture_session_id = data.capture_session_id || loginRecordingState.captureSessionId;
+    } else if (captureState) {
+      data.project_id = data.project_id || captureState.projectId;
+      data.process_id = data.process_id || captureState.processId;
+      data.capture_session_id = data.capture_session_id || captureState.captureSessionId;
+    }
+    return backendFetch("POST", "/clicks", data);
+  },
+
+  LOGIN_INPUT_EVENT: async ({ data }) => {
+    if (loginRecordingState) {
+      data.project_id = data.project_id || loginRecordingState.projectId;
+      data.process_id = data.process_id || loginRecordingState.processId;
+      data.capture_session_id = data.capture_session_id || loginRecordingState.captureSessionId;
+    } else if (captureState) {
+      data.project_id = data.project_id || captureState.projectId;
+      data.process_id = data.process_id || captureState.processId;
+      data.capture_session_id = data.capture_session_id || captureState.captureSessionId;
+    }
+    return backendFetch("POST", "/clicks", data);
   },
 
   CLICK_EVENT: async ({ data }) => {
