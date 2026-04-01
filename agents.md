@@ -115,7 +115,8 @@ Continue from **Step 3** below (edit WDL) rather than starting from scratch.
 
    After setup, `python cli/test_runner.py <action>` will automatically overlay Tabby credentials onto `security_params`. If Tabby is unreachable, it falls back to static `security_params` (with a warning) or fails hard if no static fallback exists.
 
-   **📖 Full details: `prompts/system/TABBY_CREDENTIALS_PROMPT.md`**
+   **📖 Tabby infrastructure: `prompts/system/TABBY_CREDENTIALS_PROMPT.md`**
+   **📖 Recording a new login profile: `prompts/system/LOGIN_RECORDING_PROMPT.md`**
 
 7. **Saving**: Use `cli/save_wdl_draft.py` ONLY after all tests pass
 8. **Publishing**: Use `cli/publish_wdl_action.py` when approved
@@ -297,6 +298,7 @@ For in-depth information, load the appropriate prompt from `prompts/system/`:
 | **TESTING_PROMPT.md** | Testing strategies, parallel tests, via-agent tests |
 | **DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md** | Debugging failures, analyzing traces |
 | **TABBY_CREDENTIALS_PROMPT.md** | Setting up Tabby live credentials for WDL testing, configuring `tabby_profile_id`, troubleshooting auth |
+| **LOGIN_RECORDING_PROMPT.md** | Recording a browser login flow and provisioning it as a Tabby ServiceProfile (record → export → review → register → validate → promote) |
 
 Templates: `prompts/templates/` (uber_agent, complex_workflow, simple_tool)
 
@@ -450,7 +452,8 @@ Action adopt_profile.json → Agent → Environment
 
 ## Tabby Credential Service
 
-**📖 Full details: `prompts/system/TABBY_CREDENTIALS_PROMPT.md`**
+**📖 Infrastructure & config: `prompts/system/TABBY_CREDENTIALS_PROMPT.md`**
+**📖 Recording a new login profile: `prompts/system/LOGIN_RECORDING_PROMPT.md`**
 
 Tabby provides live browser-session credentials to `abcd test`, eliminating manual cookie/header copy-paste from DevTools.
 
@@ -463,10 +466,22 @@ python cli/tabby_setup.py session ensure   # start browser session, wait for HEA
 source .env                                # load TABBY_* env vars
 ```
 
+### Recording a Login Profile for a New App
+
+When `tabby_setup.py setup` isn't sufficient (e.g. complex login flows, MFA, custom selectors), use the login recorder:
+
+```bash
+python cli/elicitation_setup.py start                              # start elicitation backend
+python cli/elicitation_setup.py profile record "MyApp" "<login-url>"  # create session + get instructions
+# → In Chrome: enable Login Recording Mode → log in → stop recording
+python cli/elicitation_setup.py profile import <session_id> --validate  # export+register+validate
+python cli/elicitation_setup.py profile promote <profile_db_id>    # STAGING → CANARY → ACTIVE
+```
+
 ### Daily Use
 
 ```bash
-python cli/tabby_setup.py health           # check everything is up
+python cli/tabby_setup.py status           # check everything is up
 python cli/tabby_setup.py session status   # check browser session state
 python cli/test_runner.py <action>         # credentials auto-injected
 ```
