@@ -4,7 +4,7 @@ Tabby lifecycle & provisioning CLI — zero-friction local setup for the
 Tabby credential service used by `abcd test`.
 
 Subcommands:
-    health                    - Check Docker Compose services and API liveness
+    status                    - Check Docker Compose services and API liveness
     start                     - Start infra (docker compose) and API in background
     stop [--infra]            - Stop the API process (and optionally docker compose)
     setup                     - Full end-to-end: start if needed, register agent
@@ -643,7 +643,7 @@ def _ensure_service_profile(
 
 
 # ---------------------------------------------------------------------------
-# Subcommands: health / start / stop
+# Subcommands: status / start / stop
 # ---------------------------------------------------------------------------
 
 
@@ -1340,7 +1340,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("health", help="Check Docker Compose services and API liveness")
+    sub.add_parser("status", help="Check Docker Compose services and API liveness")
     sub.add_parser("start", help="Start infra (docker compose) and Tabby API in background")
 
     stop_p = sub.add_parser("stop", help="Stop the Tabby API process")
@@ -1411,7 +1411,7 @@ def main() -> int:
         if not hasattr(args, attr):
             setattr(args, attr, default)
 
-    if args.command == "health":
+    if args.command == "status":
         return cmd_health(args)
     if args.command == "start":
         return cmd_start(args)

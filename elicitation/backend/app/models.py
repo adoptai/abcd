@@ -121,6 +121,9 @@ class CaptureSession(Base):
     har_capture: Mapped[bool] = mapped_column(Boolean, default=True)
     voice_mode: Mapped[str] = mapped_column(String(20), default="narrate")  # narrate | chat
     narration: Mapped[bool] = mapped_column(Boolean, default=False)
+    capture_purpose: Mapped[str] = mapped_column(String(50), default="general")  # general | login_recording
+    login_url: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    app_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     har_file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(nullable=True)
     stopped_at: Mapped[datetime | None] = mapped_column(nullable=True)
@@ -166,6 +169,13 @@ class ClickEvent(Base):
     input_type: Mapped[str | None] = mapped_column(String(50), nullable=True)  # text, select, checkbox, etc.
     value: Mapped[str | None] = mapped_column(String(500), nullable=True)  # field value
     field_name: Mapped[str | None] = mapped_column(String(255), nullable=True)  # input name attribute
+    field_role: Mapped[str | None] = mapped_column(String(30), nullable=True)  # username | password | otp | unknown_sensitive
+    is_redacted: Mapped[bool] = mapped_column(Boolean, default=False)
+    autocomplete: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    placeholder: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    aria_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    role_attr: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    data_attrs_json: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: {"data-testid": "..."}
     timestamp: Mapped[datetime] = mapped_column(default=_utcnow)
 
 
@@ -233,3 +243,13 @@ class Question(Base):
 
     project: Mapped["Project"] = relationship(back_populates="questions")
     process: Mapped["Process | None"] = relationship(back_populates="questions")
+
+
+class LoginDraft(Base):
+    __tablename__ = "login_drafts"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    capture_session_id: Mapped[str] = mapped_column(ForeignKey("capture_sessions.id", ondelete="CASCADE"))
+    bundle_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow, onupdate=_utcnow)

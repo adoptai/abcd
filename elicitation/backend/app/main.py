@@ -9,7 +9,7 @@ from sqlalchemy import text
 
 from app.database import Base, engine
 from app.mcp_server import mcp
-from app.routers import abcd_export, attachments, browser_commands, capture_sessions, chat, clicks, documents, example_site, export, messages, narrations, processes, projects, questions, screenshots, sessions, timeline, url_events
+from app.routers import abcd_export, attachments, browser_commands, capture_sessions, chat, clicks, documents, example_site, export, messages, narrations, processes, projects, questions, screenshots, sessions, timeline, url_events, login_sessions
 
 
 @asynccontextmanager
@@ -32,6 +32,18 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE click_events ADD COLUMN value VARCHAR(500)",
             "ALTER TABLE click_events ADD COLUMN field_name VARCHAR(255)",
             "ALTER TABLE capture_sessions ADD COLUMN har_capture BOOLEAN DEFAULT 1",
+            # Login recording columns
+            "ALTER TABLE capture_sessions ADD COLUMN capture_purpose VARCHAR(50) DEFAULT 'general'",
+            "ALTER TABLE capture_sessions ADD COLUMN login_url VARCHAR(2000)",
+            "ALTER TABLE capture_sessions ADD COLUMN app_name VARCHAR(255)",
+            # Enhanced click event columns for login recording
+            "ALTER TABLE click_events ADD COLUMN field_role VARCHAR(30)",
+            "ALTER TABLE click_events ADD COLUMN is_redacted BOOLEAN DEFAULT 0",
+            "ALTER TABLE click_events ADD COLUMN autocomplete VARCHAR(100)",
+            "ALTER TABLE click_events ADD COLUMN placeholder VARCHAR(255)",
+            "ALTER TABLE click_events ADD COLUMN aria_label VARCHAR(255)",
+            "ALTER TABLE click_events ADD COLUMN role_attr VARCHAR(50)",
+            "ALTER TABLE click_events ADD COLUMN data_attrs_json TEXT",
         ]:
             try:
                 await conn.execute(text(col_def))
@@ -78,6 +90,7 @@ app.include_router(questions.router)
 app.include_router(example_site.router)
 app.include_router(browser_commands.router)
 app.include_router(abcd_export.router)
+app.include_router(login_sessions.router)
 
 # Mount MCP server at /mcp for Claude Code integration
 app.mount("/mcp", mcp.sse_app())

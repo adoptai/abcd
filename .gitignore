@@ -144,6 +144,7 @@ Thumbs.db
 
 # Active environment pointer
 .active_env
+.elic-backend.pid
 workspaces/.active_env
 
 # CE Testing

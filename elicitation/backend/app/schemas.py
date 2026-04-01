@@ -133,6 +133,9 @@ class CaptureSessionCreate(BaseModel):
     har_capture: bool = True
     voice_mode: str = "narrate"
     narration: bool = False
+    capture_purpose: str = "general"
+    login_url: str | None = None
+    app_name: str | None = None
 
 
 class CaptureSessionUpdate(BaseModel):
@@ -141,6 +144,9 @@ class CaptureSessionUpdate(BaseModel):
     har_capture: bool | None = None
     voice_mode: str | None = None
     narration: bool | None = None
+    capture_purpose: str | None = None
+    login_url: str | None = None
+    app_name: str | None = None
 
 
 class CaptureSessionOut(BaseModel):
@@ -156,6 +162,9 @@ class CaptureSessionOut(BaseModel):
     har_file_path: str | None
     started_at: datetime | None
     stopped_at: datetime | None
+    capture_purpose: str
+    login_url: str | None
+    app_name: str | None
 
     model_config = {"from_attributes": True}
 
@@ -201,6 +210,13 @@ class ClickEventCreate(BaseModel):
     input_type: str | None = None
     value: str | None = None
     field_name: str | None = None
+    field_role: str | None = None
+    is_redacted: bool = False
+    autocomplete: str | None = None
+    placeholder: str | None = None
+    aria_label: str | None = None
+    role_attr: str | None = None
+    data_attrs_json: str | None = None
     timestamp: datetime | None = None
 
 
@@ -222,6 +238,13 @@ class ClickEventOut(BaseModel):
     input_type: str | None
     value: str | None
     field_name: str | None
+    field_role: str | None
+    is_redacted: bool
+    autocomplete: str | None
+    placeholder: str | None
+    aria_label: str | None
+    role_attr: str | None
+    data_attrs_json: str | None
     timestamp: datetime
 
     model_config = {"from_attributes": True}
@@ -319,6 +342,29 @@ class QuestionOut(BaseModel):
     answer: str
     status: str
     context_url: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── LoginSession (extends CaptureSession for login recording) ───────────────
+
+class LoginSessionCreate(BaseModel):
+    app_name: str
+    login_url: str
+    project_id: str | None = None
+    process_id: str | None = None
+
+
+class LoginSessionOut(CaptureSessionOut):
+    pass
+
+
+class LoginDraftOut(BaseModel):
+    id: str
+    capture_session_id: str
+    bundle_json: str
     created_at: datetime
     updated_at: datetime
 
