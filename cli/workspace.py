@@ -39,6 +39,10 @@ Commands:
     token-config delete    - Delete token configuration
     token-config publish   - Publish token configuration(s)
     token-config unpublish - Unpublish token configuration(s)
+
+    pipeline create - Create a new pipeline workspace
+    pipeline list   - List pipeline workspaces in active environment
+    pipeline show   - Show pipeline workspace details
 """
 
 import argparse
@@ -1951,6 +1955,159 @@ def cmd_token_config_unpublish(args: argparse.Namespace) -> int:
     return 0
 
 
+# =============================================================================
+# Pipeline commands
+# =============================================================================
+
+
+def cmd_pipeline_create(args: argparse.Namespace) -> int:
+    """Create a new pipeline workspace."""
+    import re
+
+    from cli.wdl_common.context import ensure_env
+    from cli.wdl_common.workspace_manager import get_workspace_manager as _gwm
+
+    def _slugify(text: str) -> str:
+        s = text.lower().strip()
+        s = re.sub(r"[^\w\s-]", "", s)
+        s = re.sub(r"[\s_]+", "-", s)
+        s = re.sub(r"-+", "-", s)
+        return s.strip("-")[:64]
+
+    env_name = ensure_env()
+    manager = _gwm()
+
+    pipeline_id = getattr(args, "id", None) or _slugify(args.title)
+
+    if getattr(args, "source_type", "internal") == "connector":
+        source_connector_id = getattr(args, "source_connector_id", None)
+        if not source_connector_id:
+            print("❌ --source-connector-id is required when --source-type=connector")
+            return 1
+        source = {
+            "integration_id": source_connector_id,
+            "integration_type": getattr(args, "source_connector_type", "connector") or "connector",
+            "integration_name": getattr(args, "source_connector_name", None) or source_connector_id,
+        }
+    elif getattr(args, "source_type", "internal") == "salesforce":
+        source = {
+            "integration_id": getattr(args, "source_connector_id", None) or "salesforce",
+            "integration_type": "salesforce",
+            "integration_name": getattr(args, "source_connector_name", None) or "Salesforce",
+        }
+    else:
+        source = {
+            "integration_id": "internal_data_store",
+            "integration_type": "internal",
+            "integration_name": "Internal Data Store",
+        }
+
+    success, path, message = manager.create_pipeline_workspace(
+        pipeline_id=pipeline_id,
+        name=args.title,
+        description=getattr(args, "description", "") or "",
+        prompt=getattr(args, "prompt", "") or args.title,
+        source=source,
+        env_name=env_name,
+    )
+
+    if not success:
+        print(f"❌ {message}")
+        return 1
+
+    print(f"✅ {message}")
+    print(f"   Environment : {env_name}")
+    print(f"   Path        : {path}")
+    print(f"\n📝 Next steps:")
+    print(f"   1. Edit widdle.json:  {path / 'widdle.json'}")
+    print(f"   2. Push draft:        python cli/save_pipeline_draft.py {pipeline_id}")
+    print(f"   3. Run test:          python cli/test_pipeline.py {pipeline_id}")
+    print(f"   4. Publish:           python cli/publish_pipeline.py {pipeline_id} --yes")
+    return 0
+
+
+def cmd_pipeline_list(args: argparse.Namespace) -> int:
+    """List pipeline workspaces."""
+    from cli.wdl_common.context import ensure_env
+    from cli.wdl_common.workspace_manager import get_workspace_manager as _gwm
+
+    env_name = ensure_env()
+    manager = _gwm()
+    pipelines = manager.list_pipeline_workspaces(env_name)
+
+    state_filter = getattr(args, "state", None)
+    if state_filter:
+        pipelines = [p for p in pipelines if p.get("state") == state_filter]
+
+    if getattr(args, "json", False):
+        out = [{k: str(v) if k == "path" else v for k, v in p.items()} for p in pipelines]
+        print(json.dumps(out, indent=2, default=str))
+        return 0
+
+    if not pipelines:
+        print(f"No pipeline workspaces found in environment '{env_name}'")
+        print("Create one: python cli/workspace.py pipeline create --title 'My Pipeline'")
+        return 0
+
+    state_icons = {
+        "local": "🏠", "draft": "📝", "published": "✅",
+        "running": "🟢", "paused": "⏸", "error": "🔴",
+    }
+    print(f"\n📦 Pipelines in: {env_name}  ({len(pipelines)})\n")
+    print(f"  {'ID':<30}  {'STATE':<12}  NAME")
+    print(f"  {'-'*30}  {'-'*12}  {'-'*30}")
+    for p in pipelines:
+        pid = p.get("pipeline_id", "?")[:30]
+        state = p.get("state") or "local"
+        icon = state_icons.get(state, "❓")
+        name = p.get("name", pid)[:50]
+        print(f"  {pid:<30}  {icon} {state:<10}  {name}")
+    print()
+    return 0
+
+
+def cmd_pipeline_show(args: argparse.Namespace) -> int:
+    """Show details of a pipeline workspace."""
+    from cli.wdl_common.context import ensure_env
+    from cli.wdl_common.workspace_manager import get_workspace_manager as _gwm
+
+    env_name = ensure_env()
+    manager = _gwm()
+    meta = manager.get_pipeline_workspace(args.pipeline_id, env_name)
+
+    if not meta:
+        print(f"❌ Pipeline workspace not found: {args.pipeline_id}")
+        return 1
+
+    if getattr(args, "json", False):
+        out = {k: str(v) if k == "path" else v for k, v in meta.items()}
+        print(json.dumps(out, indent=2, default=str))
+        return 0
+
+    path = meta.get("path")
+    wdl_steps = 0
+    if path:
+        wdl_path = Path(path) / "widdle.json"
+        if wdl_path.exists():
+            try:
+                wdl_steps = len(json.loads(wdl_path.read_text()))
+            except Exception:
+                pass
+
+    print(f"\n📋 Pipeline: {meta['pipeline_id']}")
+    print(f"   Name          : {meta['name']}")
+    print(f"   Description   : {meta.get('description', '')}")
+    print(f"   State         : {meta.get('state', 'local')}")
+    print(f"   Remote ID     : {meta.get('remote_pipeline_id') or '(not yet pushed)'}")
+    print(f"   Version ID    : {meta.get('version_id') or '(none)'}")
+    print(f"   Source        : {meta.get('source', {}).get('integration_name', '?')}")
+    print(f"   Schedule      : {meta.get('schedule_type', 'manual')}")
+    print(f"   WDL steps     : {wdl_steps}")
+    print(f"   Path          : {path}")
+    print()
+    return 0
+
+
 def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
@@ -2401,6 +2558,48 @@ Examples:
     )
     tc_unpublish.set_defaults(func=cmd_token_config_unpublish)
 
+    # =========================================================================
+    # PIPELINE commands
+    # =========================================================================
+    pipeline_parser = subparsers.add_parser("pipeline", help="Pipeline workspace management")
+    pipeline_subparsers = pipeline_parser.add_subparsers(dest="pipeline_command")
+
+    # pipeline create
+    pl_create = pipeline_subparsers.add_parser("create", help="Create a new pipeline workspace")
+    pl_create.add_argument("--id", help="Pipeline ID (slug). Derived from title if omitted.")
+    pl_create.add_argument("--title", "-t", required=True, help="Pipeline title")
+    pl_create.add_argument("--description", "-d", help="Pipeline description")
+    pl_create.add_argument(
+        "--prompt",
+        help="One-line prompt describing what the pipeline does",
+    )
+    pl_create.add_argument(
+        "--source-type",
+        choices=["internal", "salesforce", "connector"],
+        default="internal",
+        help="Source type (default: internal)",
+    )
+    pl_create.add_argument("--source-connector-id", help="Connector instance ID")
+    pl_create.add_argument("--source-connector-type", help="Connector provider type (e.g. amazon_s3)")
+    pl_create.add_argument("--source-connector-name", help="Human-readable source name")
+    pl_create.set_defaults(func=cmd_pipeline_create)
+
+    # pipeline list
+    pl_list = pipeline_subparsers.add_parser("list", help="List pipeline workspaces")
+    pl_list.add_argument(
+        "--state",
+        choices=["local", "draft", "published", "running", "paused", "error"],
+        help="Filter by state",
+    )
+    pl_list.add_argument("--json", action="store_true", help="Output as JSON")
+    pl_list.set_defaults(func=cmd_pipeline_list)
+
+    # pipeline show
+    pl_show = pipeline_subparsers.add_parser("show", help="Show pipeline workspace details")
+    pl_show.add_argument("pipeline_id", help="Pipeline ID")
+    pl_show.add_argument("--json", action="store_true", help="Output as JSON")
+    pl_show.set_defaults(func=cmd_pipeline_show)
+
     # Global verbose flag
     parser.add_argument(
         "--verbose",
@@ -2437,6 +2636,8 @@ Examples:
             pg_parser.print_help()
         elif args.command == "token-config":
             tc_parser.print_help()
+        elif args.command == "pipeline":
+            pipeline_parser.print_help()
         return 0
 
 
