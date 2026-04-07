@@ -25,8 +25,10 @@ Directory Structure:
     │   │       ├── adopt_profile.json (optional)
     │   │       └── actions/
     │   │           └── {action_id}/
-    │   └── actions/             # Standalone actions in env
-    │       └── {action_id}/
+    │   ├── actions/             # Standalone actions in env
+    │   │   └── {action_id}/
+    │   └── lambdas/             # Lambda workspaces in env
+    │       └── {lambda_name}/
     └── {other_env}/             # Additional environments
         └── ...
 """
