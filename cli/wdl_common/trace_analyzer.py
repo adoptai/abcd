@@ -70,6 +70,29 @@ class TraceAnalyzer:
                     "Add the missing parameter to required_inputs or workflow_params"
                 ),
             },
+            "sandbox_expired": {
+                "issue_type": "error",
+                "message": "Sandbox session expired or was terminated",
+                "suggested_fix": (
+                    "Increase sandbox timeout_minutes or check keepalive configuration"
+                ),
+            },
+            "sandbox_creation_failed": {
+                "issue_type": "error",
+                "message": "Failed to create sandbox container",
+                "suggested_fix": (
+                    "Check OpenSandbox cluster availability and image name. "
+                    "Use 'python:3.11' for SANDBOX or ensure adopt-lambda-runtime is available."
+                ),
+            },
+            "lambda_not_found": {
+                "issue_type": "error",
+                "message": "Lambda not found in registry",
+                "suggested_fix": (
+                    "Check lambda_name or lambda_id in the EXECUTE_LAMBDA step. "
+                    "Run 'python cli/manage_lambda.py --list' to see available lambdas."
+                ),
+            },
         }
 
     def analyze_trace(self, trace: dict[str, Any]) -> list[TraceIssue]:
@@ -134,7 +157,71 @@ class TraceAnalyzer:
                     issue.suggested_fix = fix_info["suggested_fix"]
                     break
 
+            # Add operation-specific suggestions
+            if op_type == "EXECUTE_LAMBDA" and not issue.suggested_fix:
+                issue.suggested_fix = (
+                    "Check lambda execution logs with: "
+                    "python cli/lambda_logs.py --execution-id <exec_id>"
+                )
+            elif op_type == "SANDBOX" and not issue.suggested_fix:
+                action = op.get("action", "unknown")
+                issue.suggested_fix = (
+                    f"SANDBOX '{action}' step failed. "
+                    "Check sandbox session details in the execution trace."
+                )
+
             issues.append(issue)
+
+        # Add info-level details for sandbox/lambda operations
+        if op_type == "EXECUTE_LAMBDA" and status != "error":
+            output = op.get("output", {})
+            if isinstance(output, dict):
+                exec_id = output.get("execution_id")
+                exit_code = output.get("exit_code")
+                duration = output.get("duration_ms")
+                downloaded = output.get("downloaded_files", [])
+                if exec_id:
+                    details = {
+                        "execution_id": exec_id,
+                        "exit_code": exit_code,
+                        "duration_ms": duration,
+                        "downloaded_files_count": len(downloaded),
+                    }
+                    issues.append(
+                        TraceIssue(
+                            operation_id=op_id,
+                            operation_type=op_type,
+                            issue_type="suggestion",
+                            message=f"Lambda executed in {duration}ms (exit={exit_code})",
+                            details=details,
+                            suggested_fix=(
+                                f"Full logs: python cli/lambda_logs.py --execution-id {exec_id}"
+                                if exit_code != 0
+                                else None
+                            ),
+                        )
+                    )
+
+        elif op_type == "SANDBOX" and status != "error":
+            output = op.get("output", {})
+            if isinstance(output, dict):
+                sandbox_id = output.get("sandbox_id")
+                endpoints = output.get("endpoints", {})
+                downloaded = output.get("downloaded_files", [])
+                if sandbox_id or endpoints or downloaded:
+                    issues.append(
+                        TraceIssue(
+                            operation_id=op_id,
+                            operation_type=op_type,
+                            issue_type="suggestion",
+                            message=(
+                                f"Sandbox session: {sandbox_id or 'active'}, "
+                                f"endpoints: {len(endpoints)}, "
+                                f"downloaded: {len(downloaded)} files"
+                            ),
+                            details=output,
+                        )
+                    )
 
         return issues
 

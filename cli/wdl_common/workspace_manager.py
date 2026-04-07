@@ -122,6 +122,24 @@ class ActionContext:
         return self.path / "adopt_profile.json"
 
 
+@dataclass
+class LambdaContext:
+    """
+    Complete context for a lambda workspace.
+
+    Covers both env-level lambdas (workspaces/{env}/lambdas/{name}/) and
+    agent-scoped lambdas (workspaces/{env}/agents/{agent}/lambdas/{name}/).
+    """
+
+    name: str
+    path: Path
+    lambda_json: dict[str, Any]
+    metadata: dict[str, Any]
+    source_files: list[str]
+    env_name: str
+    agent_name: str | None
+
+
 class WorkspaceType(Enum):
     """Type of workspace."""
 
@@ -1459,6 +1477,219 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                                         actions.append(info)
 
         return actions
+
+    # =========================================================================
+    # Lambda Management
+    # =========================================================================
+
+    def _load_lambda_context(
+        self, lambda_path: Path, env_name: str, agent_name: str | None
+    ) -> LambdaContext:
+        """Load a LambdaContext from a lambda workspace directory."""
+        lambda_json: dict[str, Any] = {}
+        lambda_json_path = lambda_path / "lambda.json"
+        if lambda_json_path.exists():
+            try:
+                lambda_json = json.loads(lambda_json_path.read_text())
+            except Exception:
+                pass
+
+        metadata: dict[str, Any] = {}
+        metadata_path = lambda_path / "metadata.json"
+        if metadata_path.exists():
+            try:
+                metadata = json.loads(metadata_path.read_text())
+            except Exception:
+                pass
+
+        source_files: list[str] = []
+        for item in lambda_path.rglob("*"):
+            if item.is_file() and item.name not in (
+                "lambda.json",
+                "metadata.json",
+                "requirements.txt",
+            ):
+                source_files.append(str(item.relative_to(lambda_path)))
+
+        return LambdaContext(
+            name=lambda_path.name,
+            path=lambda_path,
+            lambda_json=lambda_json,
+            metadata=metadata,
+            source_files=source_files,
+            env_name=env_name,
+            agent_name=agent_name,
+        )
+
+    def find_lambda(self, name: str) -> "LambdaContext | None":
+        """
+        Find a lambda workspace by name.
+
+        Searches agent-scoped lambdas first, then env-level lambdas.
+
+        Args:
+            name: Lambda name to find
+
+        Returns:
+            LambdaContext if found, None otherwise
+        """
+        env = self._active_env
+        if not env or not self.env_exists(env):
+            return None
+
+        env_path = WORKSPACES_DIR / env
+
+        # Search agent-scoped lambdas first
+        agents_dir = env_path / "agents"
+        if agents_dir.exists():
+            for agent_item in agents_dir.iterdir():
+                if not agent_item.is_dir():
+                    continue
+                lambda_path = agent_item / "lambdas" / name
+                if lambda_path.exists() and (lambda_path / "lambda.json").exists():
+                    return self._load_lambda_context(lambda_path, env, agent_item.name)
+
+        # Search env-level lambdas
+        lambda_path = env_path / "lambdas" / name
+        if lambda_path.exists() and (lambda_path / "lambda.json").exists():
+            return self._load_lambda_context(lambda_path, env, None)
+
+        return None
+
+    def list_lambdas(self, agent_name: str | None = None) -> list["LambdaContext"]:
+        """
+        List all lambda workspaces, optionally filtered by agent.
+
+        Args:
+            agent_name: If provided, list only lambdas for this agent.
+                        If None, list all lambdas (env-level and all agents).
+
+        Returns:
+            List of LambdaContext instances
+        """
+        env = self._active_env
+        if not env or not self.env_exists(env):
+            return []
+
+        env_path = WORKSPACES_DIR / env
+        lambdas: list[LambdaContext] = []
+
+        if agent_name:
+            # List lambdas for a specific agent only
+            lambdas_dir = env_path / "agents" / agent_name / "lambdas"
+            if lambdas_dir.exists():
+                for item in lambdas_dir.iterdir():
+                    if item.is_dir() and (item / "lambda.json").exists():
+                        lambdas.append(self._load_lambda_context(item, env, agent_name))
+        else:
+            # List env-level lambdas
+            env_lambdas_dir = env_path / "lambdas"
+            if env_lambdas_dir.exists():
+                for item in env_lambdas_dir.iterdir():
+                    if item.is_dir() and (item / "lambda.json").exists():
+                        lambdas.append(self._load_lambda_context(item, env, None))
+
+            # List all agent-scoped lambdas
+            agents_dir = env_path / "agents"
+            if agents_dir.exists():
+                for agent_item in agents_dir.iterdir():
+                    if not agent_item.is_dir():
+                        continue
+                    agent_lambdas_dir = agent_item / "lambdas"
+                    if agent_lambdas_dir.exists():
+                        for item in agent_lambdas_dir.iterdir():
+                            if item.is_dir() and (item / "lambda.json").exists():
+                                lambdas.append(
+                                    self._load_lambda_context(item, env, agent_item.name)
+                                )
+
+        return lambdas
+
+    def create_lambda(
+        self,
+        name: str,
+        agent_name: str | None = None,
+        language: str = "python",
+        runtime_image: str | None = None,
+        cpu_limit: str | None = None,
+        memory_limit: str | None = None,
+    ) -> "LambdaContext":
+        """
+        Create a new lambda workspace with template files.
+
+        Agent-scoped: workspaces/{env}/agents/{agent}/lambdas/{name}/
+        Env-level:    workspaces/{env}/lambdas/{name}/
+
+        Args:
+            name: Lambda name
+            agent_name: Agent to scope this lambda to (None for env-level)
+            language: Programming language (default: "python")
+
+        Returns:
+            LambdaContext for the created lambda
+
+        Raises:
+            ValueError: If no active environment, agent not found, or lambda already exists
+        """
+        env = self._active_env
+        if not env:
+            raise ValueError(
+                "No active environment. Set one with: python cli/workspace.py env use <env-id>"
+            )
+
+        if not self.env_exists(env):
+            raise ValueError(f"Environment not found: {env}")
+
+        if agent_name and not self.agent_exists(agent_name, env):
+            raise ValueError(f"Agent not found: {agent_name}")
+
+        if agent_name:
+            lambda_path = WORKSPACES_DIR / env / "agents" / agent_name / "lambdas" / name
+        else:
+            lambda_path = WORKSPACES_DIR / env / "lambdas" / name
+
+        if lambda_path.exists():
+            raise ValueError(f"Lambda already exists: {name}")
+
+        lambda_path.mkdir(parents=True)
+        (lambda_path / "test_cases").mkdir()
+
+        lambda_json: dict[str, Any] = {
+            "name": name,
+            "language": language,
+            "entry_point": "script.py",
+            "resource_permissions": [],
+            "timeout_seconds": 300,
+            "runtime_image": runtime_image or "adopt-lambda-runtime:latest",
+            "cpu_limit": cpu_limit or "500m",
+            "memory_limit": memory_limit or "512Mi",
+        }
+        (lambda_path / "lambda.json").write_text(json.dumps(lambda_json, indent=2))
+
+        script_content = (
+            "import json\n"
+            "import sys\n"
+            "\n"
+            "\n"
+            "def main(input_data):\n"
+            '    return {"result": "ok"}\n'
+            "\n"
+            "\n"
+            'if __name__ == "__main__":\n'
+            "    input_data = json.load(sys.stdin)\n"
+            "    output = main(input_data)\n"
+            "    print(json.dumps(output))\n"
+        )
+        (lambda_path / "script.py").write_text(script_content)
+
+        (lambda_path / "requirements.txt").write_text("")
+
+        metadata: dict[str, Any] = {
+            "lambda_id": None,
+        }
+        (lambda_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+        return self._load_lambda_context(lambda_path, env, agent_name)
 
     # =========================================================================
     # Configuration Inheritance
