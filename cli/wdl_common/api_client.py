@@ -1207,6 +1207,20 @@ class AdoptAPIClient:
         except Exception as e:
             return False, None, str(e)
 
+    def delete_lambda_file(self, lambda_id: str, file_path: str) -> tuple:
+        """Delete a single file from a lambda."""
+        try:
+            from urllib.parse import quote as _url_quote
+
+            encoded_path = _url_quote(file_path, safe="")
+            url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}/files/{encoded_path}"
+            resp = requests.delete(url, headers=self.headers, timeout=30)
+            if resp.status_code in (200, 204):
+                return True, None, None
+            return False, None, f"Delete failed: {resp.status_code} {resp.text}"
+        except requests.exceptions.RequestException as e:
+            return False, None, str(e)
+
     def test_lambda(
         self,
         lambda_id: str,

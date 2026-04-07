@@ -6,6 +6,7 @@ Features:
 - Test with inline JSON: test_lambda.py my-lambda --input '{"key": "value"}'
 - Test with file input: test_lambda.py my-lambda --input-file input.json
 - Compile/validate only: test_lambda.py my-lambda --compile
+- Run all test cases: test_lambda.py my-lambda --all
 """
 
 import argparse
@@ -41,8 +42,16 @@ Examples:
     )
 
     parser.add_argument("name", help="Lambda name")
-    parser.add_argument("--input", "-i", help="Input data as JSON string")
-    parser.add_argument("--input-file", "-f", help="Input data from JSON file")
+
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument("--input", "-i", help="Input data as JSON string")
+    input_group.add_argument("--input-file", "-f", help="Input data from JSON file")
+    input_group.add_argument(
+        "--all",
+        action="store_true",
+        help="Run all test cases from test_cases/ in the lambda workspace",
+    )
+
     parser.add_argument(
         "--compile",
         action="store_true",
@@ -92,12 +101,51 @@ Examples:
         )
         sys.exit(1)
 
-    # Build input data
-    input_data: dict = {}
-    if args.input and args.input_file:
-        print("ERROR: Cannot use both --input and --input-file", file=sys.stderr)
-        sys.exit(1)
+    client = get_api_client_for_env()
 
+    if args.all:
+        test_cases_dir = ctx.path / "test_cases"
+        test_files = sorted(test_cases_dir.glob("*.json")) if test_cases_dir.exists() else []
+        if not test_files:
+            print(f"ERROR: No JSON files found in {test_cases_dir}", file=sys.stderr)
+            sys.exit(1)
+
+        print(f"\nFound {len(test_files)} test case(s) in {test_cases_dir}")
+        passed = 0
+        failed = 0
+        for test_file in test_files:
+            try:
+                input_data = json.loads(test_file.read_text())
+            except json.JSONDecodeError as e:
+                print(f"\n  [{test_file.name}] ERROR: Invalid JSON: {e}")
+                failed += 1
+                continue
+
+            if args.verbose:
+                print(f"\n  [{test_file.name}] Input: {json.dumps(input_data, indent=2)}")
+
+            success, result, msg = client.test_lambda(
+                lambda_id=lambda_id,
+                input_data=input_data if input_data else None,
+                version_number=args.version,
+            )
+
+            if success:
+                print(f"\n  [{test_file.name}] PASSED: {msg}")
+                if args.verbose and result:
+                    print(json.dumps(result, indent=2))
+                passed += 1
+            else:
+                print(f"\n  [{test_file.name}] FAILED: {msg}")
+                if result:
+                    print(json.dumps(result, indent=2))
+                failed += 1
+
+        print(f"\nSummary: {passed} passed, {failed} failed")
+        sys.exit(0 if failed == 0 else 1)
+
+    # Build input data for single test
+    input_data = {}
     if args.input:
         try:
             input_data = json.loads(args.input)
@@ -114,8 +162,6 @@ Examples:
         except json.JSONDecodeError as e:
             print(f"ERROR: Invalid JSON in input file: {e}", file=sys.stderr)
             sys.exit(1)
-
-    client = get_api_client_for_env()
 
     print(f"\nRunning test (lambda_id={lambda_id})...")
     if args.verbose and input_data:
