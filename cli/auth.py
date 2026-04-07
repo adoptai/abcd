@@ -27,10 +27,23 @@ def get_bearer_token(
     Raises:
         ValueError: If authentication fails or credentials are missing
     """
+    # Short-circuit: if ADOPT_BEARER_TOKEN is set, use it directly.
+    # This is useful for local development where the backend does not have a
+    # /v1/auth/token endpoint and accepts pre-issued JWTs directly.
+    pre_issued = os.getenv("ADOPT_BEARER_TOKEN")
+    if pre_issued:
+        return pre_issued
+
     # Get credentials from environment variables if not provided
     client_id = client_id or os.getenv("ADOPT_CLIENT_ID")
     client_secret = client_secret or os.getenv("ADOPT_CLIENT_SECRET")
-    api_endpoint = api_endpoint or os.getenv("ADOPT_API_ENDPOINT", "https://connect.adopt.ai")
+    # ADOPT_AUTH_ENDPOINT allows auth to go to a different server than the main API endpoint.
+    # Useful when ADOPT_API_ENDPOINT points to a local server that can't issue tokens.
+    api_endpoint = (
+        api_endpoint
+        or os.getenv("ADOPT_AUTH_ENDPOINT")
+        or os.getenv("ADOPT_API_ENDPOINT", "https://connect.adopt.ai")
+    )
 
     # Validate credentials
     if not client_id:
