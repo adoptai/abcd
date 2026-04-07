@@ -456,6 +456,17 @@ WDL defines multi-step workflows with operations like:
 - `PROMPT` - LLM calls
 - `CONDITION` - Conditional branching
 - `OUTPUT_TEXT` / `OUTPUT_TABLE` - Output formatting
+- `EXECUTE_LAMBDA` - Execute lambda functions (see Lambda Draft Lifecycle below)
+
+### Lambda Files
+
+When using `EXECUTE_LAMBDA` operations, save local lambda files to the backend with:
+
+```bash
+python cli/save_lambda.py my-lambda
+```
+
+The executor resolves files from the backend when `lambda_name` is specified. The `upload_files` parameter in EXECUTE_LAMBDA steps is not needed.
 
 ### Workspaces
 
@@ -469,6 +480,22 @@ Workflows are organized in workspaces:
 - Versions can be checked out and tested
 - All versions stored locally in `versions/` folder
 - Publish makes a version live
+
+### Lambda Management
+
+```bash
+# Create lambda workspace
+python cli/manage_lambda.py --create my-lambda
+
+# Save files to backend
+python cli/save_lambda.py my-lambda
+
+# List lambdas
+python cli/manage_lambda.py --list
+
+# Show lambda details
+python cli/manage_lambda.py --show my-lambda
+```
 
 ## Documentation
 

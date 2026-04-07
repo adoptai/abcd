@@ -697,6 +697,8 @@ Fix: Add FIRST_ELEMENT between JQ_FILTER and EXTRACT
 
 ---
 
+---
+
 ## Related Documentation
 
 - [WDL Schema Reference](../../docs/wdl_schema.md)
