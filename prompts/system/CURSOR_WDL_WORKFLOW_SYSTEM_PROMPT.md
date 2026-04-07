@@ -758,6 +758,8 @@ The WDL documentation is hosted remotely for easy access:
 | `PAGINATION` | Handle paginated data |
 | `OUTPUT_TEXT` | Format text output |
 | `OUTPUT_TABLE` | Format tabular output |
+| `EXECUTE_LAMBDA` | Run registered Python lambda (platform sandbox, restricted network). Full docs at widdle_docs URL. |
+| `SANDBOX` | Ad-hoc container execution with custom image (cloud only). Full docs at widdle_docs URL. |
 
 ### REST Operation with `application` Property
 

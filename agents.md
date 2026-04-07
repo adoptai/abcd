@@ -871,6 +871,87 @@ python cli/discover.py --requirements requirements.md
 
 ---
 
+### Lambda & Sandbox Operations
+
+**When to use Lambda vs Sandbox vs Action:**
+
+- **Action** (default): Declarative WDL workflows for API orchestration, data transformation, LLM prompts. No custom code execution.
+- **Lambda (EXECUTE_LAMBDA)**: Registered, reusable Python code that runs in a first-party sandbox with platform resource access (database, vector store, document APIs). Use when the workflow needs custom computation, data processing, or ML inference that can't be expressed as declarative WDL steps. Lambdas have restricted networking (platform FQDNs only) and use the audited `adopt-lambda-runtime` image.
+- **Sandbox (SANDBOX)**: Ad-hoc container execution with custom Docker images and configurable network. Use for one-off tasks like running shell scripts, installing packages, or executing code that needs internet access. Persistent session across steps (init -> exec -> exec -> teardown). NOT available on-prem.
+
+**Cloud vs On-Prem:**
+
+| Feature | Cloud | On-Prem |
+|---------|-------|---------|
+| EXECUTE_LAMBDA | Yes (adopt-lambda-runtime only) | Yes (adopt-lambda-runtime only) |
+| SANDBOX | Yes (any image, configurable network) | Disabled |
+| Custom Docker images | Yes (SANDBOX only) | Disabled |
+
+**Lambda CLI Workflow:**
+
+```bash
+# Create a lambda workspace
+manage_lambda.py --create my-lambda
+
+# Edit code in workspaces/{env}/lambdas/my-lambda/script.py
+
+# Upload to platform
+save_lambda.py my-lambda
+
+# Test execution
+test_lambda.py my-lambda --input '{"key": "value"}'
+
+# View execution logs
+lambda_logs.py my-lambda
+
+# Update config (image, cpu, memory, timeout)
+manage_lambda.py --update my-lambda --timeout 120
+
+# Delete
+manage_lambda.py --delete my-lambda
+```
+
+**WDL Examples:**
+
+EXECUTE_LAMBDA:
+```json
+{
+  "id": "runAnalysis",
+  "operation": "EXECUTE_LAMBDA",
+  "lambda_name": "data-analyzer",
+  "input": "previousStep",
+  "env": {"DEBUG": "true"}
+}
+```
+
+SANDBOX (multi-step):
+```json
+[
+  {
+    "id": "setupEnv",
+    "operation": "SANDBOX",
+    "action": "init",
+    "image": "python:3.11-slim",
+    "upload_files": [{"path": "/workspace/script.py", "content": "..."}]
+  },
+  {
+    "id": "runScript",
+    "operation": "SANDBOX",
+    "action": "exec",
+    "command": "python /workspace/script.py"
+  },
+  {
+    "id": "cleanup",
+    "operation": "SANDBOX",
+    "action": "teardown"
+  }
+]
+```
+
+**Full operation docs:** After the ProjectA3 PR is merged, detailed field-level docs will be available at the remote widdle_docs URL referenced by the WDL prompt system.
+
+---
+
 ## CLI Tools Reference
 
 ### Main Entry Point
