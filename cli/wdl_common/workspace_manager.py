@@ -131,15 +131,28 @@ class LambdaContext:
 
     Covers both env-level lambdas (workspaces/{env}/lambdas/{name}/) and
     agent-scoped lambdas (workspaces/{env}/agents/{agent}/lambdas/{name}/).
+
+    The unified ``metadata`` dict contains all lambda config fields (name,
+    language, entry_point, timeout_seconds, etc.) as well as the remote
+    ``lambda_id``.  The legacy ``lambda.json`` file (old format) is merged in
+    at load-time for backward compatibility.
     """
 
     name: str
     path: Path
-    lambda_json: dict[str, Any]
     metadata: dict[str, Any]
     source_files: list[str]
     env_name: str
     agent_name: str | None
+
+    # ---------------------------------------------------------------------------
+    # Convenience shim: callers that used ctx.lambda_json.get(...) still work.
+    # Remove once all call sites are updated.
+    # ---------------------------------------------------------------------------
+    @property
+    def lambda_json(self) -> "dict[str, Any]":
+        """Backward-compat shim — returns metadata (unified dict)."""
+        return self.metadata
 
 
 class WorkspaceType(Enum):
@@ -1487,20 +1500,27 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
     def _load_lambda_context(
         self, lambda_path: Path, env_name: str, agent_name: str | None
     ) -> LambdaContext:
-        """Load a LambdaContext from a lambda workspace directory."""
-        lambda_json: dict[str, Any] = {}
+        """Load a LambdaContext from a lambda workspace directory.
+
+        Reads the unified ``metadata.json``.  For backward compatibility with
+        the old two-file format, if ``lambda.json`` also exists its values are
+        merged in first (metadata.json values win on conflicts).
+        """
+        merged: dict[str, Any] = {}
+
+        # Backward compat: read legacy lambda.json first (lower priority)
         lambda_json_path = lambda_path / "lambda.json"
         if lambda_json_path.exists():
             try:
-                lambda_json = json.loads(lambda_json_path.read_text())
+                merged.update(json.loads(lambda_json_path.read_text()))
             except Exception:
                 pass
 
-        metadata: dict[str, Any] = {}
+        # Unified metadata.json takes precedence
         metadata_path = lambda_path / "metadata.json"
         if metadata_path.exists():
             try:
-                metadata = json.loads(metadata_path.read_text())
+                merged.update(json.loads(metadata_path.read_text()))
             except Exception:
                 pass
 
@@ -1516,8 +1536,7 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         return LambdaContext(
             name=lambda_path.name,
             path=lambda_path,
-            lambda_json=lambda_json,
-            metadata=metadata,
+            metadata=merged,
             source_files=source_files,
             env_name=env_name,
             agent_name=agent_name,
@@ -1548,12 +1567,18 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                 if not agent_item.is_dir():
                     continue
                 lambda_path = agent_item / "lambdas" / name
-                if lambda_path.exists() and (lambda_path / "lambda.json").exists():
+                # Accept new unified metadata.json OR legacy lambda.json
+                if lambda_path.exists() and (
+                    (lambda_path / "metadata.json").exists()
+                    or (lambda_path / "lambda.json").exists()
+                ):
                     return self._load_lambda_context(lambda_path, env, agent_item.name)
 
         # Search env-level lambdas
         lambda_path = env_path / "lambdas" / name
-        if lambda_path.exists() and (lambda_path / "lambda.json").exists():
+        if lambda_path.exists() and (
+            (lambda_path / "metadata.json").exists() or (lambda_path / "lambda.json").exists()
+        ):
             return self._load_lambda_context(lambda_path, env, None)
 
         return None
@@ -1576,19 +1601,23 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         env_path = WORKSPACES_DIR / env
         lambdas: list[LambdaContext] = []
 
+        def _is_lambda_dir(p: Path) -> bool:
+            """Accept new unified metadata.json OR legacy lambda.json."""
+            return p.is_dir() and ((p / "metadata.json").exists() or (p / "lambda.json").exists())
+
         if agent_name:
             # List lambdas for a specific agent only
             lambdas_dir = env_path / "agents" / agent_name / "lambdas"
             if lambdas_dir.exists():
                 for item in lambdas_dir.iterdir():
-                    if item.is_dir() and (item / "lambda.json").exists():
+                    if _is_lambda_dir(item):
                         lambdas.append(self._load_lambda_context(item, env, agent_name))
         else:
             # List env-level lambdas
             env_lambdas_dir = env_path / "lambdas"
             if env_lambdas_dir.exists():
                 for item in env_lambdas_dir.iterdir():
-                    if item.is_dir() and (item / "lambda.json").exists():
+                    if _is_lambda_dir(item):
                         lambdas.append(self._load_lambda_context(item, env, None))
 
             # List all agent-scoped lambdas
@@ -1600,7 +1629,7 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
                     agent_lambdas_dir = agent_item / "lambdas"
                     if agent_lambdas_dir.exists():
                         for item in agent_lambdas_dir.iterdir():
-                            if item.is_dir() and (item / "lambda.json").exists():
+                            if _is_lambda_dir(item):
                                 lambdas.append(
                                     self._load_lambda_context(item, env, agent_item.name)
                                 )
@@ -1656,17 +1685,21 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         lambda_path.mkdir(parents=True)
         (lambda_path / "test_cases").mkdir()
 
-        lambda_json: dict[str, Any] = {
+        # Unified metadata.json — merges config (formerly lambda.json) with
+        # remote-linking fields (formerly metadata.json).
+        metadata: dict[str, Any] = {
             "name": name,
+            "type": "lambda",
+            "lambda_id": None,
             "language": language,
             "entry_point": "script.py",
-            "resource_permissions": [],
             "timeout_seconds": 300,
             "runtime_image": runtime_image or "adopt-lambda-runtime:latest",
             "cpu_limit": cpu_limit or "500m",
             "memory_limit": memory_limit or "512Mi",
+            "resource_permissions": [],
         }
-        (lambda_path / "lambda.json").write_text(json.dumps(lambda_json, indent=2))
+        (lambda_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
         script_content = (
             "import json\n"
@@ -1685,11 +1718,6 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         (lambda_path / "script.py").write_text(script_content)
 
         (lambda_path / "requirements.txt").write_text("")
-
-        metadata: dict[str, Any] = {
-            "lambda_id": None,
-        }
-        (lambda_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
         return self._load_lambda_context(lambda_path, env, agent_name)
 

@@ -69,7 +69,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         lambda_id = ctx.metadata.get("lambda_id")
         agent_info = f" [agent: {ctx.agent_name}]" if ctx.agent_name else ""
         id_info = f" (id: {lambda_id})" if lambda_id else " (not linked)"
-        language = ctx.lambda_json.get("language", "python")
+        language = ctx.metadata.get("language", "python")
         print(f"  {ctx.name}{agent_info} [{language}]{id_info}")
 
     return 0
@@ -96,7 +96,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     print(f"  Path     : {ctx.path}")
     print(f"  Env      : {ctx.env_name}")
     print(f"  Agent    : {ctx.agent_name or '(env-level)'}")
-    print(f"  Language : {ctx.lambda_json.get('language', 'python')}")
+    print(f"  Language : {ctx.metadata.get('language', 'python')}")
     print(f"  Lambda ID: {lambda_id or '(not linked)'}")
 
     if ctx.source_files:

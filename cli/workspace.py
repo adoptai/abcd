@@ -598,9 +598,133 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
 
             print(f"      ✅ {sub_title}")
 
+    # -------------------------------------------------------------------------
+    # Auto-download lambdas referenced by this agent and its sub-actions
+    # -------------------------------------------------------------------------
+    _download_referenced_lambdas(client, agent_path, env, manager)
+
     print("\n✅ Agent checkout complete!")
     print(f"   Path: {agent_path}")
     return 0
+
+
+def _collect_lambda_names_from_wdl(wdl: list[Any]) -> set[str]:
+    """Return all unique lambda_name values from EXECUTE_LAMBDA / SANDBOX steps."""
+    names: set[str] = set()
+    for step in wdl:
+        if not isinstance(step, dict):
+            continue
+        op = step.get("operation", "")
+        if op in ("EXECUTE_LAMBDA", "SANDBOX"):
+            name = step.get("lambda_name")
+            if name:
+                names.add(name)
+    return names
+
+
+def _download_referenced_lambdas(
+    client: AdoptAPIClient,
+    agent_path: Path,
+    env: str,
+    manager: Any,
+) -> None:
+    """
+    Scan all WDL files under agent_path for lambda_name references and
+    download any that are not already present locally.
+
+    Lambdas are stored in the shared workspaces/{env}/lambdas/{name}/
+    directory (not under the agent), so they can be reused across agents.
+    """
+    # Collect lambda names from agent WDL + all sub-action WDLs
+    lambda_names: set[str] = set()
+    for wdl_file in agent_path.rglob("widdle.json"):
+        try:
+            wdl = json.loads(wdl_file.read_text())
+            lambda_names.update(_collect_lambda_names_from_wdl(wdl))
+        except Exception:
+            pass
+
+    if not lambda_names:
+        return
+
+    print(f"\n⏳ Checking {len(lambda_names)} lambda reference(s)...")
+
+    lambdas_base = WORKSPACES_DIR / env / "lambdas"
+    downloaded = 0
+
+    for name in sorted(lambda_names):
+        lambda_local_path = lambdas_base / name
+        if lambda_local_path.exists() and (
+            (lambda_local_path / "metadata.json").exists()
+            or (lambda_local_path / "lambda.json").exists()
+        ):
+            _vprint(f"   Lambda '{name}' already exists locally — skipping")
+            continue
+
+        print(f"   ⏳ Downloading lambda: {name}")
+
+        # Find lambda on remote by name
+        success, lambdas_list, msg = client.list_lambdas(search=name, page_size=100)
+        if not success or not lambdas_list:
+            print(f"      ⚠️  Could not find lambda '{name}' on remote: {msg}")
+            continue
+
+        matches = [lam for lam in lambdas_list if lam.get("name") == name]
+        if not matches:
+            print(f"      ⚠️  Lambda '{name}' not found on remote")
+            continue
+
+        remote = matches[0]
+        lambda_id = remote.get("id") or remote.get("lambda_id")
+        if not lambda_id:
+            print(f"      ⚠️  Lambda '{name}' has no ID on remote")
+            continue
+
+        # Fetch full lambda details
+        success, lambda_data, msg = client.get_lambda(lambda_id)
+        if not success or not lambda_data:
+            print(f"      ⚠️  Failed to fetch lambda details for '{name}': {msg}")
+            continue
+
+        # Create local workspace directory
+        lambda_local_path.mkdir(parents=True, exist_ok=True)
+        (lambda_local_path / "test_cases").mkdir(exist_ok=True)
+
+        # Write unified metadata.json
+        metadata: dict[str, Any] = {
+            "name": name,
+            "type": "lambda",
+            "lambda_id": lambda_id,
+            "language": lambda_data.get("language", "python"),
+            "entry_point": lambda_data.get("entry_point", "script.py"),
+            "timeout_seconds": lambda_data.get("timeout_seconds", 300),
+            "runtime_image": lambda_data.get("runtime_image", "adopt-lambda-runtime:latest"),
+            "cpu_limit": lambda_data.get("cpu_limit", "500m"),
+            "memory_limit": lambda_data.get("memory_limit", "512Mi"),
+            "resource_permissions": lambda_data.get("resource_permissions", []),
+        }
+        (lambda_local_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+        # Download source files
+        success, files_list, msg = client.list_lambda_files(lambda_id)
+        if success and files_list:
+            for file_info in files_list:
+                file_path_str = file_info.get("path") or file_info.get("name", "")
+                if not file_path_str:
+                    continue
+                success_f, content, msg_f = client.get_lambda_file(lambda_id, file_path_str)
+                if success_f and content is not None:
+                    dest = lambda_local_path / file_path_str
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_text(content if isinstance(content, str) else str(content))
+        else:
+            _vprint(f"      No files listed for lambda '{name}': {msg}")
+
+        print(f"      ✅ {name} (id: {lambda_id})")
+        downloaded += 1
+
+    if downloaded:
+        print(f"\n   Downloaded {downloaded} lambda(s) referenced by this agent")
 
 
 def cmd_agent_sync(args: argparse.Namespace) -> int:

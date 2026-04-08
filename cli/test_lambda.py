@@ -78,10 +78,10 @@ Examples:
 
     print(f"Lambda : {ctx.name}")
     print(f"Path   : {ctx.path}")
-    print(f"Lang   : {ctx.lambda_json.get('language', 'python')}")
+    print(f"Lang   : {ctx.metadata.get('language', 'python')}")
 
     # Validate — check required files exist
-    script_file = ctx.lambda_json.get("entry_point", "script.py")
+    script_file = ctx.metadata.get("entry_point", "script.py")
     script_path = ctx.path / script_file
     if not script_path.exists():
         print(f"ERROR: Entry point '{script_file}' not found in workspace", file=sys.stderr)

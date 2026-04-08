@@ -887,6 +887,27 @@ python cli/discover.py --requirements requirements.md
 | SANDBOX | Yes (any image, configurable network) | Disabled |
 | Custom Docker images | Yes (SANDBOX only) | Disabled |
 
+**Lambda workspace layout:**
+
+- Lambdas live in the shared `workspaces/{env}/lambdas/{name}/` directory — NOT under an agent. This makes them reusable across agents.
+- Each lambda has a **single `metadata.json`** that holds both config and the remote link:
+  ```json
+  {
+    "name": "my-lambda",
+    "type": "lambda",
+    "lambda_id": null,
+    "language": "python",
+    "entry_point": "script.py",
+    "timeout_seconds": 300,
+    "runtime_image": "adopt-lambda-runtime:latest",
+    "cpu_limit": "500m",
+    "memory_limit": "512Mi",
+    "resource_permissions": []
+  }
+  ```
+  (The old two-file layout — `lambda.json` + `metadata.json` — is still supported for backward compatibility.)
+- When you run `agent checkout`, lambdas referenced by `EXECUTE_LAMBDA` operations in any downloaded WDL are **automatically downloaded** into `workspaces/{env}/lambdas/` if they are not already present locally.
+
 **Lambda CLI Workflow:**
 
 ```bash

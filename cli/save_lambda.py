@@ -67,9 +67,9 @@ Examples:
     # Create remote lambda if not linked
     if not lambda_id:
         print("\nNo lambda_id found — creating remote lambda...")
-        language = ctx.lambda_json.get("language", "python")
-        entry_point = ctx.lambda_json.get("entry_point", "script.py")
-        description = ctx.lambda_json.get("description", "")
+        language = ctx.metadata.get("language", "python")
+        entry_point = ctx.metadata.get("entry_point", "script.py")
+        description = ctx.metadata.get("description", "")
 
         if args.dry_run:
             print(f"  [DRY-RUN] Would create lambda '{ctx.name}' ({language})")
@@ -98,7 +98,8 @@ Examples:
 
     # Collect source files to upload
     source_files = []
-    skip_names = {"metadata.json"}
+    # Exclude both config/metadata files; lambda.json is the legacy format
+    skip_names = {"metadata.json", "lambda.json"}
     for item in ctx.path.rglob("*"):
         if item.is_file() and item.name not in skip_names and "test_cases" not in item.parts:
             rel = str(item.relative_to(ctx.path))
