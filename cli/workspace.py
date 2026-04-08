@@ -497,6 +497,8 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
     _vprint(f"Sub-action IDs: {sub_action_ids}")
 
     # Create agent workspace
+    if env is None:
+        return 1
     _vprint(f"Creating agent workspace: {WORKSPACES_DIR / env / 'agents' / agent_id}")
     success, agent_path, msg = manager.create_agent(
         agent_id=agent_id,
@@ -601,7 +603,8 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
     # -------------------------------------------------------------------------
     # Auto-download lambdas referenced by this agent and its sub-actions
     # -------------------------------------------------------------------------
-    _download_referenced_lambdas(client, agent_path, env, manager)
+    if env:
+        _download_referenced_lambdas(client, agent_path, env, manager)
 
     print("\n✅ Agent checkout complete!")
     print(f"   Path: {agent_path}")
