@@ -1,7 +1,0 @@
-{
-  "name": "e2e-test-cli-lambda",
-  "language": "python",
-  "entry_point": "script.py",
-  "resource_permissions": [],
-  "timeout_seconds": 300
-}
