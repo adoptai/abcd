@@ -152,15 +152,18 @@ def cmd_update(args: argparse.Namespace) -> int:
     else:
         client = get_api_client_for_env()
 
+    # Field names must match the server's LambdaUpdate pydantic schema — unknown
+    # keys are silently dropped by FastAPI, which is why earlier updates never
+    # took effect.
     fields: dict = {}
     if args.image is not None:
-        fields["image"] = args.image
+        fields["runtime_image"] = args.image
     if args.cpu is not None:
-        fields["cpu"] = args.cpu
+        fields["cpu_limit"] = args.cpu
     if args.memory is not None:
-        fields["memory"] = args.memory
+        fields["memory_limit"] = args.memory
     if args.timeout is not None:
-        fields["timeout"] = args.timeout
+        fields["timeout_seconds"] = args.timeout
     if args.entry_point is not None:
         fields["entry_point"] = args.entry_point
     if args.description is not None:

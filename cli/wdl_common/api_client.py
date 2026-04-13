@@ -1061,6 +1061,9 @@ class AdoptAPIClient:
     ) -> tuple[bool, dict[str, Any] | None, str]:
         """Create a new lambda."""
         url = f"{self.lambda_endpoint}/v1/lambdas/"
+        # Omit optional fields when caller didn't set them so the server uses
+        # its own defaults (runtime_image in particular should be NULL so the
+        # executor falls back to LAMBDA_RUNTIME_IMAGE env var).
         payload: dict[str, Any] = {
             "name": name,
             "description": description,
@@ -1068,10 +1071,13 @@ class AdoptAPIClient:
             "entry_point": entry_point,
             "resource_permissions": resource_permissions or None,
             "timeout_seconds": timeout_seconds,
-            "runtime_image": runtime_image or "adopt-lambda-runtime:latest",
-            "cpu_limit": cpu_limit or "500m",
-            "memory_limit": memory_limit or "512Mi",
         }
+        if runtime_image is not None:
+            payload["runtime_image"] = runtime_image
+        if cpu_limit is not None:
+            payload["cpu_limit"] = cpu_limit
+        if memory_limit is not None:
+            payload["memory_limit"] = memory_limit
 
         try:
             response = requests.post(url, headers=self.headers, json=payload, timeout=30)
