@@ -431,6 +431,7 @@ class HierarchicalWorkspaceManager:
             env_path.mkdir(parents=True)
             (env_path / "agents").mkdir()
             (env_path / "actions").mkdir()
+            (env_path / "pipelines").mkdir()
 
             # Create env.json
             env_meta = {
@@ -1820,6 +1821,180 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         env_file = self.resolve_env_file(env_name)
         if env_file:
             load_dotenv(env_file, override=True)
+
+    # =========================================================================
+    # Pipeline Workspace Management
+    # =========================================================================
+
+    def get_pipelines_dir(self, env_name: str | None = None) -> Path:
+        """Return the pipelines directory for the given (or active) environment."""
+        env = env_name or self._active_env or DEFAULT_ENV
+        pipelines_dir = WORKSPACES_DIR / env / "pipelines"
+        pipelines_dir.mkdir(parents=True, exist_ok=True)
+        return pipelines_dir
+
+    def create_pipeline_workspace(
+        self,
+        pipeline_id: str,
+        name: str,
+        description: str = "",
+        prompt: str = "",
+        source: dict | None = None,
+        destinations: list | None = None,
+        schedule_type: str = "manual",
+        env_name: str | None = None,
+    ) -> tuple[bool, Path, str]:
+        """
+        Create a local pipeline workspace directory.
+
+        Creates:
+            workspaces/{env}/pipelines/{pipeline_id}/
+                pipeline.json    – metadata & remote link
+                widdle.json      – WDL (empty list to start)
+                versions/        – version snapshots dir
+
+        Returns:
+            (success, path, message)
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        pipeline_path = pipelines_dir / pipeline_id
+
+        if pipeline_path.exists():
+            return False, pipeline_path, f"Pipeline workspace already exists: {pipeline_id}"
+
+        if source is None:
+            source = {
+                "integration_id": "internal_data_store",
+                "integration_type": "internal",
+                "integration_name": "Internal Data Store",
+            }
+        if destinations is None:
+            destinations = [{"type": "internal_data_store", "label": "results"}]
+
+        try:
+            pipeline_path.mkdir(parents=True)
+            (pipeline_path / "versions").mkdir()
+
+            pipeline_meta = {
+                "pipeline_id": pipeline_id,
+                "name": name,
+                "description": description,
+                "prompt": prompt,
+                "source": source,
+                "destinations": destinations,
+                "schedule_type": schedule_type,
+                "remote_pipeline_id": None,
+                "version_id": None,
+                "state": "local",
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+            }
+            (pipeline_path / "pipeline.json").write_text(json.dumps(pipeline_meta, indent=2))
+            (pipeline_path / "widdle.json").write_text("[]")
+
+            return True, pipeline_path, f"Pipeline workspace created: {pipeline_id}"
+        except Exception as exc:
+            return False, pipeline_path, f"Failed to create pipeline workspace: {exc}"
+
+    def get_pipeline_workspace(
+        self,
+        pipeline_id: str,
+        env_name: str | None = None,
+    ) -> dict | None:
+        """
+        Return metadata for a pipeline workspace, or None if not found.
+
+        The returned dict includes a `path` key with the workspace Path.
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        pipeline_path = pipelines_dir / pipeline_id
+        meta_file = pipeline_path / "pipeline.json"
+
+        if not meta_file.exists():
+            return None
+
+        try:
+            meta = json.loads(meta_file.read_text())
+            meta["path"] = pipeline_path
+            return meta
+        except Exception:
+            return None
+
+    def list_pipeline_workspaces(self, env_name: str | None = None) -> list[dict]:
+        """
+        List all pipeline workspaces in the given (or active) environment.
+
+        Each entry includes `path` and all fields from pipeline.json.
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        results = []
+
+        if not pipelines_dir.exists():
+            return results
+
+        for pipeline_path in sorted(pipelines_dir.iterdir()):
+            if not pipeline_path.is_dir():
+                continue
+            meta_file = pipeline_path / "pipeline.json"
+            if not meta_file.exists():
+                continue
+            try:
+                meta = json.loads(meta_file.read_text())
+                meta["path"] = pipeline_path
+                results.append(meta)
+            except Exception:
+                pass
+
+        return results
+
+    def update_pipeline_workspace_meta(
+        self,
+        pipeline_id: str,
+        updates: dict,
+        env_name: str | None = None,
+    ) -> bool:
+        """
+        Merge `updates` into pipeline.json for an existing pipeline workspace.
+
+        Returns True if updated, False if workspace not found.
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        meta_file = pipelines_dir / pipeline_id / "pipeline.json"
+
+        if not meta_file.exists():
+            return False
+
+        try:
+            meta = json.loads(meta_file.read_text())
+            meta.update(updates)
+            meta["updated_at"] = datetime.now().isoformat()
+            meta_file.write_text(json.dumps(meta, indent=2))
+            return True
+        except Exception:
+            return False
+
+    def save_pipeline_version(
+        self,
+        pipeline_id: str,
+        wdl: list,
+        version_number: int,
+        env_name: str | None = None,
+    ) -> Path | None:
+        """
+        Save a WDL snapshot to versions/v{N}_widdle.json.
+
+        Returns the path to the saved file, or None on failure.
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        versions_dir = pipelines_dir / pipeline_id / "versions"
+        versions_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_path = versions_dir / f"v{version_number}_widdle.json"
+
+        try:
+            snapshot_path.write_text(json.dumps(wdl, indent=2))
+            return snapshot_path
+        except Exception:
+            return None
 
     # =========================================================================
     # Workspace Detection
