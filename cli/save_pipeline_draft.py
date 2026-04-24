@@ -10,15 +10,16 @@ Usage:
     python cli/save_pipeline_draft.py <pipeline-id> --description "Fixed fan-out step"
     python cli/save_pipeline_draft.py pipeline-a pipeline-b --parallel 2
 
-Workflow:
+Workflow (when platform supports prompt-optional drafts — preferred):
     1. Load widdle.json from workspace
     2. If no remote_pipeline_id → POST /v1/pipelines (create remote)
-    3. POST /v1/pipelines/workflows/draft (create draft, triggers async LLM)
-    4. Poll until LLM draft is ready
-    5. PUT /v1/pipelines/workflows/draft (push our WDL, no LLM)
-    6. Poll until WDL is confirmed
-    7. Save version snapshot locally (versions/v{N}_widdle.json)
-    8. Update pipeline.json with remote_pipeline_id and version_id
+    3. POST /v1/pipelines/workflows/draft with WDL (no prompt, no LLM)
+    4. Save version snapshot locally (versions/v{N}_widdle.json)
+    5. Update pipeline.json with remote_pipeline_id and version_id
+
+Workflow (legacy fallback when platform still requires prompt):
+    Same, but step 3 sends a dummy prompt → poll → PUT to overwrite WDL.
+    Pass --legacy-prompt-flow to force this path.
 """
 
 import argparse
@@ -26,13 +27,12 @@ import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.context import ensure_env
-from cli.wdl_common.pipeline_client import get_pipeline_client
+from cli.wdl_common.pipeline_client import PipelineClient, get_pipeline_client
 from cli.wdl_common.workspace_manager import get_workspace_manager
 
 _verbose = False
@@ -71,10 +71,71 @@ def _next_version_number(pipeline_path: Path) -> int:
     return max(nums, default=0) + 1
 
 
+def _create_draft_with_wdl(
+    client: PipelineClient,
+    remote_pipeline_id: str,
+    wdl: list,
+    prompt_for_legacy: str,
+    *,
+    force_legacy: bool = False,
+) -> str:
+    """Create a draft and return the publish version id.
+
+    Tries the prompt-optional fast path first (POST /workflows/draft with
+    ``wdl`` and no ``prompt``). Falls back to the legacy ``prompt → poll →
+    PUT WDL`` flow if the platform rejects the WDL-only payload (older
+    backend) or when ``force_legacy`` is set.
+    """
+    if not force_legacy:
+        try:
+            print("   → Creating draft (direct WDL push, no LLM)…")
+            draft = client.create_draft(remote_pipeline_id, wdl=wdl)
+            version_id = draft.get("version_id") or draft.get("id")
+            if not version_id:
+                raise RuntimeError(f"Draft response missing version_id: {draft}")
+            print(f"   ✅ Draft created: version_id={version_id}")
+            return version_id
+        except RuntimeError as exc:
+            msg = str(exc)
+            if "400" in msg or "422" in msg or "prompt" in msg.lower():
+                print(
+                    "   ⚠️  Backend rejected WDL-only draft "
+                    "(prompt likely still required) — falling back to legacy flow."
+                )
+            else:
+                raise
+
+    print("   → Creating draft (legacy flow: dummy prompt → poll → push)…")
+    draft = client.create_draft(remote_pipeline_id, prompt=prompt_for_legacy)
+    version_id = draft.get("version_id") or draft.get("id")
+    if not version_id:
+        raise RuntimeError(f"Draft response missing version_id: {draft}")
+    print(f"   ✅ Draft created: version_id={version_id}")
+
+    print("   → Waiting for LLM draft to complete…")
+    client.poll_until_wdl_ready(remote_pipeline_id, version_id)
+    print("   ✅ LLM draft ready")
+
+    print(f"   → Pushing WDL ({len(wdl)} steps)…")
+    push_result = client.push_wdl(remote_pipeline_id, version_id, wdl)
+    publish_version_id = push_result.get("version_id") or version_id
+    print(f"   ✅ WDL pushed (publish version: {publish_version_id})")
+
+    print("   → Waiting for WDL confirmation…")
+    confirmed = client.poll_until_wdl_confirmed(
+        remote_pipeline_id, publish_version_id, wdl[0]["id"]
+    )
+    if not confirmed:
+        raise RuntimeError("WDL push did not appear after polling")
+    print("   ✅ WDL confirmed on platform")
+    return publish_version_id
+
+
 def save_single_draft(
     pipeline_id: str,
     description: str | None = None,
     dry_run: bool = False,
+    legacy_prompt_flow: bool = False,
 ) -> DraftResult:
     """Save draft for a single pipeline workspace."""
     env_name = ensure_env()
@@ -151,47 +212,21 @@ def save_single_draft(
         else:
             print(f"   ℹ️  Using existing remote pipeline: {remote_pipeline_id}")
 
-        # Step 2 — create draft (triggers async LLM)
-        print("   → Creating draft...")
+        # Step 2 — create draft. Prefer direct WDL push (no prompt → no LLM).
+        # Fall back to the legacy prompt → poll → overwrite flow when forced
+        # or when the platform rejects the WDL-only payload.
         prompt = meta.get("prompt") or meta["name"]
-        draft = client.create_draft(remote_pipeline_id, prompt)
-        version_id = draft.get("version_id") or draft.get("id")
-        print(f"   ✅ Draft created: version_id={version_id}")
-
-        # Step 3 — wait for LLM draft
-        print("   → Waiting for LLM draft to complete...")
-        client.poll_until_wdl_ready(remote_pipeline_id, version_id)
-        print("   ✅ LLM draft ready")
-
-        # Step 4 — push our WDL
-        print(f"   → Pushing WDL ({len(wdl)} steps)...")
-        push_result = client.push_wdl(remote_pipeline_id, version_id, wdl)
-        publish_version_id = push_result.get("version_id") or version_id
-        print(f"   ✅ WDL pushed (publish version: {publish_version_id})")
-
-        # Step 5 — poll until WDL is confirmed on platform
-        print("   → Waiting for WDL confirmation...")
-        confirmed = client.poll_until_wdl_confirmed(
-            remote_pipeline_id, publish_version_id, wdl[0]["id"]
+        publish_version_id = _create_draft_with_wdl(
+            client, remote_pipeline_id, wdl, prompt, force_legacy=legacy_prompt_flow
         )
-        if not confirmed:
-            return DraftResult(
-                pipeline_id=pipeline_id,
-                success=False,
-                message="WDL push did not appear after polling",
-                error="poll_timeout",
-            )
-        print(f"   ✅ WDL confirmed on platform")
 
-        # Step 6 — save local version snapshot
+        # Step 3 — save local version snapshot
         version_number = _next_version_number(pipeline_path)
-        snapshot = manager.save_pipeline_version(
-            pipeline_id, wdl, version_number, env_name
-        )
+        snapshot = manager.save_pipeline_version(pipeline_id, wdl, version_number, env_name)
         if snapshot:
             print(f"   💾 Version snapshot: {snapshot}")
 
-        # Step 7 — update local metadata
+        # Step 4 — update local metadata
         updates: dict = {
             "remote_pipeline_id": remote_pipeline_id,
             "version_id": publish_version_id,
@@ -246,6 +281,13 @@ Examples:
         help="Number of pipelines to process in parallel (default: 1)",
     )
     parser.add_argument("--dry-run", action="store_true", help="Simulate without making API calls")
+    parser.add_argument(
+        "--legacy-prompt-flow",
+        action="store_true",
+        help="Force the legacy 'dummy prompt → poll → PUT WDL' flow instead of "
+        "the prompt-optional direct WDL push. Use only if your backend hasn't "
+        "deployed the prompt-optional draft yet.",
+    )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
 
     args = parser.parse_args()
@@ -253,16 +295,21 @@ Examples:
     global _verbose
     _verbose = args.verbose
 
-    print(f"\n{'='*65}")
-    print(f"  Save Pipeline Draft(s)")
-    print(f"{'='*65}\n")
+    print(f"\n{'=' * 65}")
+    print("  Save Pipeline Draft(s)")
+    print(f"{'=' * 65}\n")
 
     results: list[DraftResult] = []
 
     if len(args.pipeline_ids) == 1 or args.parallel <= 1:
         for pid in args.pipeline_ids:
             print(f"📦 {pid}")
-            result = save_single_draft(pid, args.description, args.dry_run)
+            result = save_single_draft(
+                pid,
+                args.description,
+                args.dry_run,
+                legacy_prompt_flow=args.legacy_prompt_flow,
+            )
             results.append(result)
             if result.success:
                 print(f"   ✅ {result.message}\n")
@@ -271,7 +318,13 @@ Examples:
     else:
         with ThreadPoolExecutor(max_workers=args.parallel) as executor:
             future_to_pid = {
-                executor.submit(save_single_draft, pid, args.description, args.dry_run): pid
+                executor.submit(
+                    save_single_draft,
+                    pid,
+                    args.description,
+                    args.dry_run,
+                    args.legacy_prompt_flow,
+                ): pid
                 for pid in args.pipeline_ids
             }
             for future in as_completed(future_to_pid):
@@ -283,9 +336,9 @@ Examples:
     # Summary
     successes = [r for r in results if r.success]
     failures = [r for r in results if not r.success]
-    print(f"\n{'='*65}")
+    print(f"\n{'=' * 65}")
     print(f"  {len(successes)} ✅  {len(failures)} ❌")
-    print(f"{'='*65}")
+    print(f"{'=' * 65}")
 
     if successes:
         print("\nSaved drafts:")

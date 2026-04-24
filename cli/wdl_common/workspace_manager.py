@@ -1927,7 +1927,7 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         Each entry includes `path` and all fields from pipeline.json.
         """
         pipelines_dir = self.get_pipelines_dir(env_name)
-        results = []
+        results: list[dict[str, Any]] = []
 
         if not pipelines_dir.exists():
             return results

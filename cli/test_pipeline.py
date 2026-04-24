@@ -19,12 +19,14 @@ After a successful test you can either:
 import argparse
 import json
 import sys
+import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from cli.wdl_common.context import ensure_env
 from cli.wdl_common.pipeline_client import get_pipeline_client
+from cli.wdl_common.pipeline_stream import run_stream_blocking
 from cli.wdl_common.workspace_manager import get_workspace_manager
 
 
@@ -58,8 +60,7 @@ Examples:
     parser.add_argument(
         "--production",
         action="store_true",
-        help="Run in production mode (test_mode=false). "
-        "Returns 409 if a run is already active.",
+        help="Run in production mode (test_mode=false). Returns 409 if a run is already active.",
     )
     parser.add_argument(
         "--local-wdl",
@@ -82,6 +83,17 @@ Examples:
         help="Show pipeline status and recent runs (no new run)",
     )
     parser.add_argument("--verbose", "-v", action="store_true", help="Verbose output")
+    parser.add_argument(
+        "--no-stream",
+        action="store_true",
+        help="Don't stream events from the platform — just trigger and return immediately.",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help="NDJSON stream timeout in seconds (default: 300)",
+    )
 
     args = parser.parse_args()
 
@@ -93,13 +105,19 @@ Examples:
         print(f"❌ Pipeline workspace not found: {args.pipeline_id}")
         return 1
 
-    remote_pipeline_id = meta.get("remote_pipeline_id")
-    if not remote_pipeline_id and not args.mark_passed and not args.mark_failed and not args.status:
+    remote_pipeline_id_raw = meta.get("remote_pipeline_id")
+    if (
+        not remote_pipeline_id_raw
+        and not args.mark_passed
+        and not args.mark_failed
+        and not args.status
+    ):
         print(
             f"❌ No remote pipeline linked. Run save_pipeline_draft.py first:\n"
             f"   python cli/save_pipeline_draft.py {args.pipeline_id}"
         )
         return 1
+    remote_pipeline_id: str = str(remote_pipeline_id_raw) if remote_pipeline_id_raw else ""
 
     client = get_pipeline_client()
 
@@ -168,35 +186,104 @@ Examples:
 
     print(f"\n🚀 Triggering {mode_label} run for pipeline: {args.pipeline_id}")
     print(f"   Remote ID   : {remote_pipeline_id}")
-    print(f"   Mode        : {'test_mode=true (safe)' if test_mode else 'test_mode=false (production)'}")
+    print(
+        f"   Mode        : {'test_mode=true (safe)' if test_mode else 'test_mode=false (production)'}"
+    )
     print(f"   WDL         : {wdl_label}")
 
-    try:
-        result = client.test_run(remote_pipeline_id, wdl=wdl, test_mode=test_mode)
-        run_id = result.get("run_id") or result.get("id") or "?"
-        print(f"\n✅ Run triggered!")
-        print(f"   Run ID      : {run_id}")
-        if args.verbose:
-            print(f"   Full response: {json.dumps(result, indent=2)}")
-        print(
-            f"\n💡 Results stream via Pusher channel: conversation_{remote_pipeline_id}"
-        )
-        print(
-            f"   After reviewing results, mark as passed:\n"
-            f"   python cli/test_pipeline.py {args.pipeline_id} --mark-passed"
-        )
-        print()
-        return 0
-    except Exception as exc:
-        msg = str(exc)
-        if "409" in msg:
+    if args.no_stream:
+        try:
+            result = client.test_run(remote_pipeline_id, wdl=wdl, test_mode=test_mode)
+            run_id = result.get("run_id") or result.get("id") or "?"
+            print("\n✅ Run triggered!")
+            print(f"   Run ID      : {run_id}")
+            if args.verbose:
+                print(f"   Full response: {json.dumps(result, indent=2)}")
+            print(f"\n💡 Results stream via /stream/{remote_pipeline_id} (NDJSON)")
             print(
-                f"\n⚠️  Conflict (409): Another run is already active for this pipeline.\n"
-                f"   Wait for it to complete, or use --production only when intentional."
+                f"   After reviewing results, mark as passed:\n"
+                f"   python cli/test_pipeline.py {args.pipeline_id} --mark-passed"
             )
-        else:
-            print(f"\n❌ Test run failed: {exc}")
+            print()
+            return 0
+        except Exception as exc:
+            return _handle_run_error(exc)
+
+    # Stream mode: subscribe to the pipeline channel BEFORE triggering the run
+    # so we don't miss the first step-progress event. The trigger runs on a
+    # background thread and the NDJSON stream blocks the main thread until
+    # the final ``scheduling-test-run-output`` event (or timeout).
+    stream_url = client.get_stream_url(remote_pipeline_id)
+    stream_headers = client.get_stream_headers()
+    trigger_state: dict = {"result": None, "exc": None}
+
+    def _trigger() -> None:
+        try:
+            trigger_state["result"] = client.test_run(
+                remote_pipeline_id, wdl=wdl, test_mode=test_mode
+            )
+        except Exception as exc:
+            trigger_state["exc"] = exc
+
+    print("\n📡 Streaming test-run events from /stream …")
+    trigger_thread = threading.Thread(target=_trigger, daemon=True)
+    trigger_thread.start()
+
+    final = run_stream_blocking(
+        stream_url,
+        headers=stream_headers,
+        pipeline_id=remote_pipeline_id,
+        timeout=args.timeout,
+        log=print,
+    )
+
+    trigger_thread.join(timeout=5)
+    if trigger_state["exc"] is not None:
+        return _handle_run_error(trigger_state["exc"])
+
+    trigger_resp = trigger_state["result"] or {}
+    run_id = trigger_resp.get("run_id") or trigger_resp.get("id") or "?"
+
+    if args.verbose:
+        print(f"\n   Trigger response: {json.dumps(trigger_resp, indent=2)}")
+
+    if final is None:
+        print(
+            f"\n⚠️  Test triggered (run_id={run_id}) but no final result received over the stream.\n"
+            f"   The platform may still be processing — check the UI for status."
+        )
         return 1
+
+    status = (final.get("status") or "").lower()
+    if status in ("passed", "success", "completed"):
+        try:
+            client.mark_test_passed(remote_pipeline_id)
+            print("   ✅ Marked test run as passed on the platform.")
+        except Exception as exc:
+            print(f"   ⚠️  Could not auto-mark passed: {exc}")
+        return 0
+    elif status in ("failed", "error"):
+        try:
+            client.mark_test_failed(remote_pipeline_id)
+            print("   ⚠️  Marked test run as failed on the platform.")
+        except Exception as exc:
+            print(f"   ⚠️  Could not auto-mark failed: {exc}")
+        return 1
+
+    print(f"\n   Final status: {status or 'unknown'} — leaving test_run_status untouched.")
+    return 0
+
+
+def _handle_run_error(exc: Exception) -> int:
+    msg = str(exc)
+    if "409" in msg:
+        print(
+            "\n⚠️  Conflict (409): Another run is already active for this pipeline.\n"
+            "   Wait for it to complete, or use --production only when intentional."
+        )
+    else:
+        print(f"\n❌ Test run failed: {exc}")
+    return 1
 
 
 if __name__ == "__main__":
