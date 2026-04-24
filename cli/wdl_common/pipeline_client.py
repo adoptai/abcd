@@ -150,24 +150,30 @@ class PipelineClient:
     # Draft workflow
     # ------------------------------------------------------------------
 
-    def create_draft(self, pipeline_id: str, prompt: str) -> dict:
+    def create_draft(
+        self,
+        pipeline_id: str,
+        prompt: str | None = None,
+        wdl: list[dict] | None = None,
+    ) -> dict:
         """
         Create a WDL draft for the pipeline (POST /v1/pipelines/workflows/draft).
 
-        This triggers async LLM generation; poll with poll_until_wdl_ready()
-        before pushing a custom WDL.
+        When wdl is provided, sends the WDL directly (no LLM round-trip).
+        When only prompt is provided, triggers async LLM generation; poll with
+        poll_until_wdl_ready() before pushing a custom WDL.
         Returns dict with version_id (or id).
         """
-        return self._req(
-            "post",
-            "/v1/pipelines/workflows/draft",
-            json={
-                "pipeline_id": pipeline_id,
-                "prompt": prompt,
-                "sources": [],
-                "destinations": [],
-            },
-        )
+        body: dict = {
+            "pipeline_id": pipeline_id,
+            "sources": [],
+            "destinations": [],
+        }
+        if wdl is not None:
+            body["wdl"] = wdl
+        elif prompt:
+            body["prompt"] = prompt
+        return self._req("post", "/v1/pipelines/workflows/draft", json=body)
 
     def push_wdl(
         self,
