@@ -44,30 +44,10 @@ class PipelineClient:
 
     def __init__(self, base_url: str, token: str) -> None:
         self._base = base_url.rstrip("/")
-        self._token = token
+        self.bearer_token = token
         self._headers = {
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
-        }
-
-    # ------------------------------------------------------------------
-    # Real-time / NDJSON streaming
-    # ------------------------------------------------------------------
-
-    def get_stream_url(self, channel_id: str) -> str:
-        """Return the BFF NDJSON streaming URL for ``channel_id``.
-
-        The returned URL targets the unified ``GET /stream/{channel_id}``
-        endpoint. The caller authenticates via the ``Authorization`` header
-        — see :meth:`get_stream_headers`.
-        """
-        return f"{self._base}/stream/{channel_id}"
-
-    def get_stream_headers(self) -> dict[str, str]:
-        """Return the headers (Authorization Bearer) required by ``/stream``."""
-        return {
-            "Authorization": f"Bearer {self._token}",
-            "Accept": "application/x-ndjson",
         }
 
     # ------------------------------------------------------------------
@@ -170,33 +150,23 @@ class PipelineClient:
     # Draft workflow
     # ------------------------------------------------------------------
 
-    def create_draft(
-        self,
-        pipeline_id: str,
-        prompt: str | None = None,
-        wdl: list[dict] | None = None,
-    ) -> dict:
+    def create_draft(self, pipeline_id: str, prompt: str) -> dict:
         """
         Create a WDL draft for the pipeline (POST /v1/pipelines/workflows/draft).
 
-        Either ``prompt`` (LLM generates WDL — slower, async) or ``wdl`` (direct
-        push, no LLM call — instant) must be provided. When the platform supports
-        prompt-optional drafts (see plan), prefer the WDL path to skip LLM.
+        This triggers async LLM generation; poll with poll_until_wdl_ready()
+        before pushing a custom WDL.
         Returns dict with version_id (or id).
         """
-        payload: dict[str, Any] = {
-            "pipeline_id": pipeline_id,
-            "sources": [],
-            "destinations": [],
-        }
-        if prompt is not None:
-            payload["prompt"] = prompt
-        if wdl is not None:
-            payload["wdl"] = wdl
         return self._req(
             "post",
             "/v1/pipelines/workflows/draft",
-            json=payload,
+            json={
+                "pipeline_id": pipeline_id,
+                "prompt": prompt,
+                "sources": [],
+                "destinations": [],
+            },
         )
 
     def push_wdl(
@@ -313,6 +283,8 @@ class PipelineClient:
         test_mode: bool = True,
         workflow_params: dict[str, Any] | None = None,
         workstream_id: str = "",
+        allow_concurrent_runs: bool = False,
+        max_concurrent_runs: int = 25,
     ) -> dict:
         """
         Trigger a pipeline run (POST /v1/pipelines/workflows/test-run).
@@ -321,11 +293,12 @@ class PipelineClient:
         test_mode=False → production run (409 if a run is already active)
 
         workflow_params, if provided, replaces {workflow_arguments.key} tokens
-        in the WDL before sending.
+        in the WDL before sending (required because /test-run does NOT perform
+        server-side workflow_arguments substitution).
         workstream_id scopes the run to a specific workstream (needed for HITL).
+        allow_concurrent_runs / max_concurrent_runs control fan-out child dispatch.
         """
         import copy
-
         if wdl is not None and workflow_params:
             wdl = copy.deepcopy(wdl)
             raw = json.dumps(wdl)
@@ -341,6 +314,9 @@ class PipelineClient:
             payload["wdl"] = wdl
         if workstream_id:
             payload["workstream_id"] = workstream_id
+        if allow_concurrent_runs:
+            payload["allow_concurrent_runs"] = True
+            payload["max_concurrent_runs"] = max_concurrent_runs
         return self._req("post", "/v1/pipelines/workflows/test-run", json=payload)
 
     # ------------------------------------------------------------------
@@ -425,9 +401,6 @@ class PipelineClient:
         _log("Creating draft (triggers async LLM)...")
         draft = self.create_draft(pipeline_id, prompt)
         version_id = draft.get("version_id") or draft.get("id")
-        if not version_id:
-            raise RuntimeError(f"Draft response missing version_id: {draft}")
-        version_id = str(version_id)
         _log(f"✅ Draft started: version_id={version_id}")
 
         _log("Waiting for LLM draft to complete...")
@@ -436,11 +409,13 @@ class PipelineClient:
 
         _log("Pushing WDL (no LLM)...")
         push_result = self.push_wdl(pipeline_id, version_id, wdl)
-        publish_version_id = str(push_result.get("version_id") or version_id)
+        publish_version_id = push_result.get("version_id") or version_id
         _log(f"✅ WDL pushed (publish version: {publish_version_id})")
 
         _log("Polling for WDL confirmation...")
-        confirmed = self.poll_until_wdl_confirmed(pipeline_id, publish_version_id, wdl[0]["id"])
+        confirmed = self.poll_until_wdl_confirmed(
+            pipeline_id, publish_version_id, wdl[0]["id"]
+        )
         if not confirmed:
             raise RuntimeError("WDL push did not appear after polling")
         _log(f"✅ WDL confirmed ({len(wdl)} steps)")
@@ -492,6 +467,8 @@ def get_pipeline_client() -> PipelineClient:
     from cli.auth import get_bearer_token
 
     token = get_bearer_token()
-    base_url = os.getenv("ADOPT_ACTIONS_ENDPOINT", "https://api.adopt.ai").rstrip("/")
+    base_url = os.getenv(
+        "ADOPT_ACTIONS_ENDPOINT", "https://api.adopt.ai"
+    ).rstrip("/")
 
     return PipelineClient(base_url=base_url, token=token)
