@@ -29,7 +29,7 @@ from cli.wdl_common.pipeline_client import get_pipeline_client
 from cli.auth import get_bearer_token
 
 CHILD_PIPELINE_REMOTE_ID = "7739948409864f7a"
-RESOLUTION_AGENT_ACTION_ID = "9c250321-a783-4641-84dc-975f63ee0684"
+RESOLUTION_AGENT_ACTION_ID = "390fb432-22e0-4efe-9001-02eb17fbce7c"
 DEFAULT_ZIP = "Benzinga TY 2025.zip"
 DEFAULT_LANDING_PREFIX = "uhy-staging/2686439/suralink"
 DEFAULT_S3_URL = "s3://adopt-dev-uploads/uhy-staging/2686439/suralink/Benzinga_TY_2025.zip"
