@@ -125,11 +125,20 @@ Examples:
             for ex in executions[: args.limit]:
                 exec_id = ex.get("id") or ex.get("execution_id", "?")
                 status = ex.get("status", "unknown")
+                exit_code = ex.get("exit_code")
                 started = ex.get("started_at") or ex.get("created_at", "")
                 duration = ex.get("duration_ms")
                 date_str = f" ({started[:19]})" if started else ""
                 dur_str = f" {duration}ms" if duration is not None else ""
-                print(f"  {exec_id}  [{status}]{date_str}{dur_str}")
+                # Surface non-zero exits — "completed" can mean exited with code 1.
+                # Falls back to status label if exit_code isn't returned by the summary endpoint.
+                if exit_code is not None and exit_code != 0:
+                    status_str = f"[failed:{exit_code}]"
+                elif exit_code == 0 and status == "completed":
+                    status_str = "[completed]"
+                else:
+                    status_str = f"[{status}]"
+                print(f"  {exec_id}  {status_str}{date_str}{dur_str}")
 
             print(f"\n  Total shown: {min(len(executions), args.limit)}")
             print("  Use --execution-id <id> to get the full log for an execution.")
