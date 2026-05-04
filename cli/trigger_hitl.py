@@ -15,17 +15,16 @@ Example:
     poetry run python cli/trigger_hitl.py "Complete Automation-2025" task-001 --chat --client "Complete Automation" --year 2025
 """
 
-import sys
-import json
 import argparse
+import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cli.auth import get_bearer_token
 from cli.wdl_common.context import ensure_env
 from cli.wdl_common.pipeline_client import get_pipeline_client
-from cli.auth import get_bearer_token
-
 
 PIPELINE_FORM = "uhy-hitl-task-review"
 PIPELINE_CHAT = "uhy-hitl-task-review-chat"
@@ -33,15 +32,27 @@ PIPELINE_CHAT = "uhy-hitl-task-review-chat"
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Trigger the UHY HITL Task Review pipeline")
-    parser.add_argument("preparation_id", nargs="?", help="UHY preparation ID (e.g. 'Complete Automation-2025')")
-    parser.add_argument("task_id",        nargs="?", help="UHY task ID")
-    parser.add_argument("--client",       required=False, help="Client name")
-    parser.add_argument("--year",         required=False, type=int, help="Tax year")
-    parser.add_argument("--chat",         action="store_true", help="Use chat-assisted (AI agent) resolution mode")
-    parser.add_argument("--agent-action-id", required=False, help="Override the agent action ID for chat mode")
-    parser.add_argument("--workstream-id", required=False, help="Workstream ID to scope the run (required for HITL task visibility)")
-    parser.add_argument("--token-only",   action="store_true", help="Print JWT token and exit")
-    parser.add_argument("--dry-run",      action="store_true", help="Print the JSON payload without sending")
+    parser.add_argument(
+        "preparation_id", nargs="?", help="UHY preparation ID (e.g. 'Complete Automation-2025')"
+    )
+    parser.add_argument("task_id", nargs="?", help="UHY task ID")
+    parser.add_argument("--client", required=False, help="Client name")
+    parser.add_argument("--year", required=False, type=int, help="Tax year")
+    parser.add_argument(
+        "--chat", action="store_true", help="Use chat-assisted (AI agent) resolution mode"
+    )
+    parser.add_argument(
+        "--agent-action-id", required=False, help="Override the agent action ID for chat mode"
+    )
+    parser.add_argument(
+        "--workstream-id",
+        required=False,
+        help="Workstream ID to scope the run (required for HITL task visibility)",
+    )
+    parser.add_argument("--token-only", action="store_true", help="Print JWT token and exit")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Print the JSON payload without sending"
+    )
     args = parser.parse_args()
 
     ensure_env()
@@ -98,7 +109,9 @@ def main() -> int:
 
     client = get_pipeline_client()
     result = client.test_run(
-        remote_id, wdl=wdl, test_mode=False,
+        remote_id,
+        wdl=wdl,
+        test_mode=False,
         workflow_params=workflow_params,
         workstream_id=workstream_id,
     )
@@ -116,12 +129,12 @@ def main() -> int:
     print(f"   workflow_id:    {wf_id}")
     print(f"   status:         {status}")
     print()
-    print(f"The pipeline will pause at the ESCALATE step.")
+    print("The pipeline will pause at the ESCALATE step.")
     if args.chat:
-        print(f"An AI agent will assist with resolution in the chat panel.")
+        print("An AI agent will assist with resolution in the chat panel.")
     else:
-        print(f"Use the structured form to provide corrections and resolution.")
-    print(f"Review and resolve at:")
+        print("Use the structured form to provide corrections and resolution.")
+    print("Review and resolve at:")
     print(f"   https://staging-adopt-frontend-adopt-dev-ws-3000.adopt.ai/pipelines/{remote_id}")
 
     return 0

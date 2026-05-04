@@ -58,8 +58,7 @@ Examples:
     parser.add_argument(
         "--production",
         action="store_true",
-        help="Run in production mode (test_mode=false). "
-        "Returns 409 if a run is already active.",
+        help="Run in production mode (test_mode=false). Returns 409 if a run is already active.",
     )
     parser.add_argument(
         "--local-wdl",
@@ -168,7 +167,9 @@ Examples:
 
     print(f"\n🚀 Triggering {mode_label} run for pipeline: {args.pipeline_id}")
     print(f"   Remote ID   : {remote_pipeline_id}")
-    print(f"   Mode        : {'test_mode=true (safe)' if test_mode else 'test_mode=false (production)'}")
+    print(
+        f"   Mode        : {'test_mode=true (safe)' if test_mode else 'test_mode=false (production)'}"
+    )
     print(f"   WDL         : {wdl_label}")
 
     # Inject a fresh bearer token so {workflow_arguments.auth_token} is resolved.
@@ -178,7 +179,9 @@ Examples:
 
     try:
         result = client.test_run(
-            remote_pipeline_id, wdl=wdl, test_mode=test_mode,
+            remote_pipeline_id,
+            wdl=wdl,
+            test_mode=test_mode,
             workflow_params=workflow_params,
             # For production runs, allow_concurrent_runs lets a stale
             # pipeline_run record from a previous run be safely bypassed.
@@ -186,13 +189,11 @@ Examples:
             max_concurrent_runs=2,
         )
         run_id = result.get("run_id") or result.get("id") or "?"
-        print(f"\n✅ Run triggered!")
+        print("\n✅ Run triggered!")
         print(f"   Run ID      : {run_id}")
         if args.verbose:
             print(f"   Full response: {json.dumps(result, indent=2)}")
-        print(
-            f"\n💡 Results stream via Pusher channel: conversation_{remote_pipeline_id}"
-        )
+        print(f"\n💡 Results stream via Pusher channel: conversation_{remote_pipeline_id}")
         print(
             f"   After reviewing results, mark as passed:\n"
             f"   python cli/test_pipeline.py {args.pipeline_id} --mark-passed"
@@ -203,8 +204,8 @@ Examples:
         msg = str(exc)
         if "409" in msg:
             print(
-                f"\n⚠️  Conflict (409): Another run is already active for this pipeline.\n"
-                f"   Wait for it to complete, or use --production only when intentional."
+                "\n⚠️  Conflict (409): Another run is already active for this pipeline.\n"
+                "   Wait for it to complete, or use --production only when intentional."
             )
         else:
             print(f"\n❌ Test run failed: {exc}")

@@ -305,6 +305,7 @@ class PipelineClient:
         allow_concurrent_runs / max_concurrent_runs control fan-out child dispatch.
         """
         import copy
+
         if wdl is not None and workflow_params:
             wdl = copy.deepcopy(wdl)
             raw = json.dumps(wdl)
@@ -419,9 +420,7 @@ class PipelineClient:
         _log(f"✅ WDL pushed (publish version: {publish_version_id})")
 
         _log("Polling for WDL confirmation...")
-        confirmed = self.poll_until_wdl_confirmed(
-            pipeline_id, publish_version_id, wdl[0]["id"]
-        )
+        confirmed = self.poll_until_wdl_confirmed(pipeline_id, publish_version_id, wdl[0]["id"])
         if not confirmed:
             raise RuntimeError("WDL push did not appear after polling")
         _log(f"✅ WDL confirmed ({len(wdl)} steps)")
@@ -473,8 +472,6 @@ def get_pipeline_client() -> PipelineClient:
     from cli.auth import get_bearer_token
 
     token = get_bearer_token()
-    base_url = os.getenv(
-        "ADOPT_ACTIONS_ENDPOINT", "https://api.adopt.ai"
-    ).rstrip("/")
+    base_url = os.getenv("ADOPT_ACTIONS_ENDPOINT", "https://api.adopt.ai").rstrip("/")
 
     return PipelineClient(base_url=base_url, token=token)

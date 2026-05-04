@@ -2146,7 +2146,7 @@ def cmd_pipeline_create(args: argparse.Namespace) -> int:
     print(f"✅ {message}")
     print(f"   Environment : {env_name}")
     print(f"   Path        : {path}")
-    print(f"\n📝 Next steps:")
+    print("\n📝 Next steps:")
     print(f"   1. Edit widdle.json:  {path / 'widdle.json'}")
     print(f"   2. Push draft:        python cli/save_pipeline_draft.py {pipeline_id}")
     print(f"   3. Run test:          python cli/test_pipeline.py {pipeline_id}")
@@ -2178,12 +2178,16 @@ def cmd_pipeline_list(args: argparse.Namespace) -> int:
         return 0
 
     state_icons = {
-        "local": "🏠", "draft": "📝", "published": "✅",
-        "running": "🟢", "paused": "⏸", "error": "🔴",
+        "local": "🏠",
+        "draft": "📝",
+        "published": "✅",
+        "running": "🟢",
+        "paused": "⏸",
+        "error": "🔴",
     }
     print(f"\n📦 Pipelines in: {env_name}  ({len(pipelines)})\n")
     print(f"  {'ID':<30}  {'STATE':<12}  NAME")
-    print(f"  {'-'*30}  {'-'*12}  {'-'*30}")
+    print(f"  {'-' * 30}  {'-' * 12}  {'-' * 30}")
     for p in pipelines:
         pid = p.get("pipeline_id", "?")[:30]
         state = p.get("state") or "local"
@@ -2251,7 +2255,8 @@ def cmd_pipeline_checkout_all(args: argparse.Namespace) -> int:
 
     from dotenv import load_dotenv
 
-    from cli.wdl_common.workspace_manager import WORKSPACES_DIR, get_workspace_manager as _gwm
+    from cli.wdl_common.workspace_manager import WORKSPACES_DIR
+    from cli.wdl_common.workspace_manager import get_workspace_manager as _gwm
 
     def _slugify(text: str) -> str:
         s = text.lower().strip()
@@ -2284,9 +2289,10 @@ def cmd_pipeline_checkout_all(args: argparse.Namespace) -> int:
     print(f"{'=' * 70}")
     print(f"Environment : {env}")
 
-    from cli.wdl_common.pipeline_client import PipelineClient
-    from cli.auth import get_bearer_token
     import os
+
+    from cli.auth import get_bearer_token
+    from cli.wdl_common.pipeline_client import PipelineClient
 
     try:
         token = get_bearer_token()
@@ -2437,7 +2443,7 @@ def cmd_pipeline_checkout_all(args: argparse.Namespace) -> int:
     print(f"{'=' * 70}")
     if success_count:
         print(f"\nWorkspaces saved to: {env_path / 'pipelines'}")
-        print(f"Edit WDL, then: python cli/save_pipeline_draft.py <pipeline-id>")
+        print("Edit WDL, then: python cli/save_pipeline_draft.py <pipeline-id>")
     print()
 
     return 0 if error_count == 0 else 1
@@ -2915,7 +2921,9 @@ Examples:
         help="Source type (default: internal)",
     )
     pl_create.add_argument("--source-connector-id", help="Connector instance ID")
-    pl_create.add_argument("--source-connector-type", help="Connector provider type (e.g. amazon_s3)")
+    pl_create.add_argument(
+        "--source-connector-type", help="Connector provider type (e.g. amazon_s3)"
+    )
     pl_create.add_argument("--source-connector-name", help="Human-readable source name")
     pl_create.set_defaults(func=cmd_pipeline_create)
 
@@ -2962,7 +2970,9 @@ Examples:
         """,
     )
     pl_checkout.add_argument("--env", help="Environment to checkout into (uses active if not set)")
-    pl_checkout.add_argument("--limit", type=int, metavar="N", help="Max number of pipelines to checkout")
+    pl_checkout.add_argument(
+        "--limit", type=int, metavar="N", help="Max number of pipelines to checkout"
+    )
     pl_checkout.add_argument(
         "--state",
         choices=["draft", "running", "paused", "error"],

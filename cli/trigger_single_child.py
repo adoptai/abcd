@@ -14,19 +14,18 @@ Usage:
 import argparse
 import json
 import sys
-import time
-import urllib.request
 import urllib.error
+import urllib.request
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
+from cli.auth import get_bearer_token
 from cli.wdl_common.context import ensure_env
 from cli.wdl_common.pipeline_client import get_pipeline_client
-from cli.auth import get_bearer_token
 
 CHILD_PIPELINE_REMOTE_ID = "7739948409864f7a"
 RESOLUTION_AGENT_ACTION_ID = "390fb432-22e0-4efe-9001-02eb17fbce7c"
@@ -56,7 +55,7 @@ def _request(url: str, token: str, method: str = "GET", body=None):
 
 
 def create_workstream(token: str, zip_filename: str) -> str:
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     safe = zip_filename.replace(".zip", "").replace(" ", "_")
     name = f"Suralink TEST - {safe} - {ts}"[:100]
 
@@ -77,7 +76,9 @@ def create_workstream(token: str, zip_filename: str) -> str:
     return ws_id
 
 
-def trigger_child_pipeline(token: str, zip_filename: str, workstream_id: str, test_mode: bool) -> dict:
+def trigger_child_pipeline(
+    token: str, zip_filename: str, workstream_id: str, test_mode: bool
+) -> dict:
     client = get_pipeline_client()
 
     run_id = f"single-{uuid.uuid4().hex[:8]}"
@@ -97,7 +98,14 @@ def trigger_child_pipeline(token: str, zip_filename: str, workstream_id: str, te
     }
 
     # Load child WDL for client-side param substitution (required by /test-run)
-    child_wdl_path = REPO_ROOT / "workspaces" / "uhy-staging" / "pipelines" / "uhy-suralink-ingest-per-zip" / "widdle.json"
+    child_wdl_path = (
+        REPO_ROOT
+        / "workspaces"
+        / "uhy-staging"
+        / "pipelines"
+        / "uhy-suralink-ingest-per-zip"
+        / "widdle.json"
+    )
     with open(child_wdl_path) as f:
         child_wdl = json.load(f)
 
@@ -117,8 +125,12 @@ def trigger_child_pipeline(token: str, zip_filename: str, workstream_id: str, te
 
 def main():
     parser = argparse.ArgumentParser(description="Trigger a single child pipeline run for testing")
-    parser.add_argument("--zip", default=DEFAULT_ZIP, help=f"Zip filename (default: {DEFAULT_ZIP!r})")
-    parser.add_argument("--test-mode", action="store_true", help="Run in test_mode=True (safe, no side-effects)")
+    parser.add_argument(
+        "--zip", default=DEFAULT_ZIP, help=f"Zip filename (default: {DEFAULT_ZIP!r})"
+    )
+    parser.add_argument(
+        "--test-mode", action="store_true", help="Run in test_mode=True (safe, no side-effects)"
+    )
     parser.add_argument("--workstream-id", help="Reuse an existing workstream ID (skip creation)")
     args = parser.parse_args()
 
@@ -136,7 +148,7 @@ def main():
     print("\n2. Triggering child pipeline...")
     result = trigger_child_pipeline(token, args.zip, ws_id, args.test_mode)
 
-    print(f"\n✓ Pipeline triggered!")
+    print("\n✓ Pipeline triggered!")
     print(json.dumps(result, indent=2))
 
 

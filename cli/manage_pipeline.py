@@ -104,7 +104,7 @@ def cmd_create(args: argparse.Namespace) -> int:
     print(f"\n✅ {message}")
     print(f"   Environment : {env_name}")
     print(f"   Path        : {path}")
-    print(f"\n📝 Next steps:")
+    print("\n📝 Next steps:")
     print(f"   1. Edit widdle.json:  {path / 'widdle.json'}")
     print(f"   2. Push draft:        python cli/save_pipeline_draft.py {pipeline_id}")
     print(f"   3. Run test:          python cli/test_pipeline.py {pipeline_id}")
@@ -194,7 +194,9 @@ Examples:
         default="internal",
         help="Source type (default: internal)",
     )
-    parser.add_argument("--source-connector-id", help="Connector instance ID (for --source-type connector)")
+    parser.add_argument(
+        "--source-connector-id", help="Connector instance ID (for --source-type connector)"
+    )
     parser.add_argument("--source-connector-type", help="Connector provider type (e.g. amazon_s3)")
     parser.add_argument("--source-connector-name", help="Human-readable source name")
     parser.add_argument("--destination-connector-id", help="Optional destination connector ID")

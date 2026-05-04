@@ -82,13 +82,15 @@ Examples:
 
             client = get_pipeline_client()
             remote_pipelines = client.list_pipelines()
-            remote_list = remote_pipelines if isinstance(remote_pipelines, list) else remote_pipelines.get("items", [])
+            remote_list = (
+                remote_pipelines
+                if isinstance(remote_pipelines, list)
+                else remote_pipelines.get("items", [])
+            )
 
             # Build index of local pipelines by remote_pipeline_id
             local_by_remote_id: dict[str, dict] = {
-                p["remote_pipeline_id"]: p
-                for p in pipelines
-                if p.get("remote_pipeline_id")
+                p["remote_pipeline_id"]: p for p in pipelines if p.get("remote_pipeline_id")
             }
 
             # Merge remote info into local pipelines or add remote-only entries
@@ -133,12 +135,12 @@ Examples:
         if args.state:
             msg += f" with state='{args.state}'"
         print(msg)
-        print(f"\nCreate one with: python cli/manage_pipeline.py --create -t \"My Pipeline\"")
+        print('\nCreate one with: python cli/manage_pipeline.py --create -t "My Pipeline"')
         return 0
 
     print(f"\n📦 Pipelines in environment: {env_name}  ({len(all_pipelines)} found)\n")
     print(f"  {'ID':<30}  {'STATE':<12}  {'REMOTE ID':<38}  NAME")
-    print(f"  {'-'*30}  {'-'*12}  {'-'*38}  {'-'*30}")
+    print(f"  {'-' * 30}  {'-' * 12}  {'-' * 38}  {'-' * 30}")
 
     for p in all_pipelines:
         pid = p.get("pipeline_id", "?")[:30]

@@ -103,17 +103,13 @@ def publish_single(
         client.publish_draft(remote_pipeline_id, version_id)
         print("   ✅ Draft published!")
 
-        manager.update_pipeline_workspace_meta(
-            pipeline_id, {"state": "published"}, env_name
-        )
+        manager.update_pipeline_workspace_meta(pipeline_id, {"state": "published"}, env_name)
 
         if activate:
             print("   → Activating pipeline (state=running)...")
             client.activate_pipeline(remote_pipeline_id)
             print("   ✅ Pipeline activated!")
-            manager.update_pipeline_workspace_meta(
-                pipeline_id, {"state": "running"}, env_name
-            )
+            manager.update_pipeline_workspace_meta(pipeline_id, {"state": "running"}, env_name)
 
         state = "running" if activate else "published"
         return PublishResult(
@@ -176,17 +172,18 @@ Examples:
     global _verbose
     _verbose = args.verbose
 
-    print(f"\n{'='*65}")
-    print(f"  Publish Pipeline(s)")
-    print(f"{'='*65}\n")
+    print(f"\n{'=' * 65}")
+    print("  Publish Pipeline(s)")
+    print(f"{'=' * 65}\n")
 
     if not args.yes and not args.dry_run:
         pipeline_list = ", ".join(args.pipeline_ids)
         action = "publish + activate" if args.activate else "publish"
-        confirm = input(
-            f"⚠️  This will {action} pipeline(s): {pipeline_list}\n"
-            f"   Are you sure? [y/N]: "
-        ).strip().lower()
+        confirm = (
+            input(f"⚠️  This will {action} pipeline(s): {pipeline_list}\n   Are you sure? [y/N]: ")
+            .strip()
+            .lower()
+        )
         if confirm not in ("y", "yes"):
             print("Aborted.")
             return 0
@@ -219,9 +216,9 @@ Examples:
     successes = [r for r in results if r.success]
     failures = [r for r in results if not r.success]
 
-    print(f"\n{'='*65}")
+    print(f"\n{'=' * 65}")
     print(f"  {len(successes)} ✅  {len(failures)} ❌")
-    print(f"{'='*65}")
+    print(f"{'=' * 65}")
 
     if successes:
         print("\nPublished:")
