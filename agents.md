@@ -138,6 +138,106 @@ ADOPT_ACTIONS_ENDPOINT=https://api.adopt.ai
 
 ---
 
+## 🔄 PIPELINES
+
+Pipelines are data-sync / ETL workflows distinct from Actions (which are chat/AI agents). Use pipelines when you need scheduled or triggered data flows, multi-step DB operations, fan-outs, escalations, or external API syncs that write to an internal data store.
+
+### Pipeline Workflow
+
+```
+Create workspace → Edit widdle.json → Save draft → Test → Publish → Activate
+```
+
+```bash
+# 1. Create workspace (local only)
+python cli/manage_pipeline.py --create -t "Sync Bank Clients" \
+    -d "Fetch all bank clients and store" \
+    --prompt "Fetch all bank clients from portal and store them"
+
+# 2. Edit WDL directly
+#    → workspaces/{env}/pipelines/sync-bank-clients/widdle.json
+
+# 3. Push draft to platform (auto-creates remote pipeline on first run)
+python cli/save_pipeline_draft.py sync-bank-clients
+python cli/save_pipeline_draft.py sync-bank-clients --description "Added normalization step"
+
+# 4. Run a test (test_mode=true, safe for development)
+python cli/test_pipeline.py sync-bank-clients
+
+# 5. Publish (marks test as passed + publishes draft)
+python cli/publish_pipeline.py sync-bank-clients --yes
+
+# 6. Activate (set state=running)
+python cli/publish_pipeline.py sync-bank-clients --activate --yes
+# or separately:
+python cli/test_pipeline.py sync-bank-clients --mark-passed
+```
+
+### workspace.py Pipeline Commands
+
+```bash
+python cli/workspace.py pipeline create --title "My Pipeline" --prompt "..."
+python cli/workspace.py pipeline list
+python cli/workspace.py pipeline show <pipeline-id>
+```
+
+### Pipeline WDL Operations
+
+Pipeline WDL supports all the same operations as Action WDL, plus:
+
+| Operation | Purpose |
+|-----------|---------|
+| `READ_FROM_DB` | Query DuckDB internal store |
+| `WRITE_TO_DB` | Persist results to internal store |
+| `FAN_OUT` | Parallel processing with sub-steps |
+| `ESCALATE` | Human-in-the-loop escalation (HITL) |
+| `CONDITION` | Conditional branching |
+
+### Pipeline vs Action
+
+| | Pipeline | Action |
+|--|---------|--------|
+| **Purpose** | Data sync / ETL | Chat / AI agent response |
+| **Trigger** | Schedule / manual run | User chat message |
+| **Output** | Writes to DB tables | Returns text to user |
+| **WDL extras** | READ_FROM_DB, WRITE_TO_DB, FAN_OUT, ESCALATE | OUTPUT_TEXT, REST, PROMPT |
+| **Managed by** | `cli/manage_pipeline.py` | `cli/manage_wdl_action.py` |
+
+### Workspace Structure
+
+```
+workspaces/{env}/pipelines/{pipeline-id}/
+├── pipeline.json    # metadata: name, remote_pipeline_id, version_id, state
+├── widdle.json      # WDL (edit this directly)
+└── versions/
+    └── v1_widdle.json   # version snapshots (created by save_pipeline_draft.py)
+```
+
+### CLI Reference
+
+| Command | Purpose |
+|---------|---------|
+| `python cli/manage_pipeline.py --create -t "Title"` | Create local workspace |
+| `python cli/manage_pipeline.py --show <id>` | Show workspace details |
+| `python cli/save_pipeline_draft.py <id>` | Push WDL to platform as draft |
+| `python cli/test_pipeline.py <id>` | Trigger test run |
+| `python cli/test_pipeline.py <id> --mark-passed` | Mark test as passed |
+| `python cli/publish_pipeline.py <id> --yes` | Publish draft |
+| `python cli/publish_pipeline.py <id> --activate --yes` | Publish + activate |
+| `python cli/list_pipelines.py` | List local workspaces |
+| `python cli/list_pipelines.py --remote` | List + merge remote pipelines |
+
+### Migrating Existing create_*_pipeline.py Scripts
+
+The existing `create_beyond_risk_*.py` and `create_uhy_pipelines.py` scripts continue to work. Their inline `PipelineClient` can now be replaced with:
+
+```python
+from cli.wdl_common.pipeline_client import get_pipeline_client
+client = get_pipeline_client()
+```
+
+---
+
 ## 🔀 WORKFLOW DECISION: New Action vs Edit Existing
 
 ### User wants to CREATE NEW action/workflow:
@@ -574,6 +674,13 @@ User Request
     │   → python cli/workspace.py env create --id <client>-prod --target production --use
     │   → Edit workspaces/<env>/.env with credentials
     │
+    ├─ "Create pipeline" / "Build data sync" / "ETL workflow"
+    │   → python cli/manage_pipeline.py --create -t "Title" --prompt "..."
+    │   → edit workspaces/{env}/pipelines/{id}/widdle.json
+    │   → python cli/save_pipeline_draft.py <id>
+    │   → python cli/test_pipeline.py <id>
+    │   → python cli/publish_pipeline.py <id> --yes
+    │
     ├─ "Search for APIs/actions"
     │   → python cli/discover.py --apis "query"
     │   → python cli/discover.py --actions "query"
@@ -868,6 +975,108 @@ python cli/discover.py --requirements requirements.md
 - User explicitly requests "complex workflow" or "multi-step"
 
 **👉 For detailed WDL workflow creation instructions, see: [`prompts/system/CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md`](CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md)**
+
+---
+
+### Lambda & Sandbox Operations
+
+**When to use Lambda vs Sandbox vs Action:**
+
+- **Action** (default): Declarative WDL workflows for API orchestration, data transformation, LLM prompts. No custom code execution.
+- **Lambda (EXECUTE_LAMBDA)**: Registered, reusable Python code that runs in a first-party sandbox with platform resource access (database, vector store, document APIs). Use when the workflow needs custom computation, data processing, or ML inference that can't be expressed as declarative WDL steps. Lambdas have restricted networking (platform FQDNs only) and use the audited `adopt-lambda-runtime` image.
+- **Sandbox (SANDBOX)**: Ad-hoc container execution with custom Docker images and configurable network. Use for one-off tasks like running shell scripts, installing packages, or executing code that needs internet access. Persistent session across steps (init -> exec -> exec -> teardown). NOT available on-prem.
+
+**Cloud vs On-Prem:**
+
+| Feature | Cloud | On-Prem |
+|---------|-------|---------|
+| EXECUTE_LAMBDA | Yes (adopt-lambda-runtime only) | Yes (adopt-lambda-runtime only) |
+| SANDBOX | Yes (any image, configurable network) | Disabled |
+| Custom Docker images | Yes (SANDBOX only) | Disabled |
+
+**Lambda workspace layout:**
+
+- Lambdas live in the shared `workspaces/{env}/lambdas/{name}/` directory — NOT under an agent. This makes them reusable across agents.
+- Each lambda has a **single `metadata.json`** that holds both config and the remote link:
+  ```json
+  {
+    "name": "my-lambda",
+    "type": "lambda",
+    "lambda_id": null,
+    "language": "python",
+    "entry_point": "script.py",
+    "timeout_seconds": 300,
+    "runtime_image": "adopt-lambda-runtime:latest",
+    "cpu_limit": "500m",
+    "memory_limit": "512Mi",
+    "resource_permissions": []
+  }
+  ```
+  (The old two-file layout — `lambda.json` + `metadata.json` — is still supported for backward compatibility.)
+- When you run `agent checkout`, lambdas referenced by `EXECUTE_LAMBDA` operations in any downloaded WDL are **automatically downloaded** into `workspaces/{env}/lambdas/` if they are not already present locally.
+
+**Lambda CLI Workflow:**
+
+```bash
+# Create a lambda workspace
+manage_lambda.py --create my-lambda
+
+# Edit code in workspaces/{env}/lambdas/my-lambda/script.py
+
+# Upload to platform
+save_lambda.py my-lambda
+
+# Test execution
+test_lambda.py my-lambda --input '{"key": "value"}'
+
+# View execution logs
+lambda_logs.py my-lambda
+
+# Update config (image, cpu, memory, timeout)
+manage_lambda.py --update my-lambda --timeout 120
+
+# Delete
+manage_lambda.py --delete my-lambda
+```
+
+**WDL Examples:**
+
+EXECUTE_LAMBDA:
+```json
+{
+  "id": "runAnalysis",
+  "operation": "EXECUTE_LAMBDA",
+  "lambda_name": "data-analyzer",
+  "input": "previousStep",
+  "env": {"DEBUG": "true"}
+}
+```
+
+SANDBOX (multi-step):
+```json
+[
+  {
+    "id": "setupEnv",
+    "operation": "SANDBOX",
+    "action": "init",
+    "image": "python:3.11-slim",
+    "upload_files": [{"path": "/workspace/script.py", "content": "..."}]
+  },
+  {
+    "id": "runScript",
+    "operation": "SANDBOX",
+    "action": "exec",
+    "command": "python /workspace/script.py"
+  },
+  {
+    "id": "cleanup",
+    "operation": "SANDBOX",
+    "action": "teardown"
+  }
+]
+```
+
+**Full operation docs:** After the ProjectA3 PR is merged, detailed field-level docs will be available at the remote widdle_docs URL referenced by the WDL prompt system.
 
 ---
 

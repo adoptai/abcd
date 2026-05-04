@@ -102,6 +102,7 @@ class WDLValidator:
         "DOWNLOAD_ENABLED",
         "EDIT_VALUE",
         "END",
+        "EXECUTE_LAMBDA",
         "EXECUTE_PLAN",
         "EXTRACT",
         "EXTRACT_AND_FLATTEN_UUID_MAP",
@@ -140,6 +141,7 @@ class WDLValidator:
         "REST",
         "REST_DELAY",
         "REST_LOOP",
+        "SANDBOX",
         "SET_VARIABLE",
         "SORT",
         "SPLIT",
@@ -381,6 +383,78 @@ class WDLValidator:
                     errors.append(f"Operation {i} (PROJECT) missing 'input' field")
                 if "fields" not in op:
                     errors.append(f"Operation {i} (PROJECT) missing 'fields' field")
+
+            elif operation == "EXECUTE_LAMBDA":
+                if "lambda_name" not in op and "lambda_id" not in op:
+                    errors.append(
+                        f"Operation {i} (EXECUTE_LAMBDA) must have 'lambda_name' or 'lambda_id'"
+                    )
+                if "lambda_name" in op and "lambda_id" in op:
+                    errors.append(
+                        f"Operation {i} (EXECUTE_LAMBDA) must have 'lambda_name' or 'lambda_id', not both"
+                    )
+                errors.extend(self._validate_file_ops(op, i, "EXECUTE_LAMBDA"))
+
+            elif operation == "SANDBOX":
+                action = op.get("action")
+                if not action:
+                    errors.append(f"Operation {i} (SANDBOX) missing required 'action' field")
+                elif action not in ("init", "exec", "teardown"):
+                    errors.append(
+                        f"Operation {i} (SANDBOX) 'action' must be 'init', 'exec', or 'teardown'"
+                    )
+                if action == "init" and "image" not in op:
+                    errors.append(f"Operation {i} (SANDBOX) 'init' action requires 'image' field")
+                if action == "exec" and "image" in op:
+                    errors.append(
+                        f"Operation {i} (SANDBOX) 'exec' action must not have 'image' (set on init)"
+                    )
+                if action == "exec" and "command" not in op:
+                    errors.append(f"Operation {i} (SANDBOX) 'exec' action requires 'command' field")
+                errors.extend(self._validate_file_ops(op, i, "SANDBOX"))
+
+        return errors
+
+    def _validate_file_ops(self, op: dict, op_index: int, op_type: str) -> list[str]:
+        """Validate upload_files and download_files schemas for EXECUTE_LAMBDA and SANDBOX."""
+        errors = []
+
+        upload_files = op.get("upload_files", [])
+        if upload_files:
+            if not isinstance(upload_files, list):
+                errors.append(f"Operation {op_index} ({op_type}) 'upload_files' must be a list")
+            else:
+                for j, f in enumerate(upload_files):
+                    if not isinstance(f, dict):
+                        errors.append(
+                            f"Operation {op_index} ({op_type}) upload_files[{j}] must be an object"
+                        )
+                        continue
+                    if "path" not in f:
+                        errors.append(
+                            f"Operation {op_index} ({op_type}) upload_files[{j}] missing 'path'"
+                        )
+                    has_content = "content" in f
+                    has_url = "url" in f
+                    if not has_content and not has_url:
+                        errors.append(
+                            f"Operation {op_index} ({op_type}) upload_files[{j}] must have 'content' or 'url'"
+                        )
+                    if has_content and has_url:
+                        errors.append(
+                            f"Operation {op_index} ({op_type}) upload_files[{j}] cannot have both 'content' and 'url'"
+                        )
+
+        download_files = op.get("download_files", [])
+        if download_files:
+            if not isinstance(download_files, list):
+                errors.append(f"Operation {op_index} ({op_type}) 'download_files' must be a list")
+            else:
+                for j, path in enumerate(download_files):
+                    if not isinstance(path, str):
+                        errors.append(
+                            f"Operation {op_index} ({op_type}) download_files[{j}] must be a string path"
+                        )
 
         return errors
 

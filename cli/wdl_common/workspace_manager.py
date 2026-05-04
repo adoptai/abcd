@@ -25,8 +25,10 @@ Directory Structure:
     │   │       ├── adopt_profile.json (optional)
     │   │       └── actions/
     │   │           └── {action_id}/
-    │   └── actions/             # Standalone actions in env
-    │       └── {action_id}/
+    │   ├── actions/             # Standalone actions in env
+    │   │   └── {action_id}/
+    │   └── lambdas/             # Lambda workspaces in env
+    │       └── {lambda_name}/
     └── {other_env}/             # Additional environments
         └── ...
 """
@@ -120,6 +122,37 @@ class ActionContext:
     def adopt_profile_path(self) -> Path:
         """Path to adopt_profile.json."""
         return self.path / "adopt_profile.json"
+
+
+@dataclass
+class LambdaContext:
+    """
+    Complete context for a lambda workspace.
+
+    Covers both env-level lambdas (workspaces/{env}/lambdas/{name}/) and
+    agent-scoped lambdas (workspaces/{env}/agents/{agent}/lambdas/{name}/).
+
+    The unified ``metadata`` dict contains all lambda config fields (name,
+    language, entry_point, timeout_seconds, etc.) as well as the remote
+    ``lambda_id``.  The legacy ``lambda.json`` file (old format) is merged in
+    at load-time for backward compatibility.
+    """
+
+    name: str
+    path: Path
+    metadata: dict[str, Any]
+    source_files: list[str]
+    env_name: str
+    agent_name: str | None
+
+    # ---------------------------------------------------------------------------
+    # Convenience shim: callers that used ctx.lambda_json.get(...) still work.
+    # Remove once all call sites are updated.
+    # ---------------------------------------------------------------------------
+    @property
+    def lambda_json(self) -> "dict[str, Any]":
+        """Backward-compat shim — returns metadata (unified dict)."""
+        return self.metadata
 
 
 class WorkspaceType(Enum):
@@ -398,6 +431,7 @@ class HierarchicalWorkspaceManager:
             env_path.mkdir(parents=True)
             (env_path / "agents").mkdir()
             (env_path / "actions").mkdir()
+            (env_path / "pipelines").mkdir()
 
             # Create env.json
             env_meta = {
@@ -1461,6 +1495,234 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         return actions
 
     # =========================================================================
+    # Lambda Management
+    # =========================================================================
+
+    def _load_lambda_context(
+        self, lambda_path: Path, env_name: str, agent_name: str | None
+    ) -> LambdaContext:
+        """Load a LambdaContext from a lambda workspace directory.
+
+        Reads the unified ``metadata.json``.  For backward compatibility with
+        the old two-file format, if ``lambda.json`` also exists its values are
+        merged in first (metadata.json values win on conflicts).
+        """
+        merged: dict[str, Any] = {}
+
+        # Backward compat: read legacy lambda.json first (lower priority)
+        lambda_json_path = lambda_path / "lambda.json"
+        if lambda_json_path.exists():
+            try:
+                merged.update(json.loads(lambda_json_path.read_text()))
+            except Exception:
+                pass
+
+        # Unified metadata.json takes precedence
+        metadata_path = lambda_path / "metadata.json"
+        if metadata_path.exists():
+            try:
+                merged.update(json.loads(metadata_path.read_text()))
+            except Exception:
+                pass
+
+        source_files: list[str] = []
+        for item in lambda_path.rglob("*"):
+            if item.is_file() and item.name not in (
+                "lambda.json",
+                "metadata.json",
+                "requirements.txt",
+            ):
+                source_files.append(str(item.relative_to(lambda_path)))
+
+        return LambdaContext(
+            name=lambda_path.name,
+            path=lambda_path,
+            metadata=merged,
+            source_files=source_files,
+            env_name=env_name,
+            agent_name=agent_name,
+        )
+
+    def find_lambda(self, name: str) -> "LambdaContext | None":
+        """
+        Find a lambda workspace by name.
+
+        Searches agent-scoped lambdas first, then env-level lambdas.
+
+        Args:
+            name: Lambda name to find
+
+        Returns:
+            LambdaContext if found, None otherwise
+        """
+        env = self._active_env
+        if not env or not self.env_exists(env):
+            return None
+
+        env_path = WORKSPACES_DIR / env
+
+        # Search agent-scoped lambdas first
+        agents_dir = env_path / "agents"
+        if agents_dir.exists():
+            for agent_item in agents_dir.iterdir():
+                if not agent_item.is_dir():
+                    continue
+                lambda_path = agent_item / "lambdas" / name
+                # Accept new unified metadata.json OR legacy lambda.json
+                if lambda_path.exists() and (
+                    (lambda_path / "metadata.json").exists()
+                    or (lambda_path / "lambda.json").exists()
+                ):
+                    return self._load_lambda_context(lambda_path, env, agent_item.name)
+
+        # Search env-level lambdas
+        lambda_path = env_path / "lambdas" / name
+        if lambda_path.exists() and (
+            (lambda_path / "metadata.json").exists() or (lambda_path / "lambda.json").exists()
+        ):
+            return self._load_lambda_context(lambda_path, env, None)
+
+        return None
+
+    def list_lambdas(self, agent_name: str | None = None) -> list["LambdaContext"]:
+        """
+        List all lambda workspaces, optionally filtered by agent.
+
+        Args:
+            agent_name: If provided, list only lambdas for this agent.
+                        If None, list all lambdas (env-level and all agents).
+
+        Returns:
+            List of LambdaContext instances
+        """
+        env = self._active_env
+        if not env or not self.env_exists(env):
+            return []
+
+        env_path = WORKSPACES_DIR / env
+        lambdas: list[LambdaContext] = []
+
+        def _is_lambda_dir(p: Path) -> bool:
+            """Accept new unified metadata.json OR legacy lambda.json."""
+            return p.is_dir() and ((p / "metadata.json").exists() or (p / "lambda.json").exists())
+
+        if agent_name:
+            # List lambdas for a specific agent only
+            lambdas_dir = env_path / "agents" / agent_name / "lambdas"
+            if lambdas_dir.exists():
+                for item in lambdas_dir.iterdir():
+                    if _is_lambda_dir(item):
+                        lambdas.append(self._load_lambda_context(item, env, agent_name))
+        else:
+            # List env-level lambdas
+            env_lambdas_dir = env_path / "lambdas"
+            if env_lambdas_dir.exists():
+                for item in env_lambdas_dir.iterdir():
+                    if _is_lambda_dir(item):
+                        lambdas.append(self._load_lambda_context(item, env, None))
+
+            # List all agent-scoped lambdas
+            agents_dir = env_path / "agents"
+            if agents_dir.exists():
+                for agent_item in agents_dir.iterdir():
+                    if not agent_item.is_dir():
+                        continue
+                    agent_lambdas_dir = agent_item / "lambdas"
+                    if agent_lambdas_dir.exists():
+                        for item in agent_lambdas_dir.iterdir():
+                            if _is_lambda_dir(item):
+                                lambdas.append(
+                                    self._load_lambda_context(item, env, agent_item.name)
+                                )
+
+        return lambdas
+
+    def create_lambda(
+        self,
+        name: str,
+        agent_name: str | None = None,
+        language: str = "python",
+        runtime_image: str | None = None,
+        cpu_limit: str | None = None,
+        memory_limit: str | None = None,
+    ) -> "LambdaContext":
+        """
+        Create a new lambda workspace with template files.
+
+        Agent-scoped: workspaces/{env}/agents/{agent}/lambdas/{name}/
+        Env-level:    workspaces/{env}/lambdas/{name}/
+
+        Args:
+            name: Lambda name
+            agent_name: Agent to scope this lambda to (None for env-level)
+            language: Programming language (default: "python")
+
+        Returns:
+            LambdaContext for the created lambda
+
+        Raises:
+            ValueError: If no active environment, agent not found, or lambda already exists
+        """
+        env = self._active_env
+        if not env:
+            raise ValueError(
+                "No active environment. Set one with: python cli/workspace.py env use <env-id>"
+            )
+
+        if not self.env_exists(env):
+            raise ValueError(f"Environment not found: {env}")
+
+        if agent_name and not self.agent_exists(agent_name, env):
+            raise ValueError(f"Agent not found: {agent_name}")
+
+        if agent_name:
+            lambda_path = WORKSPACES_DIR / env / "agents" / agent_name / "lambdas" / name
+        else:
+            lambda_path = WORKSPACES_DIR / env / "lambdas" / name
+
+        if lambda_path.exists():
+            raise ValueError(f"Lambda already exists: {name}")
+
+        lambda_path.mkdir(parents=True)
+        (lambda_path / "test_cases").mkdir()
+
+        # Unified metadata.json — merges config (formerly lambda.json) with
+        # remote-linking fields (formerly metadata.json).
+        metadata: dict[str, Any] = {
+            "name": name,
+            "type": "lambda",
+            "lambda_id": None,
+            "language": language,
+            "entry_point": "script.py",
+            "timeout_seconds": 300,
+            "runtime_image": runtime_image or "adopt-lambda-runtime:latest",
+            "cpu_limit": cpu_limit or "500m",
+            "memory_limit": memory_limit or "512Mi",
+            "resource_permissions": [],
+        }
+        (lambda_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+        script_content = (
+            "import json\n"
+            "import sys\n"
+            "\n"
+            "\n"
+            "def main(input_data):\n"
+            '    return {"result": "ok"}\n'
+            "\n"
+            "\n"
+            'if __name__ == "__main__":\n'
+            "    input_data = json.load(sys.stdin)\n"
+            "    output = main(input_data)\n"
+            "    print(json.dumps(output))\n"
+        )
+        (lambda_path / "script.py").write_text(script_content)
+
+        (lambda_path / "requirements.txt").write_text("")
+
+        return self._load_lambda_context(lambda_path, env, agent_name)
+
+    # =========================================================================
     # Configuration Inheritance
     # =========================================================================
 
@@ -1559,6 +1821,180 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
         env_file = self.resolve_env_file(env_name)
         if env_file:
             load_dotenv(env_file, override=True)
+
+    # =========================================================================
+    # Pipeline Workspace Management
+    # =========================================================================
+
+    def get_pipelines_dir(self, env_name: str | None = None) -> Path:
+        """Return the pipelines directory for the given (or active) environment."""
+        env = env_name or self._active_env or DEFAULT_ENV
+        pipelines_dir = WORKSPACES_DIR / env / "pipelines"
+        pipelines_dir.mkdir(parents=True, exist_ok=True)
+        return pipelines_dir
+
+    def create_pipeline_workspace(
+        self,
+        pipeline_id: str,
+        name: str,
+        description: str = "",
+        prompt: str = "",
+        source: dict | None = None,
+        destinations: list | None = None,
+        schedule_type: str = "manual",
+        env_name: str | None = None,
+    ) -> tuple[bool, Path, str]:
+        """
+        Create a local pipeline workspace directory.
+
+        Creates:
+            workspaces/{env}/pipelines/{pipeline_id}/
+                pipeline.json    – metadata & remote link
+                widdle.json      – WDL (empty list to start)
+                versions/        – version snapshots dir
+
+        Returns:
+            (success, path, message)
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        pipeline_path = pipelines_dir / pipeline_id
+
+        if pipeline_path.exists():
+            return False, pipeline_path, f"Pipeline workspace already exists: {pipeline_id}"
+
+        if source is None:
+            source = {
+                "integration_id": "internal_data_store",
+                "integration_type": "internal",
+                "integration_name": "Internal Data Store",
+            }
+        if destinations is None:
+            destinations = [{"type": "internal_data_store", "label": "results"}]
+
+        try:
+            pipeline_path.mkdir(parents=True)
+            (pipeline_path / "versions").mkdir()
+
+            pipeline_meta = {
+                "pipeline_id": pipeline_id,
+                "name": name,
+                "description": description,
+                "prompt": prompt,
+                "source": source,
+                "destinations": destinations,
+                "schedule_type": schedule_type,
+                "remote_pipeline_id": None,
+                "version_id": None,
+                "state": "local",
+                "created_at": datetime.now().isoformat(),
+                "updated_at": datetime.now().isoformat(),
+            }
+            (pipeline_path / "pipeline.json").write_text(json.dumps(pipeline_meta, indent=2))
+            (pipeline_path / "widdle.json").write_text("[]")
+
+            return True, pipeline_path, f"Pipeline workspace created: {pipeline_id}"
+        except Exception as exc:
+            return False, pipeline_path, f"Failed to create pipeline workspace: {exc}"
+
+    def get_pipeline_workspace(
+        self,
+        pipeline_id: str,
+        env_name: str | None = None,
+    ) -> dict | None:
+        """
+        Return metadata for a pipeline workspace, or None if not found.
+
+        The returned dict includes a `path` key with the workspace Path.
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        pipeline_path = pipelines_dir / pipeline_id
+        meta_file = pipeline_path / "pipeline.json"
+
+        if not meta_file.exists():
+            return None
+
+        try:
+            meta = json.loads(meta_file.read_text())
+            meta["path"] = pipeline_path
+            return meta
+        except Exception:
+            return None
+
+    def list_pipeline_workspaces(self, env_name: str | None = None) -> list[dict]:
+        """
+        List all pipeline workspaces in the given (or active) environment.
+
+        Each entry includes `path` and all fields from pipeline.json.
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        results: list[dict[str, Any]] = []
+
+        if not pipelines_dir.exists():
+            return results
+
+        for pipeline_path in sorted(pipelines_dir.iterdir()):
+            if not pipeline_path.is_dir():
+                continue
+            meta_file = pipeline_path / "pipeline.json"
+            if not meta_file.exists():
+                continue
+            try:
+                meta = json.loads(meta_file.read_text())
+                meta["path"] = pipeline_path
+                results.append(meta)
+            except Exception:
+                pass
+
+        return results
+
+    def update_pipeline_workspace_meta(
+        self,
+        pipeline_id: str,
+        updates: dict,
+        env_name: str | None = None,
+    ) -> bool:
+        """
+        Merge `updates` into pipeline.json for an existing pipeline workspace.
+
+        Returns True if updated, False if workspace not found.
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        meta_file = pipelines_dir / pipeline_id / "pipeline.json"
+
+        if not meta_file.exists():
+            return False
+
+        try:
+            meta = json.loads(meta_file.read_text())
+            meta.update(updates)
+            meta["updated_at"] = datetime.now().isoformat()
+            meta_file.write_text(json.dumps(meta, indent=2))
+            return True
+        except Exception:
+            return False
+
+    def save_pipeline_version(
+        self,
+        pipeline_id: str,
+        wdl: list,
+        version_number: int,
+        env_name: str | None = None,
+    ) -> Path | None:
+        """
+        Save a WDL snapshot to versions/v{N}_widdle.json.
+
+        Returns the path to the saved file, or None on failure.
+        """
+        pipelines_dir = self.get_pipelines_dir(env_name)
+        versions_dir = pipelines_dir / pipeline_id / "versions"
+        versions_dir.mkdir(parents=True, exist_ok=True)
+        snapshot_path = versions_dir / f"v{version_number}_widdle.json"
+
+        try:
+            snapshot_path.write_text(json.dumps(wdl, indent=2))
+            return snapshot_path
+        except Exception:
+            return None
 
     # =========================================================================
     # Workspace Detection

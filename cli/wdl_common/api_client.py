@@ -33,6 +33,9 @@ class AdoptAPIClient:
         self._bearer_token = bearer_token
         self.actions_endpoint = os.getenv("ADOPT_ACTIONS_ENDPOINT", "https://api.adopt.ai")
         self.api_endpoint = os.getenv("ADOPT_API_ENDPOINT", "https://connect.adopt.ai")
+        # ADOPT_LAMBDA_ENDPOINT separates lambda CRUD from action endpoints.
+        # Falls back to actions_endpoint when not set.
+        self.lambda_endpoint = os.getenv("ADOPT_LAMBDA_ENDPOINT", self.actions_endpoint)
 
     @property
     def bearer_token(self) -> str:
@@ -1039,6 +1042,265 @@ class AdoptAPIClient:
 
         except requests.exceptions.RequestException as e:
             return False, f"Network error: {e}"
+
+    # =========================================================================
+    # Lambda API Methods
+    # =========================================================================
+
+    def create_lambda(
+        self,
+        name: str,
+        description: str = "",
+        language: str = "python",
+        entry_point: str = "script.py",
+        resource_permissions: list[str] | None = None,
+        timeout_seconds: int = 300,
+        runtime_image: str | None = None,
+        cpu_limit: str | None = None,
+        memory_limit: str | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """Create a new lambda."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/"
+        # Omit optional fields when caller didn't set them so the server uses
+        # its own defaults (runtime_image in particular should be NULL so the
+        # executor falls back to LAMBDA_RUNTIME_IMAGE env var).
+        payload: dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "language": language,
+            "entry_point": entry_point,
+            "resource_permissions": resource_permissions or None,
+            "timeout_seconds": timeout_seconds,
+        }
+        if runtime_image is not None:
+            payload["runtime_image"] = runtime_image
+        if cpu_limit is not None:
+            payload["cpu_limit"] = cpu_limit
+        if memory_limit is not None:
+            payload["memory_limit"] = memory_limit
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=30)
+
+            if response.status_code not in (200, 201):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Lambda created successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_lambda(self, lambda_id: str) -> tuple[bool, dict[str, Any] | None, str]:
+        """Get lambda details."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Lambda fetched successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def list_lambdas(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        search: str = "",
+        language: str = "",
+        status: str = "",
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
+        """List lambdas with filtering."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/"
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if search:
+            params["search"] = search
+        if language:
+            params["language"] = language
+        if status:
+            params["status"] = status
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            data = response.json()
+            if isinstance(data, list):
+                lambdas = data
+            elif isinstance(data, dict):
+                lambdas = data.get("lambdas") or data.get("data") or data.get("items") or []
+            else:
+                lambdas = []
+
+            return True, lambdas, f"Found {len(lambdas)} lambdas"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def update_lambda(
+        self,
+        lambda_id: str,
+        **kwargs: Any,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """Update lambda metadata."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}"
+
+        try:
+            response = requests.patch(url, headers=self.headers, json=kwargs, timeout=30)
+
+            if response.status_code not in (200, 201, 204):
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return (
+                True,
+                response.json() if response.content else None,
+                "Lambda updated successfully",
+            )
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def delete_lambda(self, lambda_id: str) -> tuple[bool, str]:
+        """Delete a lambda."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}"
+
+        try:
+            response = requests.delete(url, headers=self.headers, timeout=30)
+
+            if response.status_code not in (200, 204):
+                return False, f"Failed: {response.status_code} - {response.text}"
+
+            return True, "Lambda deleted successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, f"Network error: {e}"
+
+    def save_lambda_files(self, lambda_id: str, files: list[dict]) -> tuple[bool, dict | None, str]:
+        """Save files to lambda (PUT to S3 via backend)."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}/files"
+        try:
+            response = requests.put(url, headers=self.headers, json={"files": files}, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+            return True, response.json(), "Files saved"
+        except Exception as e:
+            return False, None, str(e)
+
+    def get_lambda_file(self, lambda_id: str, path: str) -> tuple[bool, dict | None, str]:
+        """Get file content from lambda."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}/files/{path}"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code}"
+            return True, response.json(), "OK"
+        except Exception as e:
+            return False, None, str(e)
+
+    def list_lambda_files(self, lambda_id: str) -> tuple[bool, list | None, str]:
+        """List files in lambda."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}/files"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code}"
+            return True, response.json(), "OK"
+        except Exception as e:
+            return False, None, str(e)
+
+    def delete_lambda_file(self, lambda_id: str, file_path: str) -> tuple:
+        """Delete a single file from a lambda."""
+        try:
+            from urllib.parse import quote as _url_quote
+
+            encoded_path = _url_quote(file_path, safe="")
+            url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}/files/{encoded_path}"
+            resp = requests.delete(url, headers=self.headers, timeout=30)
+            if resp.status_code in (200, 204):
+                return True, None, None
+            return False, None, f"Delete failed: {resp.status_code} {resp.text}"
+        except requests.exceptions.RequestException as e:
+            return False, None, str(e)
+
+    def test_lambda(
+        self,
+        lambda_id: str,
+        input_data: dict[str, Any] | None = None,
+        version_number: int | None = None,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """Test a lambda execution."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}/test"
+        payload: dict[str, Any] = {"input": input_data or {}}
+        if version_number is not None:
+            payload["version_number"] = version_number
+
+        try:
+            response = requests.post(url, headers=self.headers, json=payload, timeout=120)
+
+            if response.status_code != 200:
+                try:
+                    error_data = response.json()
+                    return False, error_data, f"Failed: {response.status_code} - {response.text}"
+                except (ValueError, json.JSONDecodeError):
+                    return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Lambda test executed successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def list_lambda_executions(
+        self,
+        lambda_id: str,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> tuple[bool, list[dict[str, Any]] | None, str]:
+        """List execution history for a lambda."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}/executions"
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+
+        try:
+            response = requests.get(url, headers=self.headers, params=params, timeout=30)
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            data = response.json()
+            if isinstance(data, list):
+                executions = data
+            elif isinstance(data, dict):
+                executions = data.get("executions") or data.get("data") or data.get("items") or []
+            else:
+                executions = []
+
+            return True, executions, f"Found {len(executions)} executions"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
+
+    def get_lambda_execution_log(
+        self,
+        lambda_id: str,
+        execution_id: str,
+    ) -> tuple[bool, dict[str, Any] | None, str]:
+        """Get full execution log."""
+        url = f"{self.lambda_endpoint}/v1/lambdas/{lambda_id}/executions/{execution_id}/logs"
+
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+
+            if response.status_code != 200:
+                return False, None, f"Failed: {response.status_code} - {response.text}"
+
+            return True, response.json(), "Execution log fetched successfully"
+
+        except requests.exceptions.RequestException as e:
+            return False, None, f"Network error: {e}"
 
     # =========================================================================
     # Token Config Operations

@@ -697,6 +697,114 @@ Fix: Add FIRST_ELEMENT between JQ_FILTER and EXTRACT
 
 ---
 
+---
+
+## Category 7: Lambda & Sandbox Issues
+
+### EXECUTE_LAMBDA Common Issues
+
+#### 7.1 Lambda Not Found
+
+**Pattern**: `Lambda not found` — `lambda_name` doesn't match any registered lambda.
+
+**Fix**: Check spelling, verify lambda exists with `manage_lambda.py --list`.
+
+**Severity**: CRITICAL - Operation will fail immediately
+
+---
+
+#### 7.2 Entry Point Not Found
+
+**Pattern**: `Entry point not found` — the lambda's entry_point file doesn't exist in the uploaded files.
+
+**Fix**: Verify with `manage_lambda.py --show my-lambda`. Re-upload via `save_lambda.py my-lambda`.
+
+**Severity**: CRITICAL
+
+---
+
+#### 7.3 Sandbox Creation Failed (Lambda)
+
+**Pattern**: `Sandbox creation failed` — OpenSandbox is unavailable or misconfigured.
+
+**Fix**: Check `OPENSANDBOX_DOMAIN` env var in the active environment's `.env`.
+
+**Severity**: CRITICAL
+
+---
+
+#### 7.4 Network Policy Denied
+
+**Pattern**: `Network policy denied` — lambda tried to access a host not in `PLATFORM_FQDNS`.
+
+**Fix**: Lambdas can only reach platform services, not arbitrary internet hosts. Use SANDBOX with configurable network if internet access is required.
+
+**Severity**: HIGH
+
+---
+
+#### 7.5 Timeout Exceeded
+
+**Pattern**: `Timeout exceeded` — lambda execution exceeded configured `timeout_seconds`.
+
+**Fix**: Increase via `manage_lambda.py --update my-lambda --timeout 300`.
+
+**Severity**: MEDIUM
+
+---
+
+### SANDBOX Common Issues
+
+#### 7.6 SANDBOX Not Available On-Prem
+
+**Pattern**: `SANDBOX operations are not available in on-premises deployments`
+
+**Fix**: Use `EXECUTE_LAMBDA` instead. SANDBOX is cloud-only.
+
+**Severity**: CRITICAL
+
+---
+
+#### 7.7 Reserved Image
+
+**Pattern**: `Image X is reserved for first-party use` — `adopt-lambda-runtime` image used as a SANDBOX image.
+
+**Fix**: Use a different image for SANDBOX. `adopt-lambda-runtime` is reserved for `EXECUTE_LAMBDA`.
+
+**Severity**: HIGH
+
+---
+
+#### 7.8 Sandbox Creation Failed After Retries
+
+**Pattern**: `Sandbox creation failed after retries` — OpenSandbox server is down or overloaded.
+
+**Fix**: Retry later; escalate if persistent.
+
+**Severity**: CRITICAL
+
+---
+
+#### 7.9 Command Failed with Non-Zero Exit Code
+
+**Pattern**: `Command failed with exit code N` — shell command inside the sandbox returned a non-zero exit code.
+
+**Fix**: Check `stdout`/`stderr` in the execution output to diagnose the script failure.
+
+**Severity**: HIGH
+
+---
+
+#### 7.10 Unresolved Step Reference in Command
+
+**Pattern**: `{stepId} reference unresolved` — a `{stepId}` reference in the SANDBOX command couldn't be resolved.
+
+**Fix**: Verify the referenced step exists and completed successfully before this SANDBOX step.
+
+**Severity**: HIGH
+
+---
+
 ## Related Documentation
 
 - [WDL Schema Reference](../../docs/wdl_schema.md)
