@@ -19,6 +19,7 @@ import urllib.request
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
@@ -43,7 +44,12 @@ def _headers(token: str) -> dict:
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
-def _request(url: str, token: str, method: str = "GET", body=None):
+def _request(
+    url: str,
+    token: str,
+    method: str = "GET",
+    body: Any = None,
+) -> Any:
     data = json.dumps(body).encode() if body is not None else None
     req = urllib.request.Request(url, data=data, headers=_headers(token), method=method)
     try:
@@ -123,7 +129,7 @@ def trigger_child_pipeline(
     return result
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Trigger a single child pipeline run for testing")
     parser.add_argument(
         "--zip", default=DEFAULT_ZIP, help=f"Zip filename (default: {DEFAULT_ZIP!r})"

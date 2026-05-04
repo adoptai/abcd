@@ -407,7 +407,10 @@ class PipelineClient:
 
         _log("Creating draft (triggers async LLM)...")
         draft = self.create_draft(pipeline_id, prompt)
-        version_id = draft.get("version_id") or draft.get("id")
+        version_id_raw = draft.get("version_id") or draft.get("id")
+        if not version_id_raw:
+            raise RuntimeError("Draft response missing both version_id and id")
+        version_id: str = str(version_id_raw)
         _log(f"✅ Draft started: version_id={version_id}")
 
         _log("Waiting for LLM draft to complete...")
@@ -416,7 +419,7 @@ class PipelineClient:
 
         _log("Pushing WDL (no LLM)...")
         push_result = self.push_wdl(pipeline_id, version_id, wdl)
-        publish_version_id = push_result.get("version_id") or version_id
+        publish_version_id: str = str(push_result.get("version_id") or version_id)
         _log(f"✅ WDL pushed (publish version: {publish_version_id})")
 
         _log("Polling for WDL confirmation...")

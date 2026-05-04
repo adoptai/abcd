@@ -177,6 +177,9 @@ Examples:
     # substitution, so we must pre-substitute here.
     workflow_params: dict = {"auth_token": client.bearer_token}
 
+    # Narrow remote_pipeline_id (early guard at line ~96 already returned 1
+    # when this is None, but mypy can't trace that across multiple branches).
+    assert remote_pipeline_id, "remote_pipeline_id should be set past the early guard"
     try:
         result = client.test_run(
             remote_pipeline_id,

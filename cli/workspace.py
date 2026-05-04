@@ -2315,7 +2315,12 @@ def cmd_pipeline_checkout_all(args: argparse.Namespace) -> int:
                 page=page,
                 page_size=50,
             )
-            page_items = resp if isinstance(resp, list) else resp.get("items", [])
+            if isinstance(resp, list):
+                page_items = resp
+            elif isinstance(resp, dict):
+                page_items = resp.get("items", [])
+            else:
+                page_items = []
             if not page_items:
                 break
             all_pipelines.extend(page_items)
@@ -2346,7 +2351,7 @@ def cmd_pipeline_checkout_all(args: argparse.Namespace) -> int:
         remote_id = pipeline.get("id")
         name = pipeline.get("name") or remote_id or f"pipeline-{i}"
         state = pipeline.get("state", "unknown")
-        slug = _slugify(name) or f"pipeline-{remote_id[:8]}"
+        slug = _slugify(name) or (f"pipeline-{remote_id[:8]}" if remote_id else f"pipeline-{i}")
 
         print(f"\n[{i}/{len(all_pipelines)}] {name}")
         print(f"   Remote ID : {remote_id}  |  State: {state}")
