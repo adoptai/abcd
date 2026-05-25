@@ -1,6 +1,17 @@
+> **Repurposed for Wave-2.** This file was originally drafted as the body for an abcd PR — turned out abcd is direct-publish (`workspaces/*` gitignored, `save_*_draft.py` is the deploy surface) so no abcd PR ever opens. Per Iain `REPLY_TO_ADRYANN_HANDOFF_ACK_20260525.md` §4: *"Keep it. Rename to `WAVE2_PR_BODY_DRAFT.md` — it's the right shape for the separate Wave-2 ticket PR description when that opens (Wed/Thu)."*
+>
+> **When Wave-2 opens** (post-Wave-1 stable on prod, Tuesday PM earliest), this body needs three swap-ins before use:
+> 1. **URLs:** flip from `echo-summit.westus3.cloudapp.azure.com` (staging) to `swifty-panda...` (prod) in all sandbox script env blocks
+> 2. **Version numbers:** v12 → v13 (action) + v51 → v52 (pipeline) — Wave-2 creates fresh drafts off the staging-proven v12/v51 widdle, repointed at prod
+> 3. **Section titles:** s/"Change 1"/"Wave-2 Surface 1 prod cutover"/ and s/"Change 2"/"Wave-2 Surface 2 prod cutover"/; drop the "test status: 4/4 green against staging" lines (Wave-2 verifies via the live prod chain after Wave-1 soaks clean)
+>
+> All test evidence, deltas, bug counts, and v1.1 ticket queue stay relevant.
+
+---
+
 ## Summary
 
-Migrates **two Adopt.ai surfaces** to the convergence VM v0.4+ contract per Iain's directives (`UHY_WORKFLOWS_20260524.md` + `REPLY_TO_ADRYANN_ARCHITECTURE_D_GREEN_LIGHT_20260524.md` + `REPLY_TO_ADRYANN_F7_F8_SANDBOX_GREENLIGHT_20260525.md` + `REPLY_TO_ADRYANN_DELTAS_ACK_CHANGE2_GO_20260525.md`).
+Migrates **two Adopt.ai surfaces** to the convergence VM v0.4+ contract per Iain's directives (`UHY_WORKFLOWS_20260524.md` + `REPLY_TO_ADRYANN_ARCHITECTURE_D_GREEN_LIGHT_20260524.md` + `REPLY_TO_ADRYANN_F7_F8_SANDBOX_GREENLIGHT_20260525.md` + `REPLY_TO_ADRYANN_DELTAS_ACK_CHANGE2_GO_20260525.md` + `REPLY_TO_ADRYANN_HANDOFF_ACK_20260525.md`).
 
 Architecture **D** ("idempotency lookup with 'ask me again' UX"). No worker.py touch, no signal emit, no receiver pipeline. The event-triggered-actions-in-originating-chat infra is captured as a v1.1 follow-up ticket.
 
