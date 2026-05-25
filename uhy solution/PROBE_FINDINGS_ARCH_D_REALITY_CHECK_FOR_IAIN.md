@@ -622,3 +622,125 @@ Per your §5 table, plus #5 added per your §1 Delta 2:
 3. Tuesday: real exec test on staging via `adryann_smoke.sh` or chat-trigger
 4. After Wave-1 stable: Wave-2 prod cutover (separate ticket per your §7)
 
+---
+
+## §16 — Change 2 v51/v52 EXEC SMOKE (Monday 5/25, post-UNBLOCK)
+
+**Status: GREEN. Per `UNBLOCK_ADRYANN_V51_EXEC_20260525.md` you forwarded — your 6 acceptance criteria all met.** Plus 4 surprises worth your eyes.
+
+### §16.1 — What I ran
+
+Bridge zip `Bridge Organics - TY 2025 - AI Test.zip` (sha256 `680f9103…57a2a3`, 13.99 MB), uploaded to `s3://adopt-org-docstore/.../suralink_inbox/adryann-v51-test/20260525T155334Z/`, fired via custom wrapper `uhy solution/change-2-upload-and-poll/exec_v51_smoke.py` against throwaway workstream `4f62ab39-c8a7-422b-a45b-a58c50c32136`.
+
+Two consecutive runs landed (not by intent — see §16.4):
+
+| run_id | trigger time | duration | terminal | path exercised | timeout_min on `sbx_evalcommit_init` |
+|---|---|---|---|---|---|
+| `019e5fe7-1cb9-78ac` | 16:10:42 UTC | 25:10 | **success** | GO → trigger_index → Pipeline B fired | 50 |
+| `019e5ff9-9b86-7b39` | 16:30:54 UTC | 6:44 | awaiting_human (clean triageHitl) | VM_TIMEOUT (HTTP 502) → triageHitl | 10 |
+
+Run 1 = your happy path. Run 2 = the graceful-error path (different code branch).
+
+### §16.2 — Run 1: your 6 acceptance criteria
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | Pipeline reaches terminal | ✅ `status=success` |
+| 2 | `sbx_evalcommit_run` exit 0 | ✅ |
+| 3 | Output JSON shape correct | ✅ `triage_status, engine_status, total_qre, federal_credit, prep_run_id, blockers` all present |
+| 4 | Downstream JQ consumes cleanly | ✅ `routeOnTriage→GO→sbx_trigger` fired Pipeline B |
+| 5 | Poll cadence visible in trace | ✅ 5s first poll, then 15s, then 30s (script's escalation logic) |
+| 6 | `force_replace=true` honored | ✅ VM accepted fresh upload (no 409) |
+
+### §16.3 — SURPRISE #1: Bridge is NOT silent_zero
+
+Your UNBLOCK §2 expected: `engine_status=engine_silent_zero, total_qre=0, federal_credit=0`.
+
+**Actual from Run 1's `upload_and_poll.py` stdout:**
+
+```json
+{
+  "triage_status": "GO",
+  "go_no_go": "go",
+  "recommendation_code": "PROCEED",
+  "folder_name": "Bridge Organics_TY 2025",
+  "evaluation_id": "e6c6ceb2",
+  "harness_job_id": "39",
+  "engine_status": "completed",
+  "total_qre": 892513.66,
+  "federal_credit": 42305.15,
+  "s174_sre": null,
+  "prep_run_id": null,
+  "elapsed_seconds": 1470
+}
+```
+
+Bridge yielded **$42,305 federal credit on $892,513 QRE**, `engine_status=completed`. Either (a) your "silent_zero" expectation was from an earlier convergence-engine version, (b) `force_replace=true` triggered a fresh extract that differed from your prior smoke, or (c) the zip contents legitimately changed since your last touch. Doesn't affect Change 2 validation — the pipeline correctly routed GO → trigger_index — but worth knowing your mental model of Bridge needs updating.
+
+`prep_run_id=null` and `s174_sre=null` confirm your T-S174 ticket: the VM's `/from-harness-async` terminal response still doesn't surface those two fields.
+
+### §16.4 — SURPRISE #2: Adopt platform Procrastinate queue delays init→exec dispatch by 6–25 min
+
+This is the big one. **Run 1's `sbx_evalcommit_init` returned exit 0 at 16:10:59. Its corresponding `sbx_evalcommit_run` didn't dispatch until 16:35:49 — a 24:50 silent gap with the run sitting at `status=running` and zero observable activity.**
+
+`sbx_init` → `sbx_canonicalize` fired back-to-back in 9 seconds (16:10:45 → 16:10:54). So this is not generic Procrastinate-stuck — it's specific to `sbx_evalcommit_init`.
+
+The difference is `timeout_minutes`. `sbx_init` has `timeout_minutes=5`. `sbx_evalcommit_init` had `timeout_minutes=50`. **Something about the platform's Procrastinate dispatch is sensitive to high session timeouts.** Plausible mechanism: longer session reservations move the job into a different scheduler bucket / wait pool.
+
+Run 2 (with `timeout_minutes=10` instead of 50) saw a smaller but still significant **6:29 init→exec gap** (16:31:07 → 16:37:36). So even moderate timeouts trigger delay.
+
+**Implication for Wave-1 prod:** a Bridge-sized client will need ~50 min of total budget (25 min Procrastinate delay + 24.5 min harness). A Reinhart-sized client (Iain's §4 expects 8-15 min harness) needs at least ~25-30 min total. v50 worked historically because its `sbx_evalcommit_init` had `timeout_minutes=10` and harness completed in ~5-10 min, so it slipped under the Procrastinate-delay radar.
+
+**My read:** this is the same root cause as your UNBLOCK §1 stuck-job 34 (Procrastinate had to be poked). I think it's also why run `019e5071-90f9-741a` from 5/22 sat at "failed" with `duration_ms=252241000` (70 hours) — the stale-run sweeper finally collected it. v50's reliability has been quietly degrading along this axis.
+
+**Recommendation:** ticket against adopt-platform — "SANDBOX sessions with timeout_minutes > 10 sit in Procrastinate dispatch queue for 6-25 minutes before exec fires; init/teardown unaffected." Independent of Wave-1 ship — Wave-1 should ship v52 (timeout=50) and we tolerate the delay.
+
+### §16.5 — SURPRISE #3: `upload_and_poll.py` bug — hardcoded "45 min" string in VM_TIMEOUT message
+
+Run 2's output blocker detail:
+
+```
+"detail": "Harness pipeline 41 did not reach a terminal status in 45 min (last status='')."
+```
+
+Actual wait was ~92s before HTTP 502 from VM forced an early exit from `_poll_until_terminal`. The 45 min figure is `POLL_MAX_S` hardcoded in the message template, not the elapsed time. Operators reading the HITL escalation will assume the script polled for 45 min when it didn't.
+
+**Also:** the script classifies HTTP 5xx errors AS `VM_TIMEOUT`. Should distinguish:
+- `VM_TIMEOUT` = elapsed >= POLL_MAX_S (real timeout)
+- `VM_HTTP_ERROR` = early exit on 5xx (transient VM issue, retry-friendly)
+
+**v1.1 ticket:** file under abcd/`uhy solution/change-2-upload-and-poll/` — 20-LoC fix in `_make_blocker_detail()`. Not blocking Wave-1.
+
+### §16.6 — SURPRISE #4: Wave-1 budget math
+
+Putting it together: a single Bridge-class run consumes ~50 min wall-clock on the platform. If a UHY scheduled sync arrives with 5 zips, that's ~50 min × 5 = 4.2 hours sequential, OR parallel runs that compete for VM bandwidth (Run 2 hit HTTP 502 because VM was busy with Run 1's harness 39).
+
+**v1.1 candidate:** add VM-side concurrency control or upstream throttle in `uhy-suralink-ingest-per-zip` (queue zips, fan out at controlled rate).
+
+### §16.7 — What changed on platform (drafts only, nothing published)
+
+| pipeline | platform state | what's there |
+|---|---|---|
+| `p1-copy-from-inbox` v50 | **published** (no change) | original eval_and_commit pre-convergence — broken since VM swap, see §6b live-canonical analysis |
+| `p1-copy-from-inbox` v51 (`c91403fce6394d51`) | draft | first save with `timeout=10` (incorrect — too aggressive for Bridge harness duration) |
+| `p1-copy-from-inbox` v52 (`d667e105476a4671`) | **draft, smoke-validated** | `timeout=50` confirmed by Run 1 — Wave-2 should publish THIS |
+
+### §16.8 — Bug list update (now at 7)
+
+| # | Bug | Repo | Severity | Source |
+|---|-----|------|----------|--------|
+| 1 | `GET /api/v1/preparations?client_name=&tax_year=` silently ignores filter params | `adoptai/clients_uhy` | L | §15 |
+| 2 | `widdle_docs` missing action-level `adopt_profile.json` override docs | `adoptai/adopt-docs` | L | §15 |
+| 3 | F7: `{workflow_arguments.X}` doesn't substitute in JQ_FILTER bodies | adopt platform | M | §11 |
+| 4 | F8: WiddleExecutor mis-classifies non-200-shaped success responses as 400 | adopt platform | M | §11 |
+| 5 | `is_last_step: true` doesn't halt action execution; explicit JUMP required | adopt platform | M | §15 |
+| 6 | **NEW: SANDBOX `timeout_minutes > 10` delays init→exec dispatch 6-25 min** | adopt platform | **H** | §16.4 |
+| 7 | **NEW: `upload_and_poll.py` VM_TIMEOUT detail string hardcoded "45 min"; conflates 5xx + true timeout** | abcd/this-PR | L | §16.5 |
+
+### §16.9 — Decision items for you
+
+1. **v52 publish gating** — happy with timeout=50? (Or would you rather push for a Procrastinate-side fix first and keep timeout lower?)
+2. **Bridge real numbers** — does this change anything about your Test Suite 1 in UNBLOCK §3 / smoke baselines?
+3. **Wave-1 ship readiness** — v52 draft is behaviorally validated end-to-end on staging. With v12 generate-workbook also at 4/4 green, we're at "ready to publish whenever you give the word." I'm not publishing without your explicit go.
+4. **Bug #6 priority** — I think this rises to H (high) because it affects every UHY ingest. Want me to file it against adopt-platform tonight?
+
