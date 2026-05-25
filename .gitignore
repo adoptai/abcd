@@ -141,6 +141,13 @@ Thumbs.db
 *.har
 *.log
 
+# Secrets / credentials (never commit)
+*.pem
+*.key
+*.cer
+*.p12
+*.pfx
+
 # Active environment pointer
 .active_env
 workspaces/.active_env

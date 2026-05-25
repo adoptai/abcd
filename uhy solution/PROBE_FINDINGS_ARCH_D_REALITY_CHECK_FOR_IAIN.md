@@ -347,3 +347,96 @@ The branch `feat/adopt-surface1-surface2-architecture-d` has my Arch D widdle **
 |---|---|---|
 | 7 | Network — α, β, or γ? | α (you pursue allowlist), I'll keep building Change 2 (pipeline already uses SANDBOX so it's unaffected) |
 | 8 | Did I just leak a regenerated Complete Automation TY 2025 workbook into prod via the diagnostic? Should I be more careful about test_runner against prod? | Be more careful. I'll skip prod-touching tests during diagnostics. |
+
+---
+
+## §13 — Monday morning test evidence (post VM-back-up)
+
+**Date:** 2026-05-25 10:30 ET
+**Context:** VM came back up per `REPLY_TO_ADRYANN_VM_BACK_UP_20260524.md`. Folded Case E into Case A per your 4-branch instruction (engine_silent_zero normalized to completed at `pickLatestRun` JQ — see §13.4 for v1.1 followup). Ran test_runner end-to-end against echo-summit. Hit two new platform-level findings — neither is a bug in the WDL body; the business chain works end-to-end from curl.
+
+### §13.1 — Auth pattern (FIXED, FYI for the PR description)
+
+The `adopt_profile.json` at workspace level (`workspaces/uhy-prod/adopt_profile.json`) has `base_url=swifty-panda` and `security_params.authorization=<swifty bearer>`. The platform's WDL REST executor pulls auth from `security_params.authorization` and **overrides any inline `headers.Authorization`** in the step. So inline `Bearer 7Yuk...` in the widdle was getting silently replaced by `Bearer qK2u...` (swifty's), which echo-summit rejected with "Invalid or missing token".
+
+**Fix:** added an action-level override at `workspaces/uhy-prod/actions/generate-workbook/adopt_profile.json` pointing `base_url`+`security_params` at echo-summit + staging bearer. Resolved.
+
+PR description will note this so future actions targeting staging from a swifty-default workspace know to override at action level.
+
+### §13.2 — Finding #7: JQ_FILTER bodies do NOT substitute `{workflow_arguments.X}`
+
+`{workflow_arguments.client_name}` and `{workflow_arguments.tax_year}` substitute correctly in REST URL strings (see all the working `uhy-prep-review` pipeline steps), but **do NOT substitute inside JQ `filter` body strings**.
+
+**Evidence:** test_1.json sets `client_name="Complete Automation"` + `tax_year=2025`. The widdle's `matchPrep` JQ filter contains:
+```
+.client_name | ascii_downcase | contains("{workflow_arguments.client_name}" | ascii_downcase)
+```
+Curl confirms `Complete Automation, Inc.` TY 2025 (prep_id `80ff9785-d6b1-44d8-a137-50afd3845348`, runs[0].status=`completed`, federal_credit=$264,063.18) exists in the prep list. The JQ filter (run locally against the same payload) matches it. But the WDL execution path returned `matchPrep.found=false` → fell into Case D (POST trigger), proving the substitution didn't happen.
+
+**This is the same problem the existing `uhy-suralink-ingest-per-zip` pipeline solves via SANDBOX steps** — that pipeline does Python-side filtering, not JQ-side. JQ_FILTER's substitution layer is REST-step-only.
+
+**Workaround options for the WDL body:**
+- (a) Use a SANDBOX step for the lookup branch (matches existing pipeline pattern)
+- (b) Inject `workflow_arguments` as JQ args via `inputs:` field (need to check WDL docs whether `inputs` makes workflow_arguments available as `$workflow_arguments` in the filter)
+- (c) Convert the matchPrep step to use EXTRACT or a different operation that exposes workflow_arguments
+
+I'm parking this as **Finding #7 for joint smoke** — it's a real WDL substitution semantics question that needs your call on which workaround pattern to adopt. Spec is fine; implementation needs one more bend.
+
+### §13.3 — Finding #8: platform REST executor flags echo-summit's `{status: "queued"}` response as 400 error
+
+When the action falls through to Case D, `triggerNew` POSTs to `/api/v1/workbook/from-harness-async`. Echo-summit returns **200 OK** with body:
+```json
+{"status": "queued", "job_id": "31", "poll_url": "/api/v1/workbook/from-harness-async/31",
+ "client_name": "Complete Automation", "tax_year": 2025,
+ "note": "Run a procrastinate worker on queue='pipeline' to process this job."}
+```
+
+The platform's WiddleExecutor reads `.status` in the body and — apparently expecting `success` or boolean true — wraps the response as failed:
+```json
+{"status": false, "message": "Error: {'status': 'queued', ...}"}
+```
+
+**The POST itself succeeded** (echo-summit returned a job_id and queued the work — I can see job 31 in the queue from curl). The platform is just mis-classifying the response shape.
+
+**Impact:**
+- Case D will always look like a test failure even though it's working
+- Case A might hit the same issue when echo-summit deliverables endpoint returns its response (need to verify with a deeper trace)
+
+**Workaround options:**
+- (a) WDL-side: handle the response in JQ (treat `status=="queued"` as success at the format step) — but the platform errors out before JQ runs
+- (b) Platform-side: relax the WiddleExecutor's response classifier so non-`status:true` responses don't auto-error (this is a platform PR, not Arch D scope)
+- (c) Move the POST into a SANDBOX step (bypass the WDL REST executor's response classifier entirely)
+
+Parking as **Finding #8 for joint smoke**. The smoke run from chat will hit this — when the user kicks off a fresh Bridge Organics, the action will look failed even though Bridge will actually start preparing on staging.
+
+### §13.4 — v1.1 followup: reintroduce Case E for `engine_silent_zero`
+
+Per your 4-branch instruction, the current widdle folds `engine_silent_zero` into Case A by rewriting the run status to `completed` at `pickLatestRun`. This means Bridge Organics TY 2025 (the staging `engine_silent_zero` case) will get a Case A message: "Workbook ready. Federal credit: $0. Total QRE: $0. Download: ...".
+
+That's technically accurate but doesn't tell the user *why* (no R&D documents ingested vs. genuinely non-qualifying). The original Case E wording surfaced the distinction.
+
+**v1.1 ticket** (to be opened post-PR): reintroduce Case E with the proper "no qualifying R&D activity" wording, behind the same `engine_silent_zero` status check.
+
+### §13.5 — What's true vs what's blocked
+
+| Check | Status |
+|---|---|
+| VM reachable from platform REST | ✅ (no more ConnectTimeout — was just powered off) |
+| Auth pattern (action-level profile override) | ✅ fixed |
+| Compile | ✅ 2s, green |
+| Business chain via curl (preps → detail → runs → deliverables) | ✅ verified end-to-end |
+| WDL JQ matchPrep against real data | ❌ blocked by Finding #7 |
+| Case D POST response classification | ❌ blocked by Finding #8 |
+| End-to-end test_1 (Case A) passing | ❌ blocked by #7 (lookup fails → falls to Case D → blocked by #8) |
+| End-to-end test_3 (Case D) passing | ❌ blocked by #8 |
+| Staging DB state | 32 preps all `status="in_progress"` (this is the prep status, not the run status — runs[0] still shows `completed`/`failed`/etc per client) |
+
+### §13.6 — Recommended joint smoke flow given #7 + #8
+
+Don't run the chat-side smoke until we decide on Finding #7 workaround. Options for the 10:00 ET window:
+
+1. **Walk through #7 + #8 together over Slack/Zoom**, decide on workaround pattern (likely SANDBOX-wrap for matchPrep + acceptable response handling for the POST)
+2. **Postpone joint smoke 30-60 min** to give time to apply chosen workaround and rerun test_runner
+3. **Run the smoke anyway** with the known-failing classification, treat the two errors as "expected, captured under #7 / #8, action body logic verified by curl"
+
+I'll have curl evidence + traces ready in the branch.
