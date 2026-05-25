@@ -440,3 +440,98 @@ Don't run the chat-side smoke until we decide on Finding #7 workaround. Options 
 3. **Run the smoke anyway** with the known-failing classification, treat the two errors as "expected, captured under #7 / #8, action body logic verified by curl"
 
 I'll have curl evidence + traces ready in the branch.
+
+---
+
+## §14 — Findings #7 + #8 RESOLVED via SANDBOX-wrap (2026-05-25 AM)
+
+Iain green-lit the SANDBOX-wrap workaround in `REPLY_TO_ADRYANN_F7_F8_SANDBOX_GREENLIGHT_20260525.md`. Applied per §2 + §3 of that reply, modelled on the `uhy-suralink-ingest-per-zip` pipeline pattern (init upload_files → exec heredoc + python → teardown → JQ_FILTER parses stdout).
+
+### §14.1 — Action shape (final, 28 steps)
+
+```
+required_inputs(client_name, tax_year)
+
+# Idempotency lookup (Finding #7 SANDBOX workaround)
+matchPrep_init        SANDBOX(init)   uploads match_prep.py
+matchPrep_exec        SANDBOX(exec)   writes /tmp/match_ctx.json + runs script
+matchPrep_teardown    SANDBOX(teardown)
+matchPrep             JQ_FILTER       try (.stdout | fromjson) catch {...}
+checkMatchFound       CONDITION       found==true → fetchPrepDetail | else → triggerNew_init
+
+# Lookup branch (Cases A/B/C)
+fetchPrepDetail       REST GET /api/v1/preparations/{matchPrep.prep_id}
+pickLatestRun         JQ_FILTER       filters superseded/stub_carry; folds engine_silent_zero → completed
+checkIsCompleted      CONDITION       status==completed → getDeliverables | else → checkIsFailed
+checkIsFailed         CONDITION       status==failed    → formatCaseC      | else → formatCaseB
+
+# Case A (completed)
+getDeliverables       REST GET /api/v1/preparations/{matchPrep.prep_id}/deliverables
+pickNewestDeliverable JQ_FILTER       sort by created_at; synthesise download_url from id
+formatCaseA           JQ_FILTER       "Workbook ready..."
+outputA               OUTPUT_TEXT
+jumpAfterA            JUMP target=endOfFlow
+
+# Case B (in progress / pending)
+formatCaseB           JQ_FILTER       "Workbook generation is still in progress..."
+outputB               OUTPUT_TEXT
+jumpAfterB            JUMP target=endOfFlow
+
+# Case C (failed)
+formatCaseC           JQ_FILTER       "Last workbook generation attempt failed. Want me to retry?"
+outputC               OUTPUT_TEXT
+jumpAfterC            JUMP target=endOfFlow
+
+# Case D (no prep — trigger new) — Finding #8 SANDBOX workaround
+triggerNew_init       SANDBOX(init)   uploads trigger_new.py
+triggerNew_exec       SANDBOX(exec)   writes /tmp/trigger_ctx.json + runs POST
+triggerNew_teardown   SANDBOX(teardown)
+triggerNew            JQ_FILTER       parses stdout {ok, job_id, queue_status, ...}
+checkTriggerOk        CONDITION       ok==true → formatCaseD | else → formatCaseDError
+formatCaseD           JQ_FILTER       "Started generating workbook..."
+outputD               OUTPUT_TEXT
+jumpAfterD            JUMP target=endOfFlow
+formatCaseDError      JQ_FILTER       "Couldn't find any source data... HTTP {status}... please verify"
+outputDError          OUTPUT_TEXT
+
+endOfFlow             JQ_FILTER       noop terminator
+```
+
+### §14.2 — Test_runner results (4/4 GREEN)
+
+| # | Case | Client + TY | Result | Time |
+|---|------|-------------|--------|------|
+| test_1 | A   | Complete Automation TY 2025 | ✅ PASS — full Case A render with $264,063 credit + working download URL | 8.4s |
+| test_2 | A-fold | Bridge Organics TY 2025  | ✅ PASS — $0/$0 + empty download (engine_silent_zero folded per §1.5) | 8.5s |
+| test_3 | D-Error | ZZZ Nonexistent TY 2099 | ✅ PASS — graceful "HTTP 404 / no corpus dir" message | 23.2s |
+| test_4 | C   | Akervall TY 2025            | ✅ PASS — "Last attempt failed. Want me to retry?" | 10.0s |
+
+Total: 50s for `--all`. Trace files in `workspaces/uhy-prod/actions/generate-workbook/traces/`.
+
+### §14.3 — Deltas from your §2 + §3 sketch
+
+- **Bearer:** hardcoded in the heredoc `cat > /tmp/{ctx}.json` (same pattern as suralink). Did not need a workflow_argument fallback.
+- **Image / network:** `python:3.11-slim`, `network.egress: "allow"` (matches suralink).
+- **Three-step SANDBOX:** kept the canonical init / exec / teardown shape; sandbox persists across the exec step.
+- **POST error handling (Finding #8):** went one step beyond your sketch — instead of `sys.exit(1)` on HTTP 4xx, the script now exits 0 with `{ok: false, http_status, detail, ...}` and a new `checkTriggerOk` CONDITION routes to a `formatCaseDError` step. This way the action surfaces a meaningful "no corpus dir" message instead of crashing. Real VM 404s (like ZZZ Nonexistent) become useful UX feedback rather than action failures.
+- **JUMP-after-output:** `is_last_step: true` did NOT halt execution in tests — the flow continued through every subsequent case-format/output step, even firing `triggerNew` POSTs accidentally. Fixed by adding explicit `JUMP target=endOfFlow` after every `outputA/B/C/D` and a no-op `endOfFlow` JQ filter as the trailing step. With JUMPs in place, traces show clean single-path execution (13-14 step traces per case).
+- **fetchPrepDetail / getDeliverables stayed as REST:** only POST responses tripped the WiddleExecutor classifier (Finding #8), GETs work fine — so I kept them native. The action-level `adopt_profile.json` still applies to those REST steps to pin the staging bearer.
+
+### §14.4 — Downstream consequences
+
+- **Action-level `adopt_profile.json` is STILL needed** (your §7 said remove, but only the two REST GETs need it now — SANDBOX scripts carry the bearer in the heredoc directly).
+- **Side effect during testing:** the first iteration without JUMPs accidentally POSTed `from-harness-async` for Complete Automation TY 2025 (job_id 32 was created on staging). No prod impact — that's a real running workbook regen on staging only. Idempotency lookup would catch it on a re-test.
+- **v1.1 ticket Case E:** still queued per §13.4 — fold-to-A renders `$0/$0/empty download` for Bridge Organics which is technically correct but suboptimal UX. Per your §9: leave for smoke iteration.
+
+### §14.5 — Ready for joint smoke
+
+Per your §5 sequence:
+1. ✅ §2 + §3 SANDBOX-wrap fixes applied
+2. ✅ test_runner --all green against 4 cases on staging
+3. → Ping you on Slack with this branch + commit
+4. → You run `adryann_smoke.sh --client biopro --target staging`
+5. → I watch from chat-agent side, verify Case D → Case B → Case A transitions on a fresh BioPro upload
+6. → Verify download URL fetches the right workbook (sha256)
+7. → Iterate Bridge Organics next, then Reinhart
+
+Branch: `feat/adopt-surface1-surface2-architecture-d`. Commit incoming.
