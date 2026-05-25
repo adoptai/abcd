@@ -2,10 +2,21 @@
 >
 > **When Wave-2 opens** (post-Wave-1 stable on prod, Tuesday PM earliest), this body needs three swap-ins before use:
 > 1. **URLs:** flip from `echo-summit.westus3.cloudapp.azure.com` (staging) to `swifty-panda...` (prod) in all sandbox script env blocks
-> 2. **Version numbers:** v12 → v13 (action) + v51 → v52 (pipeline) — Wave-2 creates fresh drafts off the staging-proven v12/v51 widdle, repointed at prod
+> 2. **Version numbers:** v12 → v13 (action) + v52 → v53 (pipeline) — Wave-2 creates fresh drafts off the staging-proven v12/v52 widdle, repointed at prod
 > 3. **Section titles:** s/"Change 1"/"Wave-2 Surface 1 prod cutover"/ and s/"Change 2"/"Wave-2 Surface 2 prod cutover"/; drop the "test status: 4/4 green against staging" lines (Wave-2 verifies via the live prod chain after Wave-1 soaks clean)
 >
 > All test evidence, deltas, bug counts, and v1.1 ticket queue stay relevant.
+>
+> ---
+>
+> **Callouts for v53 / future devs** (per Iain `REPLY_TO_ADRYANN_POL_GREEN_20260525.md` bonus ask):
+>
+> - **`/preparations/{prep_id}/deliverables` returns a DICT envelope, not a list.** Shape is `{"preparation_id": "...", "deliverables": [...]}` — NOT bare `[...]`. Adopt-side WDL chains and probe scripts that use `isinstance(list)` will return 0 hits across all preps. Always unwrap with `payload.get("deliverables", [])` first. (Discovered during POL Stages 5-7 sweep against staging — `exec_pol.py` bug, fixed in commit `3b3b38d`.)
+> - **`/api/v1/query` and `/api/v1/search` are POST, not GET.** Body shape: `{"query": "...", "client_id": <int>, "tax_year": <int>}` for `/query`; `{"query": "...", "top_k": N, "client_id": <int>?}` for `/search`. Per `clients_uhy/demo/api/main.py:3880,3889`.
+> - **`/hitl-summary` is per-client (`/clients/{id}/hitl-summary`), not global.** There is no `/hitl-summary?client_name=...` or `/hitl/tasks` endpoint. Resolution is `POST /clients/{id}/duplicate-suspects/{event_id}/resolve` or `PATCH /employees/{id}` — also per-client/per-event.
+> - **`client_id` is an INTEGER, not a UUID string.** On staging Complete Automation = 173; on prod Complete Automation = 2. Don't hardcode; always resolve via `/api/v1/clients` lookup.
+> - **Deliverable signed URL has NO `expires_at` JSON key.** The `download_url` field is the entire signed URL with `token` and `expires` already in the query string. Just follow the URL with no Authorization header (HMAC is the auth) — `expires_at` is decodable from the URL params if you need it.
+> - **`/preparations/{id}` does NOT return a `hitl_state` field.** Equivalent state is composed from `tasks`, `blockers`, `preflight`, and `runs[*]`. Don't write WDL/agent code that reads `.hitl_state` directly.
 
 ---
 
