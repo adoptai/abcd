@@ -1,0 +1,179 @@
+{
+  "run_at": "2026-05-25T17:41:51.104806+00:00",
+  "vm_base": "https://echo-summit.westus3.cloudapp.azure.com",
+  "target": {
+    "client_name_match": "akervall",
+    "tax_year": 2025
+  },
+  "resolved_client": {
+    "id": 90,
+    "folder_name": "Akervall_TY 2025",
+    "client_entity_id": 51,
+    "client_entity": "Akervall",
+    "entity_display_name": "Akervall",
+    "workstream_id": null,
+    "legal_name": "Akervall Technologies, Inc.",
+    "short_name": "Akervall",
+    "tax_year": "2025",
+    "method": "ASC",
+    "total_qre": 365330.45,
+    "total_qre_source": "gs_extracted",
+    "federal_credit": 19382.14,
+    "federal_credit_source": "gs_extracted",
+    "employee_count": 16,
+    "bc_count": 2,
+    "triage_status": "ingested"
+  },
+  "stages": [
+    {
+      "stage": 5,
+      "target": {
+        "client_name_match": "akervall",
+        "tax_year": 2025
+      },
+      "steps": [],
+      "verdict": "FAIL",
+      "prep_id": "34ce1c8e-529e-47bb-8de8-48ca4235b448",
+      "prep_client_name": "Akervall Technologies, Inc.",
+      "prep_tax_year": 2025,
+      "prep_status": "in_progress",
+      "error": "prep has no deliverables (list returned empty)",
+      "note": "ALL 32 staging preps show status=in_progress at probe time; no completed deliverables on staging."
+    },
+    {
+      "stage": 6,
+      "target": {
+        "client_name_match": "akervall",
+        "tax_year": 2025
+      },
+      "client_id": 90,
+      "checks": [
+        {
+          "endpoint": "GET /api/v1/clients",
+          "status": 200,
+          "elapsed_ms": 577,
+          "row_count": 18,
+          "body_type": "list",
+          "verdict": "PASS"
+        },
+        {
+          "endpoint": "GET /api/v1/clients/90/employees",
+          "status": 200,
+          "elapsed_ms": 641,
+          "body_type": "dict",
+          "row_count": 16,
+          "body_top_keys": [
+            "client",
+            "employee_count",
+            "employees"
+          ],
+          "verdict": "PASS"
+        },
+        {
+          "endpoint": "POST /api/v1/query",
+          "request_body": {
+            "query": "list employees for akervall",
+            "client_id": 90,
+            "tax_year": 2025
+          },
+          "status": 200,
+          "elapsed_ms": 7318,
+          "body_type": "dict",
+          "body_top_keys": [
+            "answer",
+            "client_id",
+            "data",
+            "intent",
+            "provenance",
+            "query",
+            "sources",
+            "tax_year"
+          ],
+          "verdict": "PASS",
+          "error_body": null
+        },
+        {
+          "endpoint": "POST /api/v1/search",
+          "request_body": {
+            "query": "research and development expenses",
+            "top_k": 5,
+            "client_id": 90
+          },
+          "status": 200,
+          "elapsed_ms": 834,
+          "body_type": "dict",
+          "body_top_keys": [
+            "count",
+            "query",
+            "results"
+          ],
+          "result_count": 5,
+          "verdict": "PASS",
+          "error_body": null
+        }
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "stage": 7,
+      "target": {
+        "client_name_match": "akervall",
+        "tax_year": 2025
+      },
+      "client_id": 90,
+      "checks": [
+        {
+          "endpoint": "GET /api/v1/clients/90/hitl-summary",
+          "status": 200,
+          "elapsed_ms": 481,
+          "body_top_keys": [
+            "client",
+            "flagged_employee_count",
+            "flagged_entries",
+            "open_event_count",
+            "open_events"
+          ],
+          "flagged_employee_count": 12,
+          "open_event_count": 3,
+          "verdict": "PASS",
+          "error_body": null
+        },
+        {
+          "endpoint": "GET /api/v1/clients/90/duplicate-suspects",
+          "status": 200,
+          "elapsed_ms": 537,
+          "body_type": "dict",
+          "row_count": 0,
+          "body_top_keys": [
+            "client_id",
+            "client_name",
+            "count",
+            "suspects"
+          ],
+          "verdict": "PASS",
+          "error_body": null
+        },
+        {
+          "endpoint": "GET /api/v1/clients/90/publish-status",
+          "status": 200,
+          "elapsed_ms": 509,
+          "body_top_keys": [
+            "client",
+            "employee_count",
+            "flagged_unreviewed",
+            "gates",
+            "open_events",
+            "published_at",
+            "published_by",
+            "ready",
+            "status_breakdown"
+          ],
+          "verdict": "PASS",
+          "error_body": null
+        }
+      ],
+      "mutating_step_skipped": "POST /api/v1/clients/{client_id}/duplicate-suspects/{event_id}/resolve and PATCH /api/v1/employees/{employee_id} not exercised here. Re-run with explicit user go-ahead to validate state-mutation + re-projection.",
+      "verdict": "PASS"
+    }
+  ]
+}

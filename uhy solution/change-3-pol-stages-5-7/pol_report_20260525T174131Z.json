@@ -1,0 +1,216 @@
+{
+  "run_at": "2026-05-25T17:41:32.020181+00:00",
+  "vm_base": "https://echo-summit.westus3.cloudapp.azure.com",
+  "target": {
+    "client_name_match": "complete automation",
+    "tax_year": 2025
+  },
+  "resolved_client": {
+    "id": 173,
+    "folder_name": "Complete Automation, Inc.",
+    "client_entity_id": null,
+    "client_entity": null,
+    "entity_display_name": null,
+    "workstream_id": null,
+    "legal_name": "Complete Automation, Inc.",
+    "short_name": "Complete Automation, Inc.",
+    "tax_year": null,
+    "method": null,
+    "total_qre": null,
+    "total_qre_source": "gs_extracted",
+    "federal_credit": null,
+    "federal_credit_source": "gs_extracted",
+    "employee_count": 0,
+    "bc_count": 0,
+    "triage_status": "ingested"
+  },
+  "stages": [
+    {
+      "stage": 5,
+      "target": {
+        "client_name_match": "complete automation",
+        "tax_year": 2025
+      },
+      "steps": [
+        {
+          "step": "get_deliverable_metadata",
+          "endpoint": "GET /api/v1/deliverables/85fa43de-3f67-4b9d\u2026",
+          "status": 200,
+          "elapsed_ms": 464
+        },
+        {
+          "step": "download_signed_url_no_bearer",
+          "endpoint": "GET (signed URL)",
+          "status": 200,
+          "elapsed_ms": 3659,
+          "bytes": 3207535
+        }
+      ],
+      "verdict": "PASS",
+      "prep_id": "80ff9785-d6b1-44d8-a137-50afd3845348",
+      "prep_client_name": "Complete Automation, Inc.",
+      "prep_tax_year": 2025,
+      "prep_status": "in_progress",
+      "deliverable_count": 1,
+      "deliverable_id": "85fa43de-3f67-4b9d-8b87-a630943047b1",
+      "deliverable_meta_keys": [
+        "created_at",
+        "deliverable_type",
+        "download_url",
+        "employee_count",
+        "federal_credit",
+        "file_hash",
+        "file_size",
+        "filename",
+        "id",
+        "is_final",
+        "preparation_id",
+        "run_id",
+        "status",
+        "total_qre",
+        "version"
+      ],
+      "filename": "Complete Automation, Inc._RTC_Model_TY2025_from_worker_20260524_164727.xlsx",
+      "file_size": 3207535,
+      "file_hash_advertised": "6b897329d923847420ff4fae3d509fab75ec5d2768e40633f2522586c036e087",
+      "download_url_present": true,
+      "sha256_computed": "6b897329d923847420ff4fae3d509fab75ec5d2768e40633f2522586c036e087",
+      "sha256_match": true
+    },
+    {
+      "stage": 6,
+      "target": {
+        "client_name_match": "complete automation",
+        "tax_year": 2025
+      },
+      "client_id": 173,
+      "checks": [
+        {
+          "endpoint": "GET /api/v1/clients",
+          "status": 200,
+          "elapsed_ms": 543,
+          "row_count": 18,
+          "body_type": "list",
+          "verdict": "PASS"
+        },
+        {
+          "endpoint": "GET /api/v1/clients/173/employees",
+          "status": 200,
+          "elapsed_ms": 487,
+          "body_type": "dict",
+          "row_count": 0,
+          "body_top_keys": [
+            "client",
+            "employee_count",
+            "employees"
+          ],
+          "verdict": "PASS"
+        },
+        {
+          "endpoint": "POST /api/v1/query",
+          "request_body": {
+            "query": "list employees for complete automation",
+            "client_id": 173,
+            "tax_year": 2025
+          },
+          "status": 200,
+          "elapsed_ms": 1530,
+          "body_type": "dict",
+          "body_top_keys": [
+            "answer",
+            "client_id",
+            "data",
+            "intent",
+            "provenance",
+            "query",
+            "sources",
+            "tax_year"
+          ],
+          "verdict": "PASS",
+          "error_body": null
+        },
+        {
+          "endpoint": "POST /api/v1/search",
+          "request_body": {
+            "query": "research and development expenses",
+            "top_k": 5,
+            "client_id": 173
+          },
+          "status": 200,
+          "elapsed_ms": 908,
+          "body_type": "dict",
+          "body_top_keys": [
+            "count",
+            "query",
+            "results"
+          ],
+          "result_count": 0,
+          "verdict": "PASS",
+          "error_body": null
+        }
+      ],
+      "verdict": "PASS"
+    },
+    {
+      "stage": 7,
+      "target": {
+        "client_name_match": "complete automation",
+        "tax_year": 2025
+      },
+      "client_id": 173,
+      "checks": [
+        {
+          "endpoint": "GET /api/v1/clients/173/hitl-summary",
+          "status": 200,
+          "elapsed_ms": 498,
+          "body_top_keys": [
+            "client",
+            "flagged_employee_count",
+            "flagged_entries",
+            "open_event_count",
+            "open_events"
+          ],
+          "flagged_employee_count": 0,
+          "open_event_count": 0,
+          "verdict": "PASS",
+          "error_body": null
+        },
+        {
+          "endpoint": "GET /api/v1/clients/173/duplicate-suspects",
+          "status": 200,
+          "elapsed_ms": 564,
+          "body_type": "dict",
+          "row_count": 0,
+          "body_top_keys": [
+            "client_id",
+            "client_name",
+            "count",
+            "suspects"
+          ],
+          "verdict": "PASS",
+          "error_body": null
+        },
+        {
+          "endpoint": "GET /api/v1/clients/173/publish-status",
+          "status": 200,
+          "elapsed_ms": 533,
+          "body_top_keys": [
+            "client",
+            "employee_count",
+            "flagged_unreviewed",
+            "gates",
+            "open_events",
+            "published_at",
+            "published_by",
+            "ready",
+            "status_breakdown"
+          ],
+          "verdict": "PASS",
+          "error_body": null
+        }
+      ],
+      "mutating_step_skipped": "POST /api/v1/clients/{client_id}/duplicate-suspects/{event_id}/resolve and PATCH /api/v1/employees/{employee_id} not exercised here. Re-run with explicit user go-ahead to validate state-mutation + re-projection.",
+      "verdict": "PASS"
+    }
+  ]
+}

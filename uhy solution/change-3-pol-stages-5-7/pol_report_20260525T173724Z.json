@@ -1,0 +1,89 @@
+{
+  "run_at": "2026-05-25T17:37:24.369958+00:00",
+  "vm_base": "https://echo-summit.westus3.cloudapp.azure.com",
+  "target": {
+    "client_name": "Complete Automation",
+    "tax_year": 2025
+  },
+  "stages": [
+    {
+      "stage": 5,
+      "target": {
+        "client_name": "Complete Automation",
+        "tax_year": 2025
+      },
+      "steps": [
+        {
+          "step": "list_preparations",
+          "status": 200,
+          "elapsed_ms": 796,
+          "count": 32
+        }
+      ],
+      "verdict": "FAIL",
+      "error": "no prep for {'client_name': 'Complete Automation', 'tax_year': 2025}"
+    },
+    {
+      "stage": 6,
+      "target": {
+        "client_name": "Complete Automation",
+        "tax_year": 2025
+      },
+      "checks": [
+        {
+          "endpoint": "GET /api/v1/clients/{client_id}/employees",
+          "verdict": "SKIP",
+          "reason": "no client_id on prep aggregate"
+        },
+        {
+          "endpoint": "GET /api/v1/query?q=list preparations for Complete Automation",
+          "status": 405,
+          "elapsed_ms": 462,
+          "body_top_keys": [
+            "detail"
+          ],
+          "body_type": "dict",
+          "verdict": "FAIL"
+        },
+        {
+          "endpoint": "GET /api/v1/clients",
+          "status": 200,
+          "elapsed_ms": 511,
+          "row_count": 18,
+          "body_type": "list",
+          "verdict": "PASS"
+        }
+      ],
+      "verdict": "FAIL"
+    },
+    {
+      "stage": 7,
+      "target": {
+        "client_name": "Complete Automation",
+        "tax_year": 2025
+      },
+      "checks": [
+        {
+          "endpoint": "GET /api/v1/hitl-summary?client_name=Complete+Automation&tax_year=2025",
+          "status": 404,
+          "elapsed_ms": 670,
+          "body_type": "dict",
+          "body_top_keys": [
+            "detail"
+          ],
+          "verdict": "FAIL"
+        },
+        {
+          "endpoint": "GET /api/v1/hitl/tasks",
+          "status": 404,
+          "elapsed_ms": 530,
+          "row_count": null,
+          "body_type": "dict",
+          "verdict": "FAIL"
+        }
+      ],
+      "pending_mutating_step": "POST /api/v1/hitl/{task_id}/apply \u2014 paused per overwatch policy; requires explicit user go-ahead before running.",
+      "verdict": "FAIL"
+    }
+  ]
+}

@@ -744,3 +744,119 @@ Putting it together: a single Bridge-class run consumes ~50 min wall-clock on th
 3. **Wave-1 ship readiness** — v52 draft is behaviorally validated end-to-end on staging. With v12 generate-workbook also at 4/4 green, we're at "ready to publish whenever you give the word." I'm not publishing without your explicit go.
 4. **Bug #6 priority** — I think this rises to H (high) because it affects every UHY ingest. Want me to file it against adopt-platform tonight?
 
+---
+
+## §17 — POL Stages 5-7 read-only sweep (2026-05-25 PM)
+
+**Per your REPLY_TO_ADRYANN_V51_GREEN_WITH_POL "PROOF-OF-LIFE GATE" spec.**
+
+Wrapper: `uhy solution/change-3-pol-stages-5-7/exec_pol.py` — single Python script, 3-stage read-only probe with structured JSON report. Two runs: against Complete Automation TY 2025 (your Stage 5 known-good) and Akervall TY 2025 (your Case C / silent_zero canary).
+
+### §17.0 — Headline
+
+| target | stage 5 | stage 6 | stage 7 | overall |
+|---|---|---|---|---|
+| Complete Automation, Inc. TY 2025 (client_id 173) | **PASS** | **PASS** | **PASS** | **PASS** |
+| Akervall Technologies, Inc. TY 2025 (client_id 90) | FAIL (no deliverables) — expected per your spec | PASS | PASS | partial |
+
+**Both target's Stages 6+7 GREEN.** Stage 5 only meaningful against a prep that produced a deliverable; Complete Automation is the only one with a finalized workbook on staging at probe time. Akervall's Stage 5 FAIL is expected (you said it's in `failed` / Case C state — no workbook to download).
+
+Reports on disk (full structured JSON):
+- `uhy solution/change-3-pol-stages-5-7/pol_report_20260525T174131Z.json` (Complete Automation)
+- `uhy solution/change-3-pol-stages-5-7/pol_report_20260525T174150Z.json` (Akervall)
+
+### §17.1 — Stage 5 evidence (Complete Automation)
+
+| field | value |
+|---|---|
+| prep_id | `80ff9785-d6b1-44d8-a137-50afd3845348` |
+| deliverable_id | `85fa43de-3f67-4b9d-8b87-a630943047b1` |
+| deliverable_type | `rtc_workbook` |
+| filename | `Complete Automation, Inc._RTC_Model_TY2025_from_worker_20260524_164727.xlsx` |
+| file_size | 3,207,535 bytes (~3.2 MB) |
+| federal_credit (on deliverable) | $264,063.18 |
+| total_qre (on deliverable) | $3,985,190.76 |
+| signed `download_url` present | YES |
+| `file_hash` advertised | `6b897329d923847420ff4fae3d509fab75ec5d2768e40633f2522586c036e087` |
+| `sha256` computed (after download, no bearer) | `6b897329d923847420ff4fae3d509fab75ec5d2768e40633f2522586c036e087` |
+| **byte-fidelity match** | **TRUE** ✓ |
+| download elapsed | 3.66 s |
+
+All your Stage 5 acceptance criteria met. Signed URL worked without bearer (HMAC `token` + `expires` are the auth).
+
+### §17.2 — Stage 6 evidence (both targets)
+
+| endpoint | status | elapsed | shape verdict |
+|---|---|---|---|
+| `GET /api/v1/clients` | 200 | ~550 ms | 18 entries, list of `{id, legal_name, triage_status, employee_count, …}` |
+| `GET /api/v1/clients/173/employees` | 200 | ~480 ms | dict `{client, employee_count, employees}` (employee_count=0 for Complete Automation; 16 for Akervall) |
+| `POST /api/v1/query` | 200 | 1.5 s | dict `{answer, client_id, data, intent, provenance, query, sources, tax_year}` — full RAG response shape, Sonnet-routed per `main.py:3889` |
+| `POST /api/v1/search` | 200 | 0.9 s | dict `{count, query, results}` — `count=0` because Complete Automation has no embedded documents yet (expected) |
+
+**No schema regressions vs v0.3 contract observed.** All response shapes match what the codebase emits (cross-checked against `main.py` definitions).
+
+### §17.3 — Stage 7 evidence (both targets)
+
+Per-client HITL surface — your spec used global paths (`/hitl-summary?client_name=`, `/hitl/tasks`) but actual is per-client. Endpoint map corrected:
+
+| endpoint | Complete Automation (173) | Akervall (90) |
+|---|---|---|
+| `GET /clients/{id}/hitl-summary` | 200 / flagged=0, open_events=0 | 200 / **flagged=12, open_events=3** |
+| `GET /clients/{id}/duplicate-suspects` | 200 / suspects=0 | 200 / suspects=0 |
+| `GET /clients/{id}/publish-status` | 200 / shape: `{client, employee_count, flagged_unreviewed, gates, open_events, published_at, published_by, ready, status_breakdown}` | same shape |
+
+**Akervall surfaces real HITL data** (12 flagged employees, 3 open events) — the surface isn't stubbed; the HITL surface is queryable and populated for clients that have flag-generating ingest history. Both clients return the new `publish-status` shape correctly.
+
+### §17.4 — Mutating endpoint deliberately deferred
+
+Per overwatch policy, the mutating step from your spec — `POST /api/v1/clients/{client_id}/duplicate-suspects/{event_id}/resolve` and/or `PATCH /api/v1/employees/{employee_id}` — was NOT exercised. Akervall has 12 flagged employees + 3 open events; we have valid event_id candidates available the moment you green-light a mutation probe.
+
+If you want consolidation re-projection validated, ping with "go" and I'll pick an Akervall suspect, run the resolve, capture the before/after employee record + run summary, and confirm `_consolidate_hitl_for_run` fires correctly (you said you proved this in your smoke; this would be an Adopt-side independent confirmation).
+
+### §17.5 — Endpoint surface deltas vs your POL spec
+
+Your REPLY POL spec had several endpoint mismatches against the actual convergence VM. Documenting for the next handoff doc you ship:
+
+| your spec | actual surface | notes |
+|---|---|---|
+| `GET /api/v1/query?q=...` | `POST /api/v1/query` with `{query, client_id?, tax_year?}` body | Sonnet-routed |
+| `GET /api/v1/hitl-summary?client_name=...&tax_year=...` | `GET /api/v1/clients/{client_id}/hitl-summary` | per-client, takes int `client_id` (not name + year) |
+| `GET /api/v1/hitl/tasks` | does not exist as `/hitl/tasks` | per-client `/duplicate-suspects` is the closest analog |
+| `POST /api/v1/hitl/{task_id}/apply` | `POST /api/v1/clients/{client_id}/duplicate-suspects/{event_id}/resolve` | per-client, event-scoped |
+| `GET /api/v1/preparations/{id}` returns `hitl_state` | actual returns `blockers`, `tasks`, `runs[]` — no `hitl_state` key | the equivalent state lives under `tasks` (preflight, blockers, runs) |
+| `GET /api/v1/deliverables/{id}` returns `signed_url` + `expires_at` | actual returns `download_url` (already signed with `token`+`expires` query params) + `file_hash` (no separate `expires_at`) | the URL itself encodes `expires` query param |
+| acceptance "signed URL works without bearer (HMAC is auth)" | confirmed TRUE ✓ | `download_url` worked with no Authorization header |
+
+No functional issue — just a path/naming sync. Suggest folding the corrections into the next POL spec you write so the next probe matches reality.
+
+### §17.6 — Surprises
+
+1. **All 32 staging preps show `status=in_progress`** at probe time. The codebase distinguishes prep-level status from run-level status: Complete Automation's prep is in_progress but its single run is `status=completed` and produced the deliverable. Your spec assumed "completed" prep status would mark known-good targets; on staging that's not how the data looks today. Suggest: don't filter on prep status when picking POL targets — filter on `runs[*].status == completed` instead.
+
+2. **`/preparations/{id}/deliverables` returns a dict envelope, not a list.** Shape is `{"preparation_id": "...", "deliverables": [...]}`. My first probe pass used `isinstance(list)` and got zero hits across 32 preps; the fix is trivial (`payload.get("deliverables", [])`) but worth documenting because adopt-side WDL chains will hit the same gotcha.
+
+3. **Akervall `triage_status` = `ingested`, NOT `failed`** as you said in REPLY_TO_ADRYANN_V51_GREEN_WITH_POL. Either the staging snapshot changed since you wrote REPLY, or Akervall never went to `failed`. Worth a quick double-check on your side because the Case C wording in v12 generate-workbook is keyed to runs[*].status=failed, and if no Akervall-class run ever lands in `failed` state on staging, we can't validate that branch end-to-end without manufacturing a failure.
+
+4. **No `hitl_state` field on `/preparations/{id}`** as you predicted in REPLY spec's Stage 7 acceptance. The equivalent semantic state is composed of `tasks`, `blockers`, `preflight`, `runs[*]`. Not a blocker — just means downstream agents reading "HITL state" need to compose from those 4 fields, not a single one.
+
+### §17.7 — Acceptance roll-up vs your spec
+
+| your acceptance criterion | result |
+|---|---|
+| Stage 5 — `GET /deliverables/{id}` → signed URL + `expires_at` shape | ✓ signed `download_url` returned (no separate `expires_at` key, but `expires` is in the URL query string) |
+| Stage 5 — follow signed URL without bearer | ✓ 200 OK, 3.2 MB streamed |
+| Stage 5 — sha256-verify against `file_hash` | ✓ exact match `6b8973…36e087` |
+| Stage 6 — all three queries 200 + expected JSON shape | ✓ (with method corrections: `/query` + `/search` are POST) |
+| Stage 6 — no schema regressions vs v0.3 | ✓ shapes match codebase definitions |
+| Stage 7 — HITL surface queryable | ✓ `/hitl-summary` + `/duplicate-suspects` + `/publish-status` all 200 |
+| Stage 7 — resolvable + re-projection fires | DEFERRED — mutating step requires explicit go-ahead |
+
+**Net: 6/7 acceptance criteria fully met, 1 deferred pending your authorization.**
+
+### §17.8 — Decision items for you (Round 2)
+
+1. **Wave-1 deploy** — POL sweep clean modulo the deferred mutation probe. Want to fire Wave-1 now, run the mutation probe after, then mirror POL on prod? Or hold for the mutation probe first?
+2. **Mutating step authorization** — green-light `POST /clients/90/duplicate-suspects/{event_id}/resolve` against Akervall (12 flagged employees, 3 open events available)? Or wait until prod-POL?
+3. **POL spec correction PR** — want me to draft a follow-up edit to your REPLY_TO_ADRYANN_V51_GREEN_WITH_POL with the §17.5 corrections so the next operator using the doc doesn't hit the same path-mismatch wall I did?
+4. **Akervall state** — was your "Akervall in `failed` state" expectation based on stale info, or did something change since you wrote REPLY? If Case C target on staging is unavailable, may need to manufacture a failure to validate that v12 branch.
+
