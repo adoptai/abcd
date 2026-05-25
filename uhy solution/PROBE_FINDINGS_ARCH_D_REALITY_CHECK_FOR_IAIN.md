@@ -535,3 +535,90 @@ Per your §5 sequence:
 7. → Iterate Bridge Organics next, then Reinhart
 
 Branch: `feat/adopt-surface1-surface2-architecture-d`. Commit incoming.
+
+---
+
+## §15 — Change 2 built per `REPLY_TO_ADRYANN_DELTAS_ACK_CHANGE2_GO_20260525.md` §3
+
+You said §3: *"Start now, don't wait. Build per spec, real test Tuesday post-Wave-1."* Done.
+
+### §15.1 — What landed on the platform
+
+- **Pipeline:** `p1-copy-from-inbox` (remote `2622de32e0f64bae`)
+- **Draft saved:** **v51** (`c91403fce6394d51`) — direct WDL push via `save_pipeline_draft.py`. v50 (the old `eval_and_commit.py` chain) remains the published version; v51 stays draft until Tuesday's real-zip test.
+- **Step diff scope:** only the middle SANDBOX chain (`sbx_evalcommit_*`). 16 of 19 widdle steps are byte-identical to v50. Surgical.
+
+### §15.2 — Mutations
+
+1. `sbx_evalcommit_init.upload_files[0].path`: `/workspace/eval_and_commit.py` → `/workspace/upload_and_poll.py`
+2. `sbx_evalcommit_init.upload_files[0].content`: rewritten (~434 lines, source mirror at `uhy solution/change-2-upload-and-poll/upload_and_poll.py` so reviewers can read it inline — gitignored `workspaces/` blocks WDL diff visibility)
+3. `sbx_evalcommit_init.env` gained `FORCE_REPLACE = "{workflow_arguments.force_replace}"` (default `"false"`; HITL re-trigger path flips to `"true"`)
+4. `sbx_evalcommit_init.timeout_minutes`: `10` → `50` (45 min internal poll cap + 5 min boot/teardown headroom)
+5. `sbx_evalcommit_run.command`: `python /workspace/eval_and_commit.py` → `python /workspace/upload_and_poll.py`
+
+Everything else (canonicalize SANDBOX chain, `vmEvalResult` JQ, `triageFormatted` JQ, `routeOnTriage` CONDITION, `triageHitl` ESCALATE, `resolveTriageDecision` JQ, `routeAfterTriage` CONDITION, `triageAbortOutput`, `sbx_trigger_*`, `triggerResult` JQ, `output` OUTPUT_TEXT) is untouched.
+
+### §15.3 — Endpoint chain (per your §3)
+
+```
+1. POST /api/v1/clients/upload-zip
+     multipart: file, dir_name, tax_year, auto_ingest=true, force_replace, workstream_id_hint
+     200 + idempotent=true → take ingest_job_id, → step 2
+     202                   → take ingest_job_id, → step 2
+     409                   → emit HITL_REQUIRED + force_replace blocker (existing HITL chain)
+2. GET /api/v1/ingest/{ingest_job_id}/poll
+     5s × 6 (first 30s) then 15s, max 45 min wall-clock
+     completed → take harness_job_id, → step 3
+     failed    → emit VM_INGEST_FAILED blocker (existing HITL chain)
+3. GET /api/v1/workbook/from-harness-async/{harness_job_id}
+     same cadence, same cap
+     succeeded → preparations[0] has id + federal_credit + total_qre
+                 (engine_silent_zero inferred if both null OR preparations empty)
+     failed    → emit VM_PIPELINE_FAILED blocker (existing HITL chain)
+```
+
+Step 4 from your spec (optional `GET /preparations/{prep_id}/deliverables`) is **not in v1.0** — your spec said *"Skip if scope-creep concern; can land in a follow-up PR."* Skipped. v1.1 ticket queued.
+
+### §15.4 — Output-shape contract preserved
+
+`upload_and_poll.py` emits the same JSON keys `eval_and_commit.py` emitted, so all downstream JQ/CONDITION/HITL/OUTPUT_TEXT steps continue to work:
+
+`triage_status`, `go_no_go`, `recommendation_code`, `folder_name`, `client_id`, `evaluation_id` (= `ingest_job_id`), `engine_status` (= `completed | engine_silent_zero | failed | skipped`), `total_qre`, `federal_credit`, `s174_sre` (=`null`, not in new VM shape), `prep_run_id`, `elapsed_seconds`, `blockers`.
+
+Plus a new `harness_job_id` field for debugging convenience (downstream ignores unknown fields).
+
+### §15.5 — Deltas from your §3 sketch
+
+- **`workstream_id_hint` forwarded as multipart field** when env-substituted (matches legacy `eval_and_commit.py` pattern, preserves Pipeline B workstream context). Your sketch only listed the 5 base fields. Non-breaking.
+- **`s174_sre` null** in all cases — new VM shape doesn't surface it. Downstream `output` will print `None` for that slot. v1.1 candidate: add to VM response OR derive from `preparations[0]`.
+- **`engine_silent_zero` inferred locally** when `status=succeeded` but `preparations` is empty OR both qre+credit are null (matches Bridge Organics' shape per `adryann_smoke.sh` line 60 `EXPECTED_SHAPE="silent_zero"`).
+- **409 force_replace handling = manual re-trigger** (operator flips `FORCE_REPLACE=true` workflow_arg). Auto-retry-after-HITL would need a second SANDBOX chain — out of scope for v1.0. v1.1 ticket queued.
+
+### §15.6 — Test status
+
+| Tier | Status | Notes |
+|------|--------|-------|
+| `ast.parse` | ✅ | 434 lines, clean |
+| `save_pipeline_draft --dry-run` | ✅ | 19 steps accepted |
+| `save_pipeline_draft` (real) | ✅ | v51 on platform |
+| Real execution test (Bridge Organics zip) | ⏳ | Tuesday post-Wave-1 per your §3 — I don't have the zip locally; runs from your side OR I can spin a fresh zip locally if you can share BioPro/Reinhart bundles |
+
+### §15.7 — Bug-list update (now at 5)
+
+Per your §5 table, plus #5 added per your §1 Delta 2:
+
+| # | Bug | Repo | Severity |
+|---|-----|------|----------|
+| 1 | `GET /api/v1/preparations?client_name=&tax_year=` silently ignores filter params | `adoptai/clients_uhy` | L |
+| 2 | `widdle_docs` missing action-level `adopt_profile.json` override docs | `adoptai/adopt-docs` | L |
+| 3 | F7: `{workflow_arguments.X}` doesn't substitute in JQ_FILTER bodies | adopt platform | M |
+| 4 | F8: WiddleExecutor mis-classifies non-200-shaped success responses as 400 | adopt platform | M |
+| 5 | `is_last_step: true` doesn't halt action execution; explicit JUMP required | adopt platform | M |
+
+### §15.8 — Next moves
+
+1. Commit `uhy solution/change-2-upload-and-poll/` + this §15 + push to branch
+2. (Optional, pending your call) open draft PR against `dev` with both Change 1 + Change 2 documented — your §4 says "open today once Change 2 is at least stubbed"; Change 2 is more than stubbed (it's complete pending real-zip exec test)
+3. Tuesday: real exec test on staging via `adryann_smoke.sh` or chat-trigger
+4. After Wave-1 stable: Wave-2 prod cutover (separate ticket per your §7)
+
