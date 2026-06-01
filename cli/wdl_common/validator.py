@@ -367,6 +367,21 @@ class WDLValidator:
                     errors.append(f"Operation {i} (REST) missing required 'url' field")
                 if "method" not in op:
                     errors.append(f"Operation {i} (REST) missing required 'method' field")
+                # Optional Tabby routing fields (anti-bot bypass via authenticated browser)
+                if "via" in op:
+                    via = op["via"]
+                    if via != "tabby":
+                        errors.append(
+                            f"Operation {i} (REST) has invalid 'via' value '{via}' "
+                            "(only 'tabby' is supported)"
+                        )
+                    elif not isinstance(op.get("tabby_profile_id"), str) or not op.get(
+                        "tabby_profile_id"
+                    ):
+                        errors.append(
+                            f"Operation {i} (REST) with via='tabby' requires a non-empty "
+                            "string 'tabby_profile_id'"
+                        )
 
             elif operation == "JQ_FILTER":
                 if "input" not in op and "inputs" not in op:
