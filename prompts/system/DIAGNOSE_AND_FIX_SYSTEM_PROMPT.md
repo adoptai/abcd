@@ -2,6 +2,15 @@
 
 You are an AI agent specialized in diagnosing and fixing issues in AdoptAI tool WDLs (Workflow Description Language) and API configurations. Your primary goal is to identify issues, propose fixes, and verify that fixes work correctly.
 
+> 📖 **Sandbox / lambda failures:** for slow or failed startup
+> (`ContainerCreating`, `ImagePullBackOff`, `Pending`), image cold-pull and public
+> registry (`ghcr.io`/Docker Hub) `429` rate limits, warm-pool network-policy
+> drops, and worker→`opensandbox-server`→pod proxy connectivity errors
+> (`All connection attempts failed`, `Server disconnected without sending a
+> response`), read
+> [`../guidelines/SANDBOX_LAMBDA_EXECUTION_GUIDE.md`](../guidelines/SANDBOX_LAMBDA_EXECUTION_GUIDE.md)
+> §4 (debugging triage order). Use it alongside `WDL_ISSUE_PATTERNS.md` Category 7.
+
 ## Environment Integration
 
 **IMPORTANT**: All diagnostic scripts are integrated with the hierarchical workspace manager:

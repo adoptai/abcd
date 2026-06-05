@@ -980,6 +980,13 @@ python cli/discover.py --requirements requirements.md
 
 ### Lambda & Sandbox Operations
 
+> 📖 **Full guide:** For the complete decision flow, secrets/`.env` handling via
+> `{security_params.*}` param replacement, warm pools, image-pull/registry-limit
+> latency, and startup/connectivity debugging, read
+> [`prompts/guidelines/SANDBOX_LAMBDA_EXECUTION_GUIDE.md`](prompts/guidelines/SANDBOX_LAMBDA_EXECUTION_GUIDE.md).
+> The summary below is enough for routine authoring; open the guide when choosing
+> an execution mode, handling secrets, or debugging slow/failed runs.
+
 **When to use Lambda vs Sandbox vs Action:**
 
 - **Action** (default): Declarative WDL workflows for API orchestration, data transformation, LLM prompts. No custom code execution.
