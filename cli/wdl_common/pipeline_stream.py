@@ -59,106 +59,134 @@ async def stream_test_run(
 
     Returns the final ``scheduling-test-run-output`` payload (the test result)
     or ``None`` if the stream timed out / closed before completion.
+
+    Retries the connection when the server returns a transient
+    "Stream not found" error (the workflow session initialises a moment
+    after the trigger returns).
     """
     _ensure_httpx()
 
-    chunks: list[str] = []
-    final_result: dict[str, Any] | None = None
+    deadline = asyncio.get_event_loop().time() + timeout
+    _NOT_FOUND_RETRY_INTERVAL = 3  # seconds between reconnect attempts
 
-    request_timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
-    async with (
-        httpx.AsyncClient(timeout=request_timeout) as client,
-        client.stream("GET", stream_url, headers=headers) as response,
-    ):
-        if response.status_code != 200:
-            body = await response.aread()
-            raise RuntimeError(
-                f"Stream connect failed: HTTP {response.status_code} "
-                f"{body.decode('utf-8', errors='replace')[:300]}"
-            )
+    while True:
+        remaining = deadline - asyncio.get_event_loop().time()
+        if remaining <= 0:
+            log("   ⏰ Stream timed out before completion")
+            return None
 
-        log(f"   📡 Subscribed to stream for pipeline {pipeline_id}, waiting for events…")
+        chunks: list[str] = []
+        final_result: dict[str, Any] | None = None
+        stream_not_ready = False
 
-        deadline = asyncio.get_event_loop().time() + timeout
-        try:
-            async for raw_line in response.aiter_lines():
-                remaining = deadline - asyncio.get_event_loop().time()
-                if remaining <= 0:
-                    log("   ⏰ Stream timed out before completion")
-                    return None
-                if not raw_line:
-                    continue
-                if raw_line.startswith(":"):
-                    # NDJSON keepalive comment, ignore.
-                    continue
+        request_timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+        async with (
+            httpx.AsyncClient(timeout=request_timeout) as client,
+            client.stream("GET", stream_url, headers=headers) as response,
+        ):
+            if response.status_code != 200:
+                body = await response.aread()
+                raise RuntimeError(
+                    f"Stream connect failed: HTTP {response.status_code} "
+                    f"{body.decode('utf-8', errors='replace')[:300]}"
+                )
 
-                try:
-                    msg = json.loads(raw_line)
-                except (ValueError, TypeError):
-                    continue
+            log(f"   📡 Subscribed to stream for pipeline {pipeline_id}, waiting for events…")
 
-                if not isinstance(msg, dict):
-                    continue
-
-                if msg.get("error"):
-                    raise RuntimeError(
-                        f"Stream error: {msg.get('error')}: {msg.get('message') or msg.get('details') or ''}"
-                    )
-                if msg.get("event_name") == "__end":
-                    log(f"   ⏹️  Stream ended by server: {msg.get('reason', 'unknown')}")
-                    return final_result
-
-                event_name = msg.get("event_name") or msg.get("activity") or ""
-                payload = msg
-
-                # Pusher-relayed payloads sometimes nest the actual data under
-                # ``data`` (when the producer wraps with metadata); unwrap once
-                # for known event names so the chunked-output assembly logic
-                # below works with both shapes.
-                inner = msg.get("data")
-                if isinstance(inner, dict) and (
-                    "status" in inner or "result" in inner or "step_id" in inner
-                ):
-                    payload = inner
-
-                if event_name in (
-                    "scheduling-test-run-step-progress",
-                    "wdl_step_progress",
-                ):
-                    _log_step_progress(payload, log)
-                    continue
-
-                if event_name in (
-                    "wdl_execution_test_mode",
-                    "wdl_execution_completed",
-                    "wdl_execution_failed",
-                ):
-                    final_result = payload if isinstance(payload, dict) else {"result": payload}
-                    _log_final_result(final_result, log)
-                    return final_result
-
-                if event_name == "scheduling-test-run-output":
-                    status = payload.get("status") if isinstance(payload, dict) else None
-                    if status in ("started", "streaming"):
-                        if isinstance(payload, dict):
-                            chunks.append(str(payload.get("result") or ""))
+            try:
+                async for raw_line in response.aiter_lines():
+                    remaining = deadline - asyncio.get_event_loop().time()
+                    if remaining <= 0:
+                        log("   ⏰ Stream timed out before completion")
+                        return None
+                    if not raw_line:
                         continue
-                    if chunks:
-                        assembled = "".join(chunks)
-                        try:
-                            payload["result"] = json.loads(assembled)
-                        except (ValueError, TypeError):
-                            payload["result"] = assembled
-                        chunks.clear()
-                    final_result = payload if isinstance(payload, dict) else {"result": payload}
-                    _log_final_result(final_result, log)
-                    return final_result
+                    if raw_line.startswith(":"):
+                        # NDJSON keepalive comment, ignore.
+                        continue
 
-        except (httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
-            log(f"   🔌 Stream closed by server: {exc}")
-            return final_result
+                    try:
+                        msg = json.loads(raw_line)
+                    except (ValueError, TypeError):
+                        continue
 
-    return final_result
+                    if not isinstance(msg, dict):
+                        continue
+
+                    if msg.get("error"):
+                        err_msg = msg.get("message") or msg.get("details") or ""
+                        err_code = str(msg.get("error") or "")
+                        # "Stream not found" is transient — the workflow session
+                        # initialises a moment after the trigger returns.
+                        # Flag for reconnect after the server closes this conn.
+                        if "not found" in err_code.lower() or "not found" in err_msg.lower():
+                            log(
+                                f"   ⏳ Stream not ready yet ({err_code}), will retry in {_NOT_FOUND_RETRY_INTERVAL}s…"
+                            )
+                            stream_not_ready = True
+                            continue
+                        raise RuntimeError(f"Stream error: {err_code}: {err_msg}")
+
+                    if msg.get("event_name") == "__end":
+                        log(f"   ⏹️  Stream ended by server: {msg.get('reason', 'unknown')}")
+                        return final_result
+
+                    event_name = msg.get("event_name") or msg.get("activity") or ""
+                    payload = msg
+
+                    # Pusher-relayed payloads sometimes nest the actual data under
+                    # ``data`` (when the producer wraps with metadata); unwrap once
+                    # for known event names so the chunked-output assembly logic
+                    # below works with both shapes.
+                    inner = msg.get("data")
+                    if isinstance(inner, dict) and (
+                        "status" in inner or "result" in inner or "step_id" in inner
+                    ):
+                        payload = inner
+
+                    if event_name in (
+                        "scheduling-test-run-step-progress",
+                        "wdl_step_progress",
+                    ):
+                        _log_step_progress(payload, log)
+                        continue
+
+                    if event_name in (
+                        "wdl_execution_test_mode",
+                        "wdl_execution_completed",
+                        "wdl_execution_failed",
+                    ):
+                        final_result = payload if isinstance(payload, dict) else {"result": payload}
+                        _log_final_result(final_result, log)
+                        return final_result
+
+                    if event_name == "scheduling-test-run-output":
+                        status = payload.get("status") if isinstance(payload, dict) else None
+                        if status in ("started", "streaming"):
+                            if isinstance(payload, dict):
+                                chunks.append(str(payload.get("result") or ""))
+                            continue
+                        if chunks:
+                            assembled = "".join(chunks)
+                            try:
+                                payload["result"] = json.loads(assembled)
+                            except (ValueError, TypeError):
+                                payload["result"] = assembled
+                            chunks.clear()
+                        final_result = payload if isinstance(payload, dict) else {"result": payload}
+                        _log_final_result(final_result, log)
+                        return final_result
+
+            except (httpx.ReadTimeout, httpx.RemoteProtocolError) as exc:
+                log(f"   🔌 Stream closed by server: {exc}")
+                return final_result
+
+        # If the server closed the connection after a "not found" error,
+        # wait briefly and reconnect.  Otherwise the session is done.
+        if stream_not_ready:
+            await asyncio.sleep(_NOT_FOUND_RETRY_INTERVAL)
+            continue
+        return final_result
 
 
 def _log_step_progress(d: Any, log: Callable[[str], None]) -> None:

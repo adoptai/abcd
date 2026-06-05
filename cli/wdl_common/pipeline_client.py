@@ -51,6 +51,26 @@ class PipelineClient:
         }
 
     # ------------------------------------------------------------------
+    # Real-time / NDJSON streaming
+    # ------------------------------------------------------------------
+
+    def get_stream_url(self, channel_id: str) -> str:
+        """Return the BFF NDJSON streaming URL for ``channel_id``.
+
+        The returned URL targets the unified ``GET /stream/{channel_id}``
+        endpoint. The caller authenticates via the ``Authorization`` header
+        — see :meth:`get_stream_headers`.
+        """
+        return f"{self._base}/stream/{channel_id}"
+
+    def get_stream_headers(self) -> dict[str, str]:
+        """Return the headers (Authorization Bearer) required by ``/stream``."""
+        return {
+            "Authorization": f"Bearer {self.bearer_token}",
+            "Accept": "application/x-ndjson",
+        }
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
