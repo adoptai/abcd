@@ -761,6 +761,13 @@ The WDL documentation is hosted remotely for easy access:
 | `EXECUTE_LAMBDA` | Run registered Python lambda (platform sandbox, restricted network). Full docs at widdle_docs URL. |
 | `SANDBOX` | Ad-hoc container execution with custom image (cloud only). Full docs at widdle_docs URL. |
 
+> 📖 **Choosing between `EXECUTE_LAMBDA` and `SANDBOX`** (and handling secrets via
+> `{security_params.*}` rather than hardcoding `.env` values into the WDL): read
+> [`../guidelines/SANDBOX_LAMBDA_EXECUTION_GUIDE.md`](../guidelines/SANDBOX_LAMBDA_EXECUTION_GUIDE.md).
+> Default to `EXECUTE_LAMBDA`; use `SANDBOX` only for custom image / arbitrary
+> internet / runtime-installed deps / ad-hoc shell / dynamic code — and never in a
+> workflow that must run on-prem.
+
 ### REST Operation with `application` Property
 
 When your action needs to call multiple APIs with different base URLs or authentication, use the `application` property in REST blocks:

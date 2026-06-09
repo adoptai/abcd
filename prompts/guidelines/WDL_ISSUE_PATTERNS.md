@@ -701,6 +701,14 @@ Fix: Add FIRST_ELEMENT between JQ_FILTER and EXTRACT
 
 ## Category 7: Lambda & Sandbox Issues
 
+> 📖 **Background for this category:** execution-mode model, warm pools,
+> image cold-pull / public-registry (`ghcr.io`, Docker Hub) `429` rate limits,
+> and the worker→`opensandbox-server`→pod proxy connectivity errors are explained
+> in [`SANDBOX_LAMBDA_EXECUTION_GUIDE.md`](./SANDBOX_LAMBDA_EXECUTION_GUIDE.md)
+> §3–§4. Read it when a sandbox/lambda is slow to start (`ContainerCreating`,
+> `ImagePullBackOff`, `Pending`) or when egress behaves unexpectedly (warm-pool
+> routes silently drop per-call network policy).
+
 ### EXECUTE_LAMBDA Common Issues
 
 #### 7.1 Lambda Not Found
