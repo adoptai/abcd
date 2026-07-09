@@ -412,11 +412,51 @@ python cli/workspace.py profile show --action my-action
 
 ---
 
+## CE Testing (Chrome Extension)
+
+CE testing validates the action end-to-end in the real browser environment. It runs after local and remote tests pass.
+
+### Prerequisites (must exist before CE testing)
+
+CE tests authenticate to the target application using the CE token manager. Without these, CE tests will fail with auth errors:
+
+1. **Token configs** — one per dynamic security parameter (session token, CSRF, etc.)
+2. **Playground profile** — references token configs by name, provides `base_url`
+
+Check if they exist:
+```bash
+python cli/workspace.py token-config list
+python cli/workspace.py playground-profile list
+```
+
+If missing → load **`HAR_ANALYSIS_PROMPT.md`** (Steps 6–7) to set them up.
+
+### CE Test Workflow
+
+```bash
+# 1. One-time setup per agent (links the playground profile)
+python cli/ce_test.py configure <agent-name>
+
+# 2. Generate test cases from existing action test cases
+python cli/ce_test.py generate <agent-name>
+
+# 3. Start Chrome with CE loaded (separate terminal)
+python cli/ce_test.py start <agent-name>
+
+# 4. Run CE tests
+python cli/ce_test.py run <agent-name>
+```
+
+If CE tests fail due to auth issues, the token configs or playground profile need updating — go back to **`HAR_ANALYSIS_PROMPT.md`**.
+
+---
+
 ## Related Prompts
 
 - **WORKSPACE_HIERARCHY_PROMPT.md** - Profile inheritance
 - **UBER_AGENT_PROMPT.md** - Agent and sub-action setup
 - **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** - WDL debugging
+- **HAR_ANALYSIS_PROMPT.md** - Setting up token manager and playground profile for CE testing
 
 
 

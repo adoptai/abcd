@@ -362,7 +362,7 @@ def cmd_agent_move_action(args: argparse.Namespace) -> int:
     dry_run = getattr(args, "dry_run", False)
     manager = get_workspace_manager()
 
-    env = args.env or manager.active_env
+    env: str | None = args.env or manager.active_env
     if not env:
         print("❌ No environment specified. Use --env or set active environment first.")
         return 1
@@ -436,7 +436,7 @@ def cmd_agent_checkout(args: argparse.Namespace) -> int:
     dry_run = getattr(args, "dry_run", False)
     manager = get_workspace_manager()
 
-    env = args.env or manager.active_env
+    env: str | None = args.env or manager.active_env
     _vprint(f"Target environment: {env}")
     if not env:
         print("❌ No environment specified. Use --env or set active environment first.")
@@ -741,7 +741,7 @@ def cmd_agent_sync(args: argparse.Namespace) -> int:
     dry_run = getattr(args, "dry_run", False)
     manager = get_workspace_manager()
 
-    env = args.env or manager.active_env
+    env: str | None = args.env or manager.active_env
 
     # Use environment-specific credentials
     from cli.wdl_common.context import get_client
@@ -974,7 +974,7 @@ def cmd_action_checkout_all(args: argparse.Namespace) -> int:
     dry_run = getattr(args, "dry_run", False)
     manager = get_workspace_manager()
 
-    env = args.env or manager.active_env
+    env: str | None = args.env or manager.active_env
     if not env:
         print("❌ No environment specified. Use --env or set active environment first.")
         return 1
@@ -1313,7 +1313,7 @@ def cmd_profile_update(args: argparse.Namespace) -> int:
             return 1
         profile_path = action_info["path"] / "adopt_profile.json"
     elif args.agent:
-        env = args.env or manager.active_env
+        env: str | None = args.env or manager.active_env
         if not env:
             print("❌ No environment specified")
             return 1

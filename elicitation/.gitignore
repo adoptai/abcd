@@ -1,0 +1,46 @@
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+.elicit.pid
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backend data (user-generated, keep directory structure only)
+backend/data/elicitation.db
+backend/data/spec_agent.db
+backend/data/screenshots/*
+!backend/data/screenshots/.gitkeep
+backend/data/har/*
+!backend/data/har/.gitkeep
+backend/data/attachments/*
+!backend/data/attachments/.gitkeep
+
+# Virtual environments
+.venv/
+venv/
+env/

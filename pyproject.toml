@@ -16,6 +16,13 @@ httpx = ">=0.27.0"
 faiss-cpu = ">=1.7.4"
 numpy = ">=1.24.0"
 sentence-transformers = ">=2.2.0"
+fastapi = ">=0.115.0"
+uvicorn = {version = ">=0.32.0", extras = ["standard"]}
+sqlalchemy = {version = ">=2.0", extras = ["asyncio"]}
+aiosqlite = ">=0.20.0"
+anthropic = ">=0.43.0"
+sse-starlette = ">=2.0.0"
+mcp = ">=1.0.0"
 
 [tool.poetry.group.ce]
 optional = true
