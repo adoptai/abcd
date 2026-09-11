@@ -28,6 +28,12 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+# Sentinel the webui substitutes server-side when a turn is started without a
+# workstream_id (adoptwebui/backend/app/core/workstream_scope.py). Turn-read
+# endpoints don't do that substitution themselves, so callers must pass it
+# explicitly when the turn they're reading was started unscoped.
+UNSCOPED_WORKSTREAM_ID = "unscoped"
+
 
 class HarnessAPIError(RuntimeError):
     def __init__(self, method: str, url: str, status_code: int, body: str) -> None:
@@ -112,9 +118,7 @@ class HarnessAPIClient:
             json={"name": name, "workstream_id": workstream_id},
         )
 
-    def link_store_to_workstreams(
-        self, store_id: str, workstream_ids: list[str]
-    ) -> dict[str, Any]:
+    def link_store_to_workstreams(self, store_id: str, workstream_ids: list[str]) -> dict[str, Any]:
         return self._request(
             "POST",
             f"/v1/docstore/stores/{store_id}/workstreams",
@@ -142,6 +146,15 @@ class HarnessAPIClient:
         )
 
     # -- Turns --------------------------------------------------------------
+    #
+    # All turn-scoped GETs require conversation_id as a query param -- the
+    # webui binds every read to a conversation the caller owns (so a
+    # same-workstream caller can't read another user's turn by guessing
+    # turn_id). /trace additionally requires workstream_id (there's no
+    # turn -> conversation index until a trace row is cached). When a turn
+    # was started without a workstream, pass UNSCOPED_WORKSTREAM_ID -- the
+    # same sentinel POST /turns substitutes server-side for an omitted
+    # workstream_id.
 
     def start_turn(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/v1/end-user/agent-harness/turns", json=payload)
@@ -149,21 +162,36 @@ class HarnessAPIClient:
     def stop_turn(self, turn_id: str) -> dict[str, Any]:
         return self._request("POST", f"/v1/end-user/agent-harness/turns/{turn_id}/stop")
 
-    def turn_status(self, turn_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/v1/end-user/agent-harness/turns/{turn_id}/status")
-
-    def turn_temporal_history(self, turn_id: str) -> dict[str, Any]:
+    def turn_status(self, turn_id: str, conversation_id: str) -> dict[str, Any]:
         return self._request(
-            "GET", f"/v1/end-user/agent-harness/turns/{turn_id}/temporal-history"
+            "GET",
+            f"/v1/end-user/agent-harness/turns/{turn_id}/status",
+            params={"conversation_id": conversation_id},
         )
 
-    def turn_trace(self, turn_id: str) -> dict[str, Any]:
+    def turn_temporal_history(self, turn_id: str, conversation_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/end-user/agent-harness/turns/{turn_id}/temporal-history",
+            params={"conversation_id": conversation_id},
+        )
+
+    def turn_trace(self, turn_id: str, conversation_id: str, workstream_id: str) -> dict[str, Any]:
         # NOTE: the webui end-user route is /trace/{turn_id}, NOT
         # /turns/{turn_id}/trace -- that path only exists on
         # adoptai-workflows' internal API.
-        return self._request("GET", f"/v1/end-user/agent-harness/trace/{turn_id}")
+        return self._request(
+            "GET",
+            f"/v1/end-user/agent-harness/trace/{turn_id}",
+            params={"conversation_id": conversation_id, "workstream_id": workstream_id},
+        )
 
-    def stream_turn(self, turn_id: str) -> Iterator[dict[str, Any]]:
+    def stream_turn(
+        self,
+        turn_id: str,
+        conversation_id: str,
+        workstream_id: str | None = None,
+    ) -> Iterator[dict[str, Any]]:
         """
         Stream a turn's NDJSON events live. Yields one parsed envelope dict
         per line: {"source": ..., "event": {"type": ..., "data": {...}}}.
@@ -173,7 +201,12 @@ class HarnessAPIClient:
         sent.
         """
         url = self._url(f"/v1/end-user/agent-harness/turns/{turn_id}/stream")
-        with requests.get(url, headers=self.headers, stream=True, timeout=(30, 600)) as response:
+        params = {"conversation_id": conversation_id}
+        if workstream_id:
+            params["workstream_id"] = workstream_id
+        with requests.get(
+            url, headers=self.headers, params=params, stream=True, timeout=(30, 600)
+        ) as response:
             if response.status_code >= 400:
                 raise HarnessAPIError("GET", url, response.status_code, response.text)
             for line in response.iter_lines(decode_unicode=True):

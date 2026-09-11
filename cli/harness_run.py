@@ -31,7 +31,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.harness_common.api_client import HarnessAPIError, get_harness_client_for_env
+from cli.harness_common.api_client import (
+    UNSCOPED_WORKSTREAM_ID,
+    HarnessAPIError,
+    get_harness_client_for_env,
+)
 from cli.harness_common.stream import stream_and_persist
 from cli.harness_common.workspace import load_run, load_workstreams_cache, run_dir, save_run
 
@@ -95,9 +99,13 @@ def _post_turn(
     seq = len(run["turns"]) + 1
     ndjson_path = run_dir(run_id, env) / f"turn-{seq:03d}.ndjson"
 
+    effective_workstream_id = workstream_id or UNSCOPED_WORKSTREAM_ID
+
     print("—" * 60)
     try:
-        terminal = stream_and_persist(client.stream_turn(turn_id), ndjson_path)
+        terminal = stream_and_persist(
+            client.stream_turn(turn_id, conversation_id, workstream_id), ndjson_path
+        )
     except HarnessAPIError as e:
         print(f"\n❌ Stream failed: {e}")
         terminal = {}
@@ -108,11 +116,13 @@ def _post_turn(
     trace_path = run_dir(run_id, env) / f"turn-{seq:03d}-trace.json"
     history_path = run_dir(run_id, env) / f"turn-{seq:03d}-temporal-history.json"
     try:
-        trace_path.write_text(json.dumps(client.turn_trace(turn_id), indent=2))
+        trace = client.turn_trace(turn_id, conversation_id, effective_workstream_id)
+        trace_path.write_text(json.dumps(trace, indent=2))
     except HarnessAPIError as e:
         print(f"⚠️  Could not fetch trace: {e}")
     try:
-        history_path.write_text(json.dumps(client.turn_temporal_history(turn_id), indent=2))
+        history = client.turn_temporal_history(turn_id, conversation_id)
+        history_path.write_text(json.dumps(history, indent=2))
     except HarnessAPIError as e:
         print(f"⚠️  Could not fetch temporal history: {e}")
 

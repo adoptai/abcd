@@ -134,7 +134,9 @@ def push(skill_dir: Path, name: str | None, replace: bool, env: str | None) -> i
     except HarnessAPIError as e:
         print(f"❌ Upload failed: {e}")
         if e.status_code == 409:
-            print("   A skill with this name already exists -- retry with --replace to overwrite it.")
+            print(
+                "   A skill with this name already exists -- retry with --replace to overwrite it."
+            )
         return 1
     print("   ✅ Upload accepted")
 

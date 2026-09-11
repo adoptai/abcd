@@ -4,6 +4,27 @@ NDJSON turn-stream reader: pretty-prints harness events live and persists the
 raw stream to disk. This is the "go turn by turn" visibility FDEs don't get
 from a local Claude Code session -- every tool call, tool result, and error
 the harness actually produced, not what we'd guess it would produce.
+
+Wire shape (confirmed against a real adoptwebui stream, NOT the internal
+HarnessEvent taxonomy narrative in agent_harness_architecture.md -- that doc
+describes the Temporal-internal event stream; the wire envelope the proxy
+actually forwards looks like this):
+
+    {
+      "source": "redis" | "transcript" | "keepalive",
+      "redis_id" | "cursor": ...,
+      "event": {
+        "event_name": "block_delta" | "harness_turn_complete" | "harness_error"
+                       | "harness_step_complete" | "harness_context_usage"
+                       | "harness_sandbox_ready" | ...,
+        "type": "response",   # constant envelope-kind marker -- NOT the discriminator
+        "data": {...}         # event_name == "block_delta" nests a "block" dict here,
+                               # whose OWN "type" is text_delta/tool_use/tool_result/chip/final
+      }
+    }
+
+So: dispatch on ``event["event_name"]``, not ``event["type"]``. For
+``block_delta``, dispatch again on ``data["block"]["type"]``.
 """
 
 import json
@@ -11,40 +32,57 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-_TERMINAL_EVENT_TYPES = {"harness_turn_complete", "harness_error"}
+_TERMINAL_EVENT_NAMES = {"harness_turn_complete", "harness_error"}
+
+
+def _format_block(block: dict[str, Any]) -> str | None:
+    btype = block.get("type")
+
+    if btype in ("text_delta", "thinking_delta"):
+        return None  # printed inline by the caller, not as a status line
+    if btype == "tool_use":
+        return f"  \U0001f527 tool_use: {block.get('name')}"
+    if btype == "tool_result":
+        marker = "❌" if block.get("is_error") else "✅"
+        return f"  {marker} tool_result"
+    if btype == "chip":
+        return f"  · chip: {block.get('title')} [{block.get('state')}]"
+    if btype == "final":
+        return "  \U0001f3c1 final answer rendered"
+    if btype:
+        return f"  · block:{btype}"
+    return None
 
 
 def _format_event(envelope: dict[str, Any]) -> str | None:
     event = envelope.get("event") or {}
-    etype = event.get("type")
+    name = event.get("event_name")
     data = event.get("data") or {}
 
-    if etype in ("text_delta", "thinking_delta"):
-        return None  # printed inline by the caller, not as a status line
-
-    if etype == "tool_use":
-        name = data.get("name") or event.get("name")
-        return f"  \U0001f527 tool_use: {name}"
-    if etype == "tool_result":
-        name = data.get("name") or event.get("name")
-        marker = "❌" if data.get("is_error") else "✅"
-        return f"  {marker} tool_result: {name}"
-    if etype == "artifact":
-        return f"  \U0001f4ce artifact: {data.get('name', data)}"
-    if etype == "harness_status":
-        return f"  ℹ️  status: {data}"
-    if etype == "harness_error":
+    if name == "block_delta":
+        block = data.get("block") or {}
+        return _format_block(block)
+    if name == "harness_sandbox_ready":
+        return "  \U0001f4e6 sandbox ready"
+    if name == "harness_error":
         return f"  \U0001f6d1 harness_error: {data}"
-    if etype == "harness_turn_complete":
+    if name == "harness_turn_complete":
         return f"  \U0001f3c1 turn_complete: stop_reason={data.get('stop_reason')}"
-    if etype in (
-        "harness_context_usage",
-        "harness_context_cleared",
-        "harness_context_compacted",
-    ):
-        return f"  \U0001f4ca {etype}: {data}"
-    if etype:
-        return f"  · {etype}"
+    if name in ("harness_context_usage", "harness_step_complete"):
+        return f"  \U0001f4ca {name}: {data}"
+    if name:
+        return f"  · {name}"
+    return None
+
+
+def _inline_text(envelope: dict[str, Any]) -> str | None:
+    """Return delta text to print inline (streamed token-by-token), or None."""
+    event = envelope.get("event") or {}
+    if event.get("event_name") != "block_delta":
+        return None
+    block = (event.get("data") or {}).get("block") or {}
+    if block.get("type") == "text_delta":
+        return block.get("text", "")
     return None
 
 
@@ -71,11 +109,12 @@ def stream_and_persist(
             raw_out.write(json.dumps(envelope) + "\n")
 
             event = envelope.get("event") or {}
-            etype = event.get("type")
+            name = event.get("event_name")
             data = event.get("data") or {}
 
-            if etype == "text_delta" and not quiet:
-                print(data.get("text", ""), end="", flush=True)
+            inline = _inline_text(envelope)
+            if inline is not None and not quiet:
+                print(inline, end="", flush=True)
                 have_pending_text = True
                 continue
 
@@ -86,8 +125,8 @@ def stream_and_persist(
                     have_pending_text = False
                 print(line)
 
-            if etype in _TERMINAL_EVENT_TYPES:
-                terminal_data = {"type": etype, **data}
+            if name in _TERMINAL_EVENT_NAMES:
+                terminal_data = {"event_name": name, **data}
 
     if have_pending_text and not quiet:
         print()
