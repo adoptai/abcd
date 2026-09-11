@@ -69,18 +69,25 @@ def review_turn(ndjson_path: Path) -> TurnReview:
     tool_results_by_id: dict[str, dict[str, Any]] = {}
     context_pcts: list[int] = []
 
+    # Wire shape (see stream.py's module docstring for the full rationale):
+    # dispatch on event["event_name"], NOT event["type"] (always "response").
+    # Content blocks (tool_use/tool_result/...) nest under
+    # event["data"]["block"] on "block_delta" events.
     for envelope in envelopes:
         event = envelope.get("event") or {}
-        etype = event.get("type")
+        name = event.get("event_name")
         data = event.get("data") or {}
 
-        if etype == "tool_use":
-            tool_uses.append(data)
-        elif etype == "tool_result":
-            tool_id = data.get("tool_use_id") or data.get("id")
-            if tool_id:
-                tool_results_by_id[tool_id] = data
-        elif etype == "harness_context_usage":
+        if name == "block_delta":
+            block = data.get("block") or {}
+            btype = block.get("type")
+            if btype == "tool_use":
+                tool_uses.append(block)
+            elif btype == "tool_result":
+                tool_id = block.get("tool_use_id") or block.get("id")
+                if tool_id:
+                    tool_results_by_id[tool_id] = block
+        elif name == "harness_context_usage":
             pct = data.get("context_percent")
             if isinstance(pct, int | float):
                 context_pcts.append(int(pct))
