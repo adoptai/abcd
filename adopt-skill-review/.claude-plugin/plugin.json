@@ -1,0 +1,15 @@
+{
+  "name": "adopt-skill-review",
+  "version": "0.1.0",
+  "description": "Reviews a skill or plugin built for the Adopt agent harness and reports what is costing it latency, LLM steps and reliability.",
+  "author": "Adopt AI",
+  "keywords": [
+    "adopt-harness",
+    "skill-review",
+    "step-budget",
+    "batching",
+    "latency",
+    "optimisation",
+    "fde"
+  ]
+}

@@ -11,8 +11,19 @@ script lints the frontmatter locally before spending an upload, and always
 re-fetches the skill afterward to confirm what actually landed -- never trust
 a 200.
 
+`push` also runs the vendored adopt-skill-review audit (adopt-skill-review/) first --
+a free, local, deterministic check for the step-budget/batching/file-placement
+issues that actually cost turns on the harness. This is the cheap half of the
+loop: debug and fix a skill locally (Claude Code seat, no harness LLM spend)
+until `audit` is clean and the local behavior is what you want, THEN push and
+run it on the harness to confirm it matches -- expect some real-harness
+degradation even after a clean local pass (different system prompt, sandbox,
+tool gating), but the harness run should now be confirming parity, not doing
+your first-draft debugging for you.
+
 Usage:
-    python cli/harness_skill.py push <skill_dir> [--name NAME] [--replace] [--env ENV]
+    python cli/harness_skill.py audit <skill_dir>
+    python cli/harness_skill.py push <skill_dir> [--name NAME] [--replace] [--force] [--skip-audit] [--env ENV]
     python cli/harness_skill.py verify <skill_name> [--env ENV]
 """
 
@@ -20,6 +31,7 @@ import argparse
 import base64
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -31,6 +43,34 @@ from cli.harness_common.api_client import HarnessAPIError, get_harness_client_fo
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n(.*)\Z", re.DOTALL)
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+_AUDIT_SCRIPT = (
+    Path(__file__).parent.parent
+    / "adopt-skill-review"
+    / "skills"
+    / "adopt-skill-review"
+    / "scripts"
+    / "audit_skill.py"
+)
+
+
+def run_skill_audit(skill_dir: Path) -> tuple[int, str]:
+    """
+    Run the vendored adopt-skill-review audit against a local skill dir.
+
+    Returns (exit_code, combined_output): 0 = clean, 1 = medium/high findings
+    (advisory), 2 = critical findings. Returns (0, "") if the plugin isn't
+    vendored in this checkout, so a missing adopt-skill-review/ never blocks
+    push -- it's an enforcement aid, not a hard dependency of the CLI.
+    """
+    if not _AUDIT_SCRIPT.exists():
+        return 0, ""
+    result = subprocess.run(
+        [sys.executable, str(_AUDIT_SCRIPT), str(skill_dir), "--format", "text"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode, (result.stdout + result.stderr)
 
 
 def _lint_frontmatter(skill_md_text: str, skill_md_path: Path) -> dict:
@@ -97,7 +137,27 @@ def _collect_aux_files(skill_dir: Path) -> list[dict[str, str]]:
     return aux_files
 
 
-def push(skill_dir: Path, name: str | None, replace: bool, env: str | None) -> int:
+def audit(skill_dir: Path) -> int:
+    """Run the local, free adopt-skill-review audit and print its findings."""
+    code, output = run_skill_audit(skill_dir)
+    if not output:
+        print(
+            "⚠️  adopt-skill-review is not vendored in this checkout "
+            "(expected at adopt-skill-review/skills/adopt-skill-review/scripts/audit_skill.py)"
+        )
+        return 0
+    print(output)
+    return code
+
+
+def push(
+    skill_dir: Path,
+    name: str | None,
+    replace: bool,
+    force: bool,
+    skip_audit: bool,
+    env: str | None,
+) -> int:
     skill_md_path = skill_dir / "SKILL.md"
     if not skill_md_path.exists():
         print(f"❌ No SKILL.md in {skill_dir}")
@@ -116,6 +176,23 @@ def push(skill_dir: Path, name: str | None, replace: bool, env: str | None) -> i
 
     aux_files = _collect_aux_files(skill_dir)
     print(f"   {len(aux_files)} aux file(s)")
+
+    if not skip_audit:
+        print("\n🔎 Running adopt-skill-review audit (local, free -- no harness spend)...")
+        audit_code, audit_output = run_skill_audit(skill_dir)
+        if audit_output:
+            print(audit_output)
+        if audit_code == 2 and not force:
+            print(
+                "❌ Critical adopt-skill-review findings -- fix locally first (this is the "
+                "cheap half of the loop), or re-run with --force to push anyway."
+            )
+            return 1
+        if audit_code == 1:
+            print(
+                "⚠️  adopt-skill-review found medium/high issues above -- worth fixing locally "
+                "before spending a harness run on this push, but not blocking."
+            )
 
     try:
         client = get_harness_client_for_env(env)
@@ -194,6 +271,13 @@ def main() -> None:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    audit_p = sub.add_parser(
+        "audit", help="Run the local adopt-skill-review check (free, no harness spend)"
+    )
+    audit_p.add_argument(
+        "skill_dir", type=Path, help="Local directory containing SKILL.md (+ aux files)"
+    )
+
     push_p = sub.add_parser("push", help="Upload a local skill directory to the org tier")
     push_p.add_argument(
         "skill_dir", type=Path, help="Local directory containing SKILL.md (+ aux files)"
@@ -201,6 +285,12 @@ def main() -> None:
     push_p.add_argument("--name", help="Override skill name (defaults to frontmatter 'name')")
     push_p.add_argument(
         "--replace", action="store_true", help="Overwrite an existing skill of the same name"
+    )
+    push_p.add_argument(
+        "--force", action="store_true", help="Push even if adopt-skill-review finds critical issues"
+    )
+    push_p.add_argument(
+        "--skip-audit", action="store_true", help="Skip the adopt-skill-review check entirely"
     )
     push_p.add_argument("--env", help="Environment to use (defaults to active env)")
 
@@ -210,8 +300,12 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    if args.command == "push":
-        sys.exit(push(args.skill_dir, args.name, args.replace, args.env))
+    if args.command == "audit":
+        sys.exit(audit(args.skill_dir))
+    elif args.command == "push":
+        sys.exit(
+            push(args.skill_dir, args.name, args.replace, args.force, args.skip_audit, args.env)
+        )
     elif args.command == "verify":
         sys.exit(verify(args.skill_name, None, args.env))
 

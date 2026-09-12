@@ -503,26 +503,44 @@ A separate toolkit, alongside the WDL tooling above, for developing **agent-harn
 
 **One-time setup**: mint a Frontegg Personal Access Token in the Adopt webui, then set `ADOPT_WEBUI_ENDPOINT` / `ADOPT_HARNESS_PAT_CLIENT_ID` / `ADOPT_HARNESS_PAT_SECRET` in `workspaces/{env}/.env` (see `cli/harness_common/auth.py` docstring). This drives adoptwebui's **end-user** API (real Bearer JWT, real workstream-access checks) — the same path a real user/FDE hits, not an internal bypass.
 
+**Debug order matters: local first, harness second.** A harness turn spends real
+platform LLM budget; local Claude Code iteration on the skill's own instructions
+does not (it's a seat you already have). So:
+1. Iterate on the skill locally in Claude Code until it does what you want.
+2. Run `python cli/harness_skill.py audit path/to/my-skill` (wraps the vendored
+   [`adopt-skill-review`](adopt-skill-review/) plugin) — free, local, deterministic
+   checks for the step-budget/batching/file-placement issues that actually cost
+   turns on the harness. `push` (below) runs this automatically and blocks on
+   critical findings.
+3. Only once local behavior and the audit are clean, push and run it for real —
+   that harness run is now a **parity check** (does it match what you saw
+   locally, minus the expected harness-only degradation from the different
+   system prompt/sandbox/tool gating), not your first-draft debugging loop.
+
 ```bash
-# 1. Push the local skill (lints frontmatter, then verifies what actually landed)
+# 1. Local, free check before spending anything
+python cli/harness_skill.py audit path/to/my-skill
+
+# 2. Push the local skill (lints frontmatter, runs the audit, then verifies
+#    what actually landed)
 python cli/harness_skill.py push path/to/my-skill --replace
 
-# 2. Ensure a real workstream + linked docstore exist, seeded with test data
+# 3. Ensure a real workstream + linked docstore exist, seeded with test data
 python cli/harness_workstream.py ensure my-test-ws
 python cli/harness_workstream.py seed my-test-ws sample-invoice.pdf
 
-# 3. Start a turn. Streams live, persists the trace, and ALWAYS stops after
+# 4. Start a turn. Streams live, persists the trace, and ALWAYS stops after
 #    one turn -- it never auto-continues. Prints a run_id.
 python cli/harness_run.py start --workstream my-test-ws --message "Process this invoice"
 
-# 4. Decide: looks wrong -> fix SKILL.md, push --replace, then re-run.
-#            looks right -> keep going on the same conversation:
+# 5. Decide: looks wrong -> fix SKILL.md locally (back to step 1), push --replace,
+#            then re-run. looks right -> keep going on the same conversation:
 python cli/harness_run.py continue <run_id> --message "Now reconcile it against the GL"
 
-# 5. Pull a past turn's status/trace/temporal-history on demand
+# 6. Pull a past turn's status/trace/temporal-history on demand
 python cli/harness_trace.py fetch <turn_id>
 
-# 6. Run the platform's own §2.5 performance checklist (inline-data-through-
+# 7. Run the platform's own §2.5 performance checklist (inline-data-through-
 #    the-model, missed batching, iteration count, context growth) over a run
 python cli/harness_trace.py review <run_id>
 ```
