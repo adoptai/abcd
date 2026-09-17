@@ -65,6 +65,12 @@ forcing more steps than the work needs.
   commonly forgotten line in a harness skill.
 - **Data through the model** — missing `db_query save_to_file`, missing `render_ui file_ref`,
   stdout piping, scripts dumping full payloads past the 100KB cap.
+- **Memory accumulation** — a loop that appends every result to a list/dict in memory and
+  writes it ONLY once after the loop, instead of writing as it goes. Fine for a handful of
+  items; an out-of-memory **sandbox crash** on a large input — and the crash loses every
+  result computed so far, since nothing was ever persisted. Distinct from the data-through-
+  the-model findings above: those are about the model's context budget, this is about the
+  sandbox process's own memory, which a truncated bash result never reveals.
 - **Duplication** — rules the harness already injects every turn, which cost context on
   every step and can only be weakened by paraphrase.
 - **Missing stop conditions** — one real turn had a valid deliverable at step 38 and spent

@@ -129,6 +129,37 @@ def emit(obj, out, *, summary_keys=("ok", "state", "counts", "next_action")):
 Drop `indent=` on machine-read files too — it doubles the bytes for a file no human reads,
 and those bytes count against the 256 KiB read cap if the agent ever reads it back.
 
+## Write as you go — don't hold the whole result in memory
+
+A script that loops over files/rows/pages, appends every result to one list, and dumps
+that list ONCE after the loop holds the entire working set in the sandbox process's
+memory at the same time. That's fine for a handful of items; it's an **out-of-memory
+sandbox crash**, not a slow run, once the input is large enough — and the failure mode is
+brutal: the crash loses every result computed so far, including the ones that were
+already done, because nothing was ever persisted.
+
+```python
+# Don't: memory grows with input size, nothing survives a crash
+results = []
+for f in files:
+    results.append(process(f))
+Path(out).write_text(json.dumps(results))
+
+# Do: memory stays flat, a crash partway through loses only the unwritten tail
+with open(out, "w") as fh:
+    for f in files:
+        fh.write(json.dumps(process(f)) + "\n")   # JSONL: one record per line
+        fh.flush()
+```
+
+This is the same "route pointers, not payloads" discipline as the rest of this page,
+applied to the sandbox process's own memory instead of the model's context window. Write
+each record as it's produced (JSONL is the easiest shape — one `json.dump` per line, no
+trailing-comma bookkeeping), or use a library's own incremental writer (`csv.writer.writerow`
+per row, not `writerows` on one big list built beforehand). If a downstream step genuinely
+needs random access to the whole set, write incrementally to a bounded store (SQLite,
+Parquet in chunks) rather than a single in-memory structure.
+
 ## A uniform output envelope
 
 When several scripts feed one flow, give them the same shape so the agent learns it once:

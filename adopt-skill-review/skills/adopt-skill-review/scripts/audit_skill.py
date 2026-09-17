@@ -1956,6 +1956,117 @@ def check_silent_skip(b: SkillBundle) -> list[Finding]:
     return out
 
 
+_ACCUM_METHODS = ("append", "extend", "update")
+_INCREMENTAL_WRITE_RE = re.compile(
+    r"\.(write|writerow|writerows|flush)\(|json\.dump\(|pickle\.dump\("
+)
+_WHOLE_DUMP_TMPL = (
+    r"\b(?:json\.dump|pickle\.dump)\(\s*{name}\b"
+    r"|\b{name}\.(?:to_csv|to_json)\("
+    r"|writerows\(\s*{name}\b"
+)
+
+
+def _accumulated_names(loop: ast.For) -> set[str]:
+    """Names that grow across this loop's iterations: list.append/extend, dict[k]=v,
+    or `x += ...` -- the shapes that hold every prior iteration's result in memory."""
+    names: set[str] = set()
+    for n in ast.walk(loop):
+        if (
+            isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr in _ACCUM_METHODS
+            and isinstance(n.func.value, ast.Name)
+        ):
+            names.add(n.func.value.id)
+        elif isinstance(n, ast.AugAssign) and isinstance(n.op, ast.Add) and isinstance(
+            n.target, ast.Name
+        ):
+            names.add(n.target.id)
+        elif isinstance(n, ast.Assign):
+            for target in n.targets:
+                if isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name):
+                    names.add(target.value.id)
+    return names
+
+
+def check_memory_accumulation(b: SkillBundle) -> list[Finding]:
+    """A loop that grows a list/dict in memory across every iteration, with no
+    per-iteration disk write, then dumps the whole thing ONCE after the loop ends.
+
+    Fine for a handful of items; an out-of-memory sandbox crash once the input is large
+    enough -- and the crash loses every result computed so far, since nothing was
+    persisted along the way. Distinct from check_data_through_model, which is about the
+    MODEL's context budget (bash stdout, render_ui payload size); this is about the
+    SANDBOX PROCESS's own memory, which a truncated bash result never reveals.
+    """
+    out: list[Finding] = []
+    ev: list[Evidence] = []
+    for p in (q for q in b.aux if is_script_rel(b.rel(q))):
+        src = read_text(p)
+        try:
+            tree = ast.parse(src)
+        except (SyntaxError, ValueError):
+            continue
+        for scope in ast.walk(tree):
+            if not isinstance(scope, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            body = scope.body
+            for i, stmt in enumerate(body):
+                if not isinstance(stmt, ast.For):
+                    continue
+                loop = stmt
+                # A generator (yield inside the loop) already streams results out one at
+                # a time -- that's the fix, not the problem.
+                if any(isinstance(n, (ast.Yield, ast.YieldFrom)) for n in ast.walk(loop)):
+                    continue
+                loop_src = ast.get_source_segment(src, loop) or ""
+                if _INCREMENTAL_WRITE_RE.search(loop_src):
+                    continue  # already flushes per-iteration
+                accumulated = _accumulated_names(loop)
+                if not accumulated:
+                    continue
+                for later in body[i + 1 :]:
+                    later_src = ast.get_source_segment(src, later) or ""
+                    for name in accumulated:
+                        pattern = _WHOLE_DUMP_TMPL.format(name=re.escape(name))
+                        if re.search(pattern, later_src):
+                            ev.append(
+                                Evidence(
+                                    b.rel(p),
+                                    loop.lineno,
+                                    f"loop accumulates `{name}` in memory with no per-iteration "
+                                    f"write, then dumps it whole at line {later.lineno}",
+                                )
+                            )
+                            break
+    if ev:
+        out.append(
+            Finding(
+                check="unbounded_loop_accumulation",
+                category="determinism",
+                severity="medium",
+                title=f"{len(ev)} loop(s) accumulate results in memory instead of writing as they go",
+                why="A loop that appends every result to a list/dict and writes it ONLY after "
+                    "the loop holds the entire working set in the sandbox process's memory at "
+                    "once -- for a large enough input (many files/rows/pages) this is an "
+                    "out-of-memory sandbox crash, not a slow run, and the crash loses every "
+                    "result computed so far because nothing was ever persisted. Writing "
+                    "incrementally keeps the process's memory footprint roughly flat regardless "
+                    "of input size, and makes forward progress durable.",
+                fix="Move the write inside the loop -- open the output file once before the loop "
+                    "and write/append each result as it's produced (one JSONL line per item via "
+                    "`f.write(json.dumps(item) + '\\n')`, `csv.writer(f).writerow(row)`, etc.) "
+                    "instead of building one big list/dict and dumping it after the loop ends.",
+                skill=b.name,
+                evidence=ev[:8],
+                effort="medium",
+                reference="references/script-contracts.md#write-as-you-go--dont-hold-the-whole-result-in-memory",
+            )
+        )
+    return out
+
+
 def check_plugin(bundles: list[SkillBundle], pj: dict | None) -> list[Finding]:
     out: list[Finding] = []
     if pj is not None:
@@ -2052,6 +2163,7 @@ def audit(target: Path, chain_paths: list[str] | None = None) -> dict:
         findings += check_process(b)
         findings += check_state_and_stop(b)
         findings += check_silent_skip(b)
+        findings += check_memory_accumulation(b)
         detf, detm = check_determinism(b)
         findings += detf
 
