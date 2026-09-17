@@ -462,7 +462,7 @@ class HierarchicalWorkspaceManager:
             env_content = f"""# Environment: {name}
 # Target: {target}
 
-# Required: AdoptAI API Authentication
+# Required: AdoptAI API Authentication (WDL actions -- cli/*.py)
 # Configure these before using discovery or API features
 ADOPT_CLIENT_ID=your-client-id-here
 ADOPT_CLIENT_SECRET=your-client-secret-here
@@ -470,6 +470,12 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
 # API Endpoints (defaults to production, uncomment to override)
 # ADOPT_API_ENDPOINT=https://connect.adopt.ai
 # ADOPT_ACTIONS_ENDPOINT=https://api.adopt.ai
+
+# Required: Agent-harness debug loop (cli/harness_*.py) -- separate credentials,
+# see cli/harness_common/auth.py for how to mint these.
+# ADOPT_WEBUI_ENDPOINT=https://your-adopt-webui-host
+# ADOPT_HARNESS_PAT_CLIENT_ID=your-harness-pat-client-id
+# ADOPT_HARNESS_PAT_SECRET=your-harness-pat-secret
 """
             (env_path / ".env").write_text(env_content)
 
