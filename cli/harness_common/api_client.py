@@ -96,6 +96,9 @@ class HarnessAPIClient:
     def list_skills(self) -> dict[str, Any]:
         return self._request("GET", "/v1/end-user/agent-harness/skills")
 
+    def delete_skill(self, skill_name: str) -> dict[str, Any]:
+        return self._request("DELETE", f"/v1/end-user/agent-harness/skills/{skill_name}")
+
     # -- Workstreams ------------------------------------------------------
 
     def create_workstream(self, name: str, description: str | None = None) -> dict[str, Any]:
@@ -108,6 +111,128 @@ class HarnessAPIClient:
     def list_workstreams(self, search: str | None = None) -> dict[str, Any]:
         params = {"search": search} if search else {}
         return self._request("GET", "/v1/org/workstreams", params=params)
+
+    def delete_workstream(self, workstream_id: str) -> dict[str, Any]:
+        """POST .../delete, not a DELETE verb -- that's how this route is wired."""
+        return self._request("POST", f"/v1/org/workstreams/{workstream_id}/delete")
+
+    def delete_store(self, store_id: str) -> dict[str, Any]:
+        return self._request("DELETE", f"/v1/docstore/stores/{store_id}")
+
+    # -- Processes (the "Agents" tab in the webui) -------------------------
+    #
+    # Builder routes under /v1/org/processes -- create/patch/delete/run all
+    # require the caller's PAT to belong to a Frontegg user with the Admin
+    # role (require_admin), same as a human using the Agent builder UI. A
+    # non-admin PAT can list/get but every write raises HarnessAPIError(403).
+
+    def create_process(
+        self,
+        name: str,
+        display_name: str,
+        description: str | None = None,
+        components: list[dict[str, Any]] | None = None,
+        agent_instructions: str | None = None,
+        is_enabled: bool = False,
+        compiled_flow: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/org/processes",
+            json={
+                "name": name,
+                "display_name": display_name,
+                "description": description,
+                "components": components or [],
+                "agent_instructions": agent_instructions,
+                "is_enabled": is_enabled,
+                "compiled_flow": compiled_flow,
+            },
+        )
+
+    def list_processes(self) -> dict[str, Any]:
+        return self._request("GET", "/v1/org/processes")
+
+    def get_process(self, process_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/org/processes/{process_id}")
+
+    def update_process(self, process_id: str, **fields: Any) -> dict[str, Any]:
+        """
+        PATCH a process. Only pass the fields you want changed -- unlike
+        create_process, omitted fields are left alone server-side
+        (ProcessPatch is applied with exclude_unset), not reset to a default.
+        Valid keys: display_name, description, components,
+        agent_instructions, is_enabled, compiled_flow.
+        """
+        return self._request("PATCH", f"/v1/org/processes/{process_id}", json=fields)
+
+    def delete_process(self, process_id: str) -> dict[str, Any]:
+        """Soft-delete only -- the platform has no hard delete for processes."""
+        return self._request("DELETE", f"/v1/org/processes/{process_id}")
+
+    # -- Conversations (Agents-tab chat history) ---------------------------
+    #
+    # Both routes are strictly owner-scoped by created_by_user_id -- NOT
+    # role-scoped (backend/app/dependencies/harness_caller.py
+    # assert_caller_owns_conversation: "admins included, on purpose"). The
+    # PAT here only sees/reads conversations created by the same Frontegg
+    # user that minted it -- there is no admin bypass to read another
+    # human's chat.
+
+    def list_conversations(
+        self,
+        process_id: str | None = None,
+        workstream_id: str | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {}
+        if process_id:
+            params["process_id"] = process_id
+        if workstream_id:
+            params["workstream_id"] = workstream_id
+        if limit:
+            params["limit"] = limit
+        return self._request(
+            "GET", "/v1/end-user/agent-harness/conversations", params=params
+        )
+
+    def get_conversation_transcript(self, conversation_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/v1/end-user/agent-harness/conversations/{conversation_id}/transcript",
+        )
+
+    def get_process_workstreams(self, process_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/org/processes/{process_id}/workstreams")
+
+    def set_process_workstreams(
+        self, process_id: str, workstream_ids: list[str]
+    ) -> dict[str, Any]:
+        """Full replace of the process's assigned workstream set."""
+        return self._request(
+            "PUT",
+            f"/v1/org/processes/{process_id}/workstreams",
+            json={"workstream_ids": workstream_ids},
+        )
+
+    def run_process(self, process_id: str) -> dict[str, Any]:
+        """
+        Builder test-run: fans out one kickoff turn per workstream assigned
+        to this process, regardless of the caller's own workstream
+        membership. This is the admin/TEST affordance, not the real
+        end-user run path.
+        """
+        return self._request("POST", f"/v1/org/processes/{process_id}/run")
+
+    def compile_process_flow(
+        self, instructions: str, existing_components: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        """LLM-compile plain instructions into a components list + compiled_flow spine."""
+        return self._request(
+            "POST",
+            "/v1/org/processes/compile",
+            json={"instructions": instructions, "existing_components": existing_components},
+        )
 
     # -- Docstore (seed data) ---------------------------------------------
 
