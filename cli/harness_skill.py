@@ -125,16 +125,52 @@ def _lint_frontmatter(skill_md_text: str, skill_md_path: Path) -> dict:
     return meta
 
 
-def _collect_aux_files(skill_dir: Path) -> list[dict[str, str]]:
+# Directory names never staged as aux files, regardless of depth -- these are dev-only /
+# generated / test scaffolding, never something the platform needs to run the skill. A real
+# incident: dev_only/ held a live M365 Graph private key (dev_only/.env.graph) that got
+# uploaded whole to an org's skill catalog because this collector walked the raw filesystem
+# with no exclusions at all -- .gitignore only protects git, not this.
+_EXCLUDED_DIR_NAMES = {
+    "dev_only", "tests", "test", "__pycache__", ".git", ".venv", "venv",
+    "node_modules", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+}
+# File suffixes/substrings that are almost always secrets or build junk, even outside an
+# excluded directory above.
+_EXCLUDED_FILE_SUFFIXES = (".pem", ".key", ".pyc", ".pyo")
+_EXCLUDED_FILENAME_SUBSTRINGS = (".env",)
+
+
+def _is_excluded(rel_parts: tuple[str, ...]) -> bool:
+    if any(part in _EXCLUDED_DIR_NAMES or part.startswith(".") for part in rel_parts[:-1]):
+        return True
+    name = rel_parts[-1]
+    if name.startswith(".") and name != ".env.example":
+        # allow a plain ".env.example"-style template through if someone insists on one at
+        # skill root, but never a real dotfile -- in practice skills shouldn't have either.
+        return True
+    if name.endswith(_EXCLUDED_FILE_SUFFIXES):
+        return True
+    if any(sub in name for sub in _EXCLUDED_FILENAME_SUBSTRINGS):
+        return True
+    return False
+
+
+def _collect_aux_files(skill_dir: Path) -> tuple[list[dict[str, str]], list[str]]:
+    """Returns (aux_files, skipped_paths) -- skipped_paths is always reported, never silent."""
     aux_files = []
+    skipped = []
     for path in sorted(skill_dir.rglob("*")):
         if not path.is_file() or path.name == "SKILL.md":
             continue
-        rel = path.relative_to(skill_dir).as_posix()
+        rel = path.relative_to(skill_dir)
+        rel_posix = rel.as_posix()
+        if _is_excluded(rel.parts):
+            skipped.append(rel_posix)
+            continue
         aux_files.append(
-            {"path": rel, "content_b64": base64.b64encode(path.read_bytes()).decode("ascii")}
+            {"path": rel_posix, "content_b64": base64.b64encode(path.read_bytes()).decode("ascii")}
         )
-    return aux_files
+    return aux_files, skipped
 
 
 def audit(skill_dir: Path) -> int:
@@ -174,8 +210,12 @@ def push(
     has_process = "process" in meta
     print(f"📦 Skill: {skill_name}" + (" (process)" if has_process else ""))
 
-    aux_files = _collect_aux_files(skill_dir)
+    aux_files, skipped = _collect_aux_files(skill_dir)
     print(f"   {len(aux_files)} aux file(s)")
+    if skipped:
+        print(f"   🚫 excluded {len(skipped)} file(s) never staged for upload (dev-only/tests/secrets):")
+        for rel in skipped:
+            print(f"      - {rel}")
 
     if not skip_audit:
         print("\n🔎 Running adopt-skill-review audit (local, free -- no harness spend)...")
