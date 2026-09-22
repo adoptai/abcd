@@ -202,6 +202,57 @@ class HarnessAPIClient:
             f"/v1/end-user/agent-harness/conversations/{conversation_id}/transcript",
         )
 
+    # -- Runs (Studio "Runs" tab, org-wide) --------------------------------
+    #
+    # Unlike the conversations endpoints above, these are org-scoped only
+    # (extract_org_id from the JWT) -- no created_by_user_id filter, so an
+    # admin PAT can pull any run/conversation in the org, not just its own.
+    # See backend/app/routes/runs.py.
+
+    def list_runs(
+        self,
+        status: str | None = None,
+        type_: str | None = None,
+        agent: str | None = None,
+        workstream_id: str | None = None,
+        initiator: str | None = None,
+        hitl: str | None = None,
+        source: str | None = None,
+        search: str | None = None,
+        time_range: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        tz_offset_minutes: int = 0,
+        page: int = 1,
+        page_size: int = 25,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {"tz_offset_minutes": tz_offset_minutes, "page": page, "page_size": page_size}
+        optional = {
+            "status": status, "type": type_, "agent": agent, "workstream_id": workstream_id,
+            "initiator": initiator, "hitl": hitl, "source": source, "search": search,
+            "range": time_range, "from": date_from, "to": date_to,
+        }
+        params.update({k: v for k, v in optional.items() if v is not None})
+        return self._request("GET", "/v1/runs", params=params)
+
+    def get_run_detail(self, run_id: str) -> dict[str, Any]:
+        """run_id is source-prefixed, e.g. "pr:<id>" or "cv:<id>" (see list_runs)."""
+        return self._request("GET", "/v1/runs/detail", params={"run_id": run_id})
+
+    def get_conversation_trace(self, conversation_id: str) -> dict[str, Any]:
+        """Every cached turn trace for a conversation -- conversation_id is the
+        bare UUID, without the "cv:" prefix used in run_id."""
+        return self._request(
+            "GET", "/v1/runs/conversation-trace", params={"conversation_id": conversation_id}
+        )
+
+    def get_run_turn_trace(self, turn_id: str, conversation_id: str) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/v1/runs/turn-trace",
+            params={"turn_id": turn_id, "conversation_id": conversation_id},
+        )
+
     def get_process_workstreams(self, process_id: str) -> dict[str, Any]:
         return self._request("GET", f"/v1/org/processes/{process_id}/workstreams")
 
