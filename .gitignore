@@ -117,6 +117,11 @@ cache/
 workspaces/*
 !workspaces/default/
 
+# Harness debug-loop runtime data (bearer token cache, real turn traces) --
+# even under the tracked workspaces/default/ example env, this is always
+# generated/sensitive, never source.
+workspaces/*/harness/
+
 # Legacy standalone actions at root (should be in workspaces/{env}/actions/)
 actions/
 
