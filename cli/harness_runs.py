@@ -15,6 +15,8 @@ Usage:
         [--search TEXT] [--page N] [--page-size N] [--env ENV] [--json]
     python cli/harness_runs.py detail --run-id cv:<id>|pr:<id> [--env ENV] [--json]
     python cli/harness_runs.py trace --conversation-id ID [--env ENV] [--json]
+    python cli/harness_runs.py ids --days N [--status ...] [--source ...]
+        [--workstream-id ID] [--agent NAME] [--env ENV] [--json]
 """
 
 import argparse
@@ -68,6 +70,39 @@ def list_runs(
             f"   {started}  {run.get('id', '?'):<24}  {run.get('status', '?'):<14}  "
             f"by {initiated_by:<20}  {run.get('agent_name', '')}"
         )
+    return 0
+
+
+def run_ids(
+    days: int,
+    status: str | None,
+    source: str | None,
+    workstream_id: str | None,
+    agent: str | None,
+    env: str | None,
+    as_json: bool,
+) -> int:
+    try:
+        client = get_harness_client_for_env(env)
+    except ValueError as e:
+        print(f"❌ {e}")
+        return 1
+
+    try:
+        ids = client.list_run_ids(
+            days, status=status, source=source, workstream_id=workstream_id, agent=agent
+        )
+    except HarnessAPIError as e:
+        print(f"❌ Failed to list run ids: {e}")
+        return 1
+
+    if as_json:
+        print(json.dumps(ids, indent=2))
+        return 0
+
+    print(f"🆔 {len(ids)} run id(s) from the last {days}d")
+    for run_id in ids:
+        print(f"   {run_id}")
     return 0
 
 
@@ -142,6 +177,15 @@ def main() -> None:
     trace_p.add_argument("--env")
     trace_p.add_argument("--json", action="store_true")
 
+    ids_p = sub.add_parser("ids", help="Get every run ID from the last N days (auto-paginates)")
+    ids_p.add_argument("--days", type=int, required=True)
+    ids_p.add_argument("--status", help="succeeded | active | waiting_on_hitl | failed | cancelled")
+    ids_p.add_argument("--source", help="pipeline | conversation")
+    ids_p.add_argument("--workstream-id")
+    ids_p.add_argument("--agent")
+    ids_p.add_argument("--env")
+    ids_p.add_argument("--json", action="store_true", help="Print a JSON array instead of one id per line")
+
     args = parser.parse_args()
 
     if args.command == "list":
@@ -155,6 +199,13 @@ def main() -> None:
         sys.exit(run_detail(args.run_id, args.env, args.json))
     elif args.command == "trace":
         sys.exit(conversation_trace(args.conversation_id, args.env, args.json))
+    elif args.command == "ids":
+        sys.exit(
+            run_ids(
+                args.days, args.status, args.source, args.workstream_id, args.agent,
+                args.env, args.json,
+            )
+        )
 
 
 if __name__ == "__main__":
