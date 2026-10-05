@@ -6,7 +6,7 @@ zip; the harness stages it into the sandbox and the agent runs ``unzip`` then
 ``pip install -e .``. The zip's root is the bundle root (``pyproject.toml`` at
 top). Excludes the venv/workbench/caches/.env so it stays small and clean.
 
-Run:  python skills/noui-harness/build_bundle.py
+Run:  python harness-skills/noui/build_bundle.py
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ import io
 import zipfile
 from pathlib import Path
 
-_HERE = Path(__file__).resolve().parent  # skills/noui-harness/
-_BUNDLE = _HERE.parent / "noui"  # skills/noui/ (toolkit source)
+_HERE = Path(__file__).resolve().parent  # harness-skills/noui/
+_BUNDLE = _HERE.parent.parent / "cli" / "noui"  # cli/noui/ (toolkit source)
 _OUT = _HERE / "noui-bundle.zip"
 _EXCLUDE_DIRS = {".venv", "workbench", "__pycache__", ".git", "noui.egg-info"}
 
