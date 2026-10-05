@@ -299,7 +299,8 @@ def _render_body(
         "include incidental requests the page happened to fire — third-party / cross-domain "
         "calls (analytics, maps, ad & tracking pixels, CDN or static assets) and telemetry "
         "beacons (e.g. `gen_204`, `/tr`, `get-data-layer-variables`, feature-flag fetches). "
-        "During the generalization phase (`/noui-generalize`), review each operation and "
+        "During the generalization phase (`generalize.py draft` -> member confirms -> "
+        "`generalize.py apply`), review each operation and "
         "**prune the ones that aren't part of the intended task**. Do NOT blanket-drop by "
         "domain: a workflow can legitimately span multiple hosts (e.g. an auth domain plus "
         "an API domain), so keep cross-domain operations that are actually used. Aim for the "
@@ -328,8 +329,8 @@ def _render_body(
     )
     sections.append(
         "- **HTTP 429 / Akamai / bot detection** — the site is blocking the Python HTTP "
-        "client. Regenerate the skill after running `/noui-generalize` to rewrite affected "
-        "operations to use CDP browser-side `fetch()`."
+        "client. Recompile the skill from its saved bundle with `--execution-mode tabby` so affected "
+        "operations run as browser-side `fetch()` inside Tabby."
     )
     sections.append("")
     sections.append("<!-- custom:start:troubleshooting -->")

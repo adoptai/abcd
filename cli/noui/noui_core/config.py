@@ -18,11 +18,17 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Load .env from the bundle root (two levels up: noui_core/ -> skills/noui/),
+# Load .env from the bundle root (two levels up: noui_core/ -> cli/noui/),
 # then from CWD. Later loads do not override already-set vars.
+#
+# NOUI_IGNORE_DOTENV=1 skips both: abcd's workspace bridge (cli/noui_workspace.py)
+# passes the complete, resolved configuration in the environment, and a stray
+# .env -- notably abcd's own repo-root .env, whose ADOPT_CLIENT_ID/SECRET are WDL
+# client credentials, not a platform PAT -- must not fill in what it withheld.
 _BUNDLE_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_BUNDLE_ROOT / ".env")
-load_dotenv(Path.cwd() / ".env")
+if os.environ.get("NOUI_IGNORE_DOTENV", "").strip().lower() not in ("1", "true", "yes"):
+    load_dotenv(_BUNDLE_ROOT / ".env")
+    load_dotenv(Path.cwd() / ".env")
 
 
 @dataclass

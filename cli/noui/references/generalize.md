@@ -1,6 +1,27 @@
 # Generalize — prune the noise, then test until it works
 
-**This is an agent step, not a script.** The initial compile is a faithful, *raw*
+**You make the judgment calls; `scripts/generalize.py` applies them.** For harness
+skills (`operations.json`) never hand-edit the operations or the SKILL.md cards —
+draft a plan, show it to the member, and apply it once they confirm:
+
+```bash
+python scripts/generalize.py draft   workbench/skills/<app>   # deterministic: noise reasons + suggested names
+#   edit generalize_plan.json: per operation, decision.action keep|drop, rename,
+#   description, params{<path param>:{rename?,description?}}
+python scripts/generalize.py show    workbench/skills/<app>   # what the member reviews
+python scripts/generalize.py confirm workbench/skills/<app> --by "<member>"
+python scripts/generalize.py apply   workbench/skills/<app>   # re-renders SKILL.md / API.md
+```
+
+`apply` refuses an unconfirmed plan, a plan that no longer matches `operations.json`,
+renames that collide, and renaming query/body parameters (those names go on the wire).
+For **browser** skills only renames and descriptions are allowed — steps, parameters and
+which operations exist come from the recording, and renaming moves the replay-approval
+fingerprint, so replay and get approval again afterwards. In abcd, run it through the
+workspace bridge: `python cli/noui_workspace.py generalize draft ws:skills/<app>`.
+Testing the survivors (section 3) is still yours to do, live.
+
+The initial compile is a faithful, *raw*
 mirror of everything the browser did during the recording. It therefore includes
 calls that aren't part of the task, and names lifted straight from the site's API.
 Generalization is the LLM-driven pass **you** (the agent that captured/compiled the

@@ -19,3 +19,27 @@ def test_auth_and_config_agree_on_default_tabby_port(monkeypatch):
     defaults = config.Settings()
     assert auth.TABBY_API_HOST == "http://localhost:8000"
     assert defaults.tabby_api_host == "http://localhost:8000"
+
+
+def test_ignore_dotenv_skips_bundle_and_cwd_env_files(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    (tmp_path / ".env").write_text("ADOPT_CLIENT_ID=from-cwd-dotenv\n")
+    noui_root = Path(__file__).resolve().parents[2] / "cli" / "noui"
+    code = "import os, noui_core.config; print(os.environ.get('ADOPT_CLIENT_ID', '-'))"
+    base = {"PATH": "/usr/bin:/bin", "PYTHONPATH": str(noui_root)}
+
+    def run(extra):
+        return subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=tmp_path,
+            env={**base, **extra},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    assert run({}) == "from-cwd-dotenv"
+    assert run({"NOUI_IGNORE_DOTENV": "1"}) == "-"

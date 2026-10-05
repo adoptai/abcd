@@ -2,7 +2,7 @@
 name = "noui"
 version = "2.0.0"
 description = "NoUI — capture browser workflows/logins via Tabby, compile them into agent-ready MCP servers / Skills / Tabby ServiceProfiles, and run them through Tabby's /execute engine."
-readme = "SKILL.md"
+readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 

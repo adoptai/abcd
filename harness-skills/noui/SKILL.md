@@ -18,7 +18,7 @@ you surface to them. Never ask the user for a Tabby token, never write a `.env`.
 
 ## ⚠️ Critical rules — this is the Harness, not a local CLI
 
-The toolkit zip ships its own `SKILL.md` for *local CLI* use. **Ignore its setup/auth
+The toolkit zip ships its own `README.md` for *local CLI* use. **Ignore its setup/auth
 instructions.** In the harness:
 
 1. **Cloud Tabby via the broker.** `TABBY_API_URL` is already the control-plane broker
@@ -217,13 +217,14 @@ way. Recording the halves separately adds a third sign-in; that's why it isn't t
 
 The B2 compile is a **raw** mirror of the recording — it includes calls that aren't
 part of the task (analytics / config / keepalive pings, typeahead/prefetch, third-party
-hosts) and names lifted straight from the API. **Before installing**, clean it up (this
-is an LLM-driven step you do — no script):
+hosts) and names lifted straight from the API. **Before installing**, clean it up. You
+make the judgment calls; `scripts/generalize.py` applies them, so never hand-edit
+`operations.json` or the `SKILL.md` cards:
 
-1. **Prune noise.** Read `workbench/skills/<app>/operations.json`; remove any operation
-   that doesn't serve the workflow goal (telemetry/analytics/consent/keepalive,
-   typeahead/prefetch, duplicates, any non-app host) — delete its entry from
-   `operations.json` and its card from the skill's `SKILL.md`.
+1. **Draft the plan.** `python scripts/generalize.py draft workbench/skills/<app>` writes
+   `generalize_plan.json`: every operation with its noise reasons (keepalive, telemetry,
+   duplicate, third-party host flagged `REVIEW:`) and a suggested decision (keep/drop, a
+   natural-language name, a description). Edit the decisions where you disagree.
 2. **Test the survivors.** For each remaining operation, invoke the **`call_web_api`**
    tool with its recipe from `operations.json` (pass any `${SECRET:...}` verbatim). Run
    each **2–3 times** and confirm it returns the expected data — not just a non-error.
@@ -234,11 +235,15 @@ is an LLM-driven step you do — no script):
    429 → retry; wrong/empty body → recompile from the saved bundle
    (`compile_workflow.py <bundle.json> --as skill --execution-mode harness`). If an op
    can't be made to work and isn't essential, drop it.
-4. **Make it reusable.** Rename cryptic tool/param names to natural language and
-   parameterize hardcoded recorded values, in `operations.json` + the `SKILL.md` cards.
+4. **Make it reusable — through the plan.** Renames, descriptions and path-parameter
+   renames go in the plan's decisions. Show the plan to the user
+   (`python scripts/generalize.py show workbench/skills/<app>`), and only after they agree:
+   `python scripts/generalize.py confirm workbench/skills/<app> --by "<their name>"` then
+   `python scripts/generalize.py apply workbench/skills/<app>`. `apply` refuses an
+   unconfirmed plan, and for a browser skill allows renames/descriptions only.
 5. **Loop** until every remaining operation passes 2–3 clean runs. Only then install.
 
-Full playbook: `skills/noui/references/generalize.md`.
+Full playbook: `references/generalize.md` (inside `/workspace/noui`).
 
 ## Step C — install the skill into the harness catalog
 

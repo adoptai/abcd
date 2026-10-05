@@ -1,9 +1,11 @@
----
-name: noui
-description: Use this skill to turn real websites into agent-callable tools without computer-use. NoUI captures a browser login or workflow through a Tabby session (manual VNC or Autopilot), compiles the capture into an MCP server, a Skill, or a Tabby ServiceProfile, and runs the result through Tabby's authenticated /execute engine. Triggers on "record a workflow", "record a login", "turn this site into an MCP/skill", "automate this website without computer use", "generate a tool from a website", "noui capture/compile/activate", "register a Tabby profile".
----
+# NoUI toolkit
 
-# NoUI
+> **In abcd, drive this toolkit through the workspace bridge** —
+> `python cli/noui_workspace.py [--env ENV] <script> [args]` — and the
+> `discover-and-plan` / `skill-builder` skills. The bridge points the workbench at
+> `workspaces/<env>/harness/`, maps the workspace credentials and pins the auth mode.
+> This README is the toolkit's own reference (it also ships inside `noui-bundle.zip`
+> for the Agent Harness edition, `harness-skills/noui/`).
 
 NoUI records what a site's browser already does and ships it as tools your agent calls directly — no DOM-walking, no computer-use, no Chrome extension. Capture happens **server-side inside Tabby**; this skill is a self-contained Python toolkit that drives Tabby and compiles the result.
 
@@ -14,9 +16,10 @@ NoUI records what a site's browser already does and ships it as tools your agent
 > recording instructions below** — they are for local CLI use. In the harness:
 > `TABBY_API_URL` already points at the control-plane **broker** (fronting cloud Tabby),
 > auth is injected per-user by the broker (**no `.env`, no `TABBY_CLIENT_ID/SECRET/
-> ADMIN_TOKEN`**), recording is **Autopilot only** (no VNC), and you compile with
-> **`--execution-mode harness`** (never `tabby`/`http`). Follow the **`noui` harness
-> skill** instructions, not this file.
+> ADMIN_TOKEN`**), recording is **human-driven through one VNC link** (login +
+> workflow in one session; Autopilot is the optional fallback for an existing
+> profile), and you compile with **`--execution-mode harness`** (never `tabby`/`http`).
+> Follow the **`noui` harness skill** instructions, not this file.
 
 ---
 
@@ -26,9 +29,10 @@ NoUI records what a site's browser already does and ships it as tools your agent
 2. **Compile** (`scripts/compile_*`, also folded into `capture_import`) — turn a capture into assets: a workflow → an **MCP server** and/or a **Skill**; a login → a Tabby **App Template + ServiceProfile**.
 3. **Activate** (`scripts/activate_*`) — make assets usable: **register** a login as a tenant-wide App Template with Tabby (template-first — no promote step), **verify** auth, **install** a generated skill into any agent, and run tools through Tabby `/execute/fetch`.
 
-> Between **Compile** and **Activate**, always run **Generalize** — an LLM-driven
-> **agent** step (not a script; the compiler stays deterministic): prune the noise
-> operations and test the rest until they reliably fetch what's expected. See the
+> Between **Compile** and **Activate**, always run **Generalize** — you make the
+> judgment calls (prune the noise operations, rename, reword) in a plan that
+> `scripts/generalize.py` drafts and, once the member confirms, applies; then test the
+> survivors until they reliably fetch what's expected. The compiler stays deterministic. See the
 > [Generalize](#generalize--prune-the-noise-then-test-until-it-works) section below
 > and `references/generalize.md`.
 
@@ -41,12 +45,14 @@ NoUI runs in **your own** Python environment. Two steps:
 1. **Install dependencies** (declared in `pyproject.toml`):
 
    ```bash
-   pip install httpx python-dotenv mcp        # or: pip install -e .   (from this skill dir)
+   pip install httpx python-dotenv mcp        # or: pip install -e .   (from cli/noui)
    ```
 
    `httpx` + `python-dotenv` power the toolkit; `mcp` is only needed to *run* a generated MCP server.
 
-2. **Point at Tabby.** Set these in your environment or a `.env` next to this file (`skills/noui/.env`):
+2. **Point at Tabby.** Set these in your environment or a `.env` next to this file (`cli/noui/.env`).
+   In abcd, put them in the workspace `.env` instead and use the bridge (a local Tabby:
+   `python cli/tabby_bootstrap.py up --write-env`):
 
    | Variable | Purpose |
    |---|---|
@@ -54,7 +60,8 @@ NoUI runs in **your own** Python environment. Two steps:
    | `TABBY_CLIENT_ID` / `TABBY_CLIENT_SECRET` | Agent credentials — minted by your Tabby setup; used for recording + execution |
    | `TABBY_ADMIN_TOKEN` | Required only to **register** App Templates (Activate); Editor role suffices |
    | `NOUI_TABBY_AUTH_MODE` | Optional: `agent_token` (default), `platform_jwt` (per-user cloud), or `broker` (harness-injected) |
-   | `NOUI_WORKBENCH_DIR` | Optional: where generated assets are written (default `skills/noui/workbench/`) |
+   | `NOUI_WORKBENCH_DIR` | Optional: where generated assets are written (default `cli/noui/workbench/`; the bridge sets `workspaces/<env>/harness/`) |
+| `NOUI_IGNORE_DOTENV` | Optional: `1` to skip loading `.env` from this directory and the CWD (the bridge sets it) |
 
 Run scripts from this directory: `python scripts/<name>.py …`.
 
@@ -133,8 +140,8 @@ The default removes the old failure where a separately-recorded login looked "st
 The initial compile is a **raw** mirror of the recording: it includes calls that
 aren't part of the task (analytics, config pings, prefetch, third-party hosts) and
 names lifted straight from the API. **After every compile, before install**, run the
-generalization pass — an LLM-driven **agent** step (no script; the compiler stays
-deterministic):
+generalization pass. You make the calls; `scripts/generalize.py` drafts the plan
+(`draft`), and applies it only after the member agrees (`confirm`, then `apply`):
 
 1. **Prune noise** — remove operations that don't serve the workflow goal
    (telemetry/analytics/consent/keepalive pings, typeahead/prefetch, duplicates, any
@@ -535,6 +542,7 @@ you are not asking the member to record something, stop.
 | `verify_replay.py` | 2→3 | Replay a compiled browser draft against a live session; writes `replay_report.json` |
 | `verify_approve.py` | 3 | Record the member's approval of a replay, so the skill may be installed |
 | `activate_install.py` | 3 | Install a generated skill into an agent (agnostic) |
+| `generalize.py` | 2→3 | Draft / confirm / apply a generalize plan (prune, rename, reword) |
 
 ---
 
@@ -576,4 +584,5 @@ Every capture (`capture_autopilot.py` and `capture_import.py`) **persists the ra
 - `references/tabby-setup.md` — pointing NoUI at a local or cloud Tabby
 - `references/auth-modes.md` — `agent_token` vs `platform_jwt`
 
-Example generated assets live in the repo's `mcp/` directory. Demo plugins are sibling directories under `skills/` — `travel` (Airbnb, Expedia, Flydubai, Google Flights) and `quickbooks` (bank reconciliation).
+Example generated assets and demo plugins live in the NoUI marketplace repo
+(`adoptai/noui`): `mcp/` servers and the `travel` / `quickbooks` plugins.
