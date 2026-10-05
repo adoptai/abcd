@@ -39,6 +39,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      # Without PyYAML the audit cannot parse frontmatter and reports that as critical.
+      - name: Install audit dependencies
+        run: pip install PyYAML
       - name: Audit every plugin skill (exit 2 = critical)
         run: |
           set -e
