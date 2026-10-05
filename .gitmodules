@@ -1,0 +1,4 @@
+[submodule "tabby"]
+	path = tabby
+	url = https://github.com/adoptai/tabby.git
+	branch = main
