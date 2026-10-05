@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: ["**"]
   push:
-    branches: [main, master]
+    branches: [main, master, dev]
 
 jobs:
   lint:
@@ -29,21 +29,25 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+          key: venv-lint-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
-            venv-${{ runner.os }}-
+            venv-lint-${{ runner.os }}-
 
       - name: Install lint dependencies
         run: poetry install --no-root --no-interaction --no-ansi --only lint
 
       - name: Run ruff check
-        run: poetry run ruff check --output-format=github cli/
+        run: poetry run ruff check --output-format=github cli/ tests/ harness-skills/ .github/scripts/
 
       - name: Run ruff format check
-        run: poetry run ruff format --check cli/
+        run: poetry run ruff format --check cli/ tests/ harness-skills/ .github/scripts/
 
       - name: Clear mypy cache
         run: rm -rf .mypy_cache
 
-      - name: Run mypy
+      - name: Run mypy (cli/)
         run: poetry run mypy cli/
+
+      # The NoUI toolkit bundle imports itself as top-level `noui_core`.
+      - name: Run mypy (cli/noui)
+        run: poetry run mypy --config-file cli/noui/mypy.ini cli/noui

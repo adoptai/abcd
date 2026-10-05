@@ -257,7 +257,7 @@ workspaces/{env}/pipelines/{pipeline-id}/
 
 ### Migrating Existing create_*_pipeline.py Scripts
 
-The existing `create_beyond_risk_*.py` and `create_uhy_pipelines.py` scripts continue to work. Their inline `PipelineClient` can now be replaced with:
+Existing ad-hoc `create_*_pipeline.py` scripts continue to work. Their inline `PipelineClient` can now be replaced with:
 
 ```python
 from cli.wdl_common.pipeline_client import get_pipeline_client

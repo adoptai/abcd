@@ -28,3 +28,11 @@ repos:
     rev: v8.24.2
     hooks:
       - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: sensitive-content
+        name: sensitive content (forbidden files, denylisted client names)
+        entry: python .github/scripts/sensitive_check.py
+        language: system
+        pass_filenames: true

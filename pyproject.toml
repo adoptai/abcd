@@ -123,7 +123,7 @@ exclude = [
 # Pytest
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "cli/wdl_common/tests"]
 # cli/noui is the NoUI toolkit bundle root (`import noui_core`); the repo root
 # makes `cli.*` importable for the WDL/harness tooling.
 pythonpath = ["cli/noui", "."]

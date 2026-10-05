@@ -476,6 +476,12 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
 # ADOPT_WEBUI_ENDPOINT=https://your-adopt-webui-host
 # ADOPT_HARNESS_PAT_CLIENT_ID=your-harness-pat-client-id
 # ADOPT_HARNESS_PAT_SECRET=your-harness-pat-secret
+
+# Optional: NoUI capture/compile (cli/noui_workspace.py). The harness PAT above doubles
+# as NoUI's platform credential (platform_jwt, cloud Tabby); for a local Tabby run
+# `python cli/tabby_bootstrap.py up --env <this env> --write-env`.
+# TABBY_API_URL=https://your-tabby-host
+# NOUI_TABBY_AUTH_MODE=platform_jwt
 """
             (env_path / ".env").write_text(env_content)
 
