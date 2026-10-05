@@ -73,6 +73,13 @@ jobs:
           python-version: "3.12"
       - name: Build bundle
         run: python harness-skills/noui/build_bundle.py
+      # The same content secret scan the PR dry-run runs: a manual dispatch can
+      # target a branch that never went through a PR.
+      - name: Secret scan of SKILL.md + every bundle member
+        run: |
+          pip install -q PyYAML requests python-dotenv
+          python cli/harness_skill.py deploy-default harness-skills/noui --dry-run \
+            --aux noui-bundle.zip=harness-skills/noui/noui-bundle.zip
       - name: Deploy default skill
         env:
           ADOPT_BASE_URL: ${{ vars.ADOPT_BASE_URL }}

@@ -45,3 +45,17 @@ def test_hitl_requires_a_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "argv", ["trigger_hitl.py", "--chat"])
     with pytest.raises(SystemExit):
         trigger_hitl.main()
+
+
+def test_single_child_rejects_conflicting_workstreams(monkeypatch: pytest.MonkeyPatch) -> None:
+    from cli import trigger_single_child as tsc
+
+    monkeypatch.setattr(tsc, "ensure_env", lambda: "acme-dev")
+    for argv in (
+        ["--pipeline", "c", "--workstream-id", "a", "--create-workstream", "b"],
+        ["--pipeline", "c", "--workstream-id", "a", "--param", "workstream_id=z"],
+        ["--pipeline", "c", "--workstream-property", "k=v"],
+    ):
+        monkeypatch.setattr(sys, "argv", ["trigger_single_child.py", *argv])
+        with pytest.raises(SystemExit):
+            tsc.main()

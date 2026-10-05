@@ -10,7 +10,8 @@ Fails when tracked files contain:
 The denylist would itself leak the names if it were stored in plain text, so
 `.github/sensitive-denylist.sha256` holds only SHA-256 digests of lower-cased
 terms. Each file is tokenized into alphanumeric words plus every adjacent pair
-of words joined with "" and "-" ("acme corp" -> "acmecorp", "acme-corp"), and
+of words (up to MAX_TERM_WORDS) joined with "" and "-" ("acme big corp" ->
+"acmebigcorp", "acme-big-corp"), and
 each candidate is hashed and looked up.
 
     python .github/scripts/sensitive_check.py                 # scan all tracked files
@@ -56,12 +57,17 @@ def load_denylist() -> set[str]:
     }
 
 
+MAX_TERM_WORDS = 4  # multi-word names are matched as runs of up to this many words
+
+
 def candidates(line: str) -> set[str]:
     words = _WORD.findall(line.lower())
     out = set(words)
-    for a, b in zip(words, words[1:]):
-        out.add(a + b)
-        out.add(f"{a}-{b}")
+    for n in range(2, MAX_TERM_WORDS + 1):
+        for i in range(len(words) - n + 1):
+            run = words[i : i + n]
+            out.add("".join(run))
+            out.add("-".join(run))
     return out
 
 
@@ -106,6 +112,10 @@ def main() -> int:
         new = []
         for term in args.add:
             words = _WORD.findall(term.lower())
+            if not words:
+                p.error(f"--add {term!r}: no letters or digits")
+            if len(words) > MAX_TERM_WORDS:
+                p.error(f"--add {term!r}: at most {MAX_TERM_WORDS} words")
             for variant in {"".join(words), "-".join(words)} if len(words) > 1 else {words[0]}:
                 h = digest(variant)
                 if h not in existing:

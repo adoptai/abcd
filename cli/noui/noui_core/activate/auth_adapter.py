@@ -65,9 +65,15 @@ def _find_env_file() -> Path | None:
         p = Path(override).expanduser()
         if p.is_file():
             return p
+    if os.environ.get("NOUI_IGNORE_DOTENV", "").strip().lower() in ("1", "true", "yes"):
+        return None
 
     here = Path(__file__).resolve()
     for parent in [here, *here.parents][:8]:
+        # An abcd workspace root (it has env.json) holds WDL credentials under the
+        # names this runtime reads as a platform PAT: stop before it.
+        if (parent / "env.json").is_file():
+            break
         candidate = parent / ".env"
         if candidate.is_file():
             return candidate

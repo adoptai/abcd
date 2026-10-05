@@ -37,12 +37,14 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         "JSON Web Token",
         re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"),
     ),
+    ("bearer token", re.compile(r"\bBearer\s+([A-Za-z0-9._~+/-]{20,}=*)")),
     (
         "hard-coded credential",
         re.compile(
             r"""(?ix)
-            \b(?:password|passwd|secret|client_secret|api[_-]?key|access[_-]?token|auth[_-]?token)\b
-            ["']?\s*[:=]\s*["']([^"'\s]{12,})["']
+            (?<![A-Za-z0-9])[A-Za-z0-9_]*
+            (?:password|passwd|secret|api[_-]?key|access[_-]?token|auth[_-]?token)
+            ["']?\s*[:=]\s*["']?([^"'\s,;)}\]]{12,})
             """
         ),
     ),
@@ -58,9 +60,18 @@ _PLACEHOLDER = re.compile(
 
 # Identifier-shaped values (snake/kebab/dotted words, ENV_VAR names) are names,
 # not secrets: e.g. {"api-key": "static_secret_header"} in an enum mapping.
-_IDENTIFIER = re.compile(r"^(?:[a-z][a-z_.-]*|[A-Z][A-Z0-9_]*)$")
+# Real credentials essentially always carry digits; digit-free words are names.
+_IDENTIFIER = re.compile(r"^(?:[A-Za-z_][A-Za-z_.-]*|[A-Z][A-Z0-9_]*)$")
 
 _MAX_SCAN_BYTES = 5 * 1024 * 1024
+
+
+def _not_a_secret(value: str) -> bool:
+    """Placeholders, identifiers and code expressions are names, not values."""
+    if _PLACEHOLDER.match(value) or _IDENTIFIER.match(value):
+        return True
+    # code: calls, attribute/index access, templating, string formatting
+    return any(ch in value for ch in "()[]{}<>$%") or value.startswith(("os.", "self.", "args."))
 
 
 @dataclass(frozen=True)
@@ -81,9 +92,7 @@ def scan_text(path: str, text: str) -> list[Finding]:
             if not m:
                 continue
             value = m.group(1) if m.groups() else m.group(0)
-            if kind == "hard-coded credential" and (
-                _PLACEHOLDER.match(value) or _IDENTIFIER.match(value)
-            ):
+            if kind in ("hard-coded credential", "bearer token") and _not_a_secret(value):
                 continue
             findings.append(Finding(path, lineno, kind))
             break  # one finding per line is enough to stop an upload
@@ -100,19 +109,26 @@ def _decode(data: bytes) -> str | None:
 
 
 def scan_bytes(path: str, data: bytes) -> list[Finding]:
-    """Scan one file's bytes; descends into .zip archives."""
+    """Scan one file's bytes; descends into .zip archives.
+
+    A file too large to scan is reported as a finding rather than passed as clean.
+    """
     if path.lower().endswith(".zip"):
         findings: list[Finding] = []
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as zf:
                 for info in zf.infolist():
-                    if info.is_dir() or info.file_size > _MAX_SCAN_BYTES:
+                    if info.is_dir():
                         continue
-                    findings.extend(scan_bytes(f"{path}!{info.filename}", zf.read(info)))
+                    member = f"{path}!{info.filename}"
+                    if info.file_size > _MAX_SCAN_BYTES:
+                        findings.append(Finding(member, 0, "unscanned (too large)"))
+                        continue
+                    findings.extend(scan_bytes(member, zf.read(info)))
         except zipfile.BadZipFile:
-            pass
+            findings.append(Finding(path, 0, "unscanned (not a readable zip)"))
         return findings
     if len(data) > _MAX_SCAN_BYTES:
-        return []
+        return [Finding(path, 0, "unscanned (too large)")]
     text = _decode(data)
     return scan_text(path, text) if text is not None else []

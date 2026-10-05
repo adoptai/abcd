@@ -173,6 +173,71 @@ def test_rerender_keeps_a_renamed_skill_slug(replay_skill: Path) -> None:
     assert md.read_text().startswith("---\nname: acme-toyapp-notes\n")
 
 
+def test_hand_written_description_survives_but_generated_one_follows(replay_skill: Path) -> None:
+    md = replay_skill / "SKILL.md"
+    before = md.read_text()
+    g.write_draft(replay_skill)
+    g.confirm_plan(replay_skill, confirmed_by="member")
+    g.apply_plan(replay_skill)
+    # Never edited -> regenerated from the new operation names.
+    assert "api notes 2" in before and "api notes 2" not in md.read_text()
+
+    import re as _re
+
+    md.write_text(
+        _re.sub(
+            r"^description: .*$",
+            'description: "Manage notes in the toy app."',
+            md.read_text(),
+            count=1,
+            flags=_re.M,
+        )
+    )
+    g.write_draft(replay_skill, force=True)
+    plan = _plan(replay_skill)
+    plan["operations"][0]["decision"]["rename"] = "list_all_notes"
+    _save(replay_skill, plan)
+    g.confirm_plan(replay_skill, confirmed_by="member")
+    g.apply_plan(replay_skill)
+    assert g._frontmatter_description(md.read_text()) == "Manage notes in the toy app."
+
+
+def test_path_param_swap_is_applied_in_one_pass() -> None:
+    op = {
+        "name": "x",
+        "url_template": "https://h.test/{a}/{b}",
+        "path_params": [{"name": "a"}, {"name": "b"}],
+    }
+    out = g._apply_to_recipe(op, {"params": {"a": {"rename": "b"}, "b": {"rename": "a"}}})
+    assert out["url_template"] == "https://h.test/{b}/{a}"
+    assert [p["name"] for p in out["path_params"]] == ["b", "a"]
+
+
+def test_param_rename_onto_an_existing_name_is_refused(replay_skill: Path) -> None:
+    ops = [
+        {
+            "name": "x",
+            "method": "GET",
+            "url_template": "https://toyapp.example.test/{a}/{b}",
+            "path_params": [{"name": "a"}, {"name": "b"}],
+        }
+    ]
+    plan = {
+        "version": 1,
+        "kind": "replay",
+        "operations": [
+            {"name": "x", "decision": {"action": "keep", "params": {"a": {"rename": "b"}}}}
+        ],
+    }
+    assert any("would collide" in p for p in g.validate_plan(plan, ops, "replay"))
+
+
+def test_browser_skill_md_rename_chain_does_not_cascade(tmp_path: Path) -> None:
+    (tmp_path / "SKILL.md").write_text("Run open_note then save_note.\n")
+    g._rename_in_browser_skill_md(tmp_path, {"open_note": "save_note", "save_note": "publish_note"})
+    assert (tmp_path / "SKILL.md").read_text() == "Run save_note then publish_note.\n"
+
+
 def test_query_and_body_params_cannot_be_renamed(replay_skill: Path) -> None:
     g.write_draft(replay_skill)
     plan = _plan(replay_skill)
@@ -295,3 +360,20 @@ def test_cli_end_to_end(replay_skill: Path, tmp_path: Path) -> None:
     assert applied.returncode == 0, applied.stderr
     assert json.loads(applied.stdout)["kept"] == ["list_notes", "get_note", "delete_note"]
     assert run("show", str(tmp_path / "missing")).returncode == 2
+
+
+def test_apply_works_without_pyyaml(replay_skill: Path) -> None:
+    """The bundle's runtime deps are httpx/python-dotenv/mcp; PyYAML is not one of
+    them, so generalize must not need it (it runs inside the harness sandbox)."""
+    g.write_draft(replay_skill)
+    g.confirm_plan(replay_skill, confirmed_by="member")
+    code = (
+        "import sys; sys.modules['yaml'] = None\n"
+        f"sys.path.insert(0, {str(_ROOT / 'cli' / 'noui')!r})\n"
+        "from pathlib import Path\n"
+        "from noui_core.compile import generalize as g\n"
+        f"print(g.apply_plan(Path({str(replay_skill)!r}))['kept'])\n"
+    )
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+    assert out.returncode == 0, out.stderr
+    assert "list_notes" in out.stdout

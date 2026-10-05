@@ -31,13 +31,17 @@ def fake_tabby(
             if login_status != 200:
                 return httpx.Response(login_status, json={"message": "bad credentials"})
             return httpx.Response(200, json={"token": "admin-jwt", "expires_at": "x"})
-        assert auth == "Bearer admin-jwt"
+        if request.url.path != "/auth/agent-token":
+            assert auth == "Bearer admin-jwt"
         if request.url.path == "/tenants" and request.method == "GET":
             return httpx.Response(200, json={"data": state["tenants"], "meta": {}})
         if request.url.path == "/tenants" and request.method == "POST":
             t = {"id": "11111111-2222-3333-4444-555555555555", "name": body["name"]}
             state["tenants"].append(t)
             return httpx.Response(201, json={"data": t})  # Tabby wraps responses
+        if request.url.path == "/auth/agent-token":
+            ok = body.get("client_secret") == "secret_sk_xyz"
+            return httpx.Response(200 if ok else 401, json={"access_token": "t"} if ok else {})
         if request.url.path == "/admin/agent-clients":
             assert body["unrestricted_profiles"] is True
             return httpx.Response(
@@ -135,8 +139,11 @@ def test_api_environment_tracks_offset_and_is_stable(tmp_path: Path) -> None:
     assert env["MINIO_PORT"] == "29000"
     again = tb.api_environment(state, 18000, 20000)
     assert again["JWT_SIGNING_KEY"] == env["JWT_SIGNING_KEY"]  # reused, tokens survive restarts
-    moved = tb.api_environment(state, 18000, 0)
-    assert moved["REDIS_URL"] == "redis://localhost:6379"
+    moved = tb.api_environment(state, 8001, 0)
+    assert moved["REDIS_URL"] == "redis://localhost:6379" and moved["API_PORT"] == "8001"
+    # Secrets survive a port change (the Postgres volume does too).
+    for key in tb._PERSISTENT_SECRETS:
+        assert moved[key] == env[key]
     assert oct(state.env_file.stat().st_mode)[-3:] == "600"
 
 
@@ -175,3 +182,31 @@ def test_is_alive_uses_health_live() -> None:
     assert tb.is_alive("http://tabby.test/", client=client)
     assert seen == ["/health/live"]
     assert not tb.is_alive("http://127.0.0.1:1")
+
+
+def test_provision_reuses_a_working_agent_client() -> None:
+    client, calls = fake_tabby([{"id": "t1", "name": tb.TENANT_NAME}])
+    existing = {"TABBY_CLIENT_ID": "agent_cl_abc", "TABBY_CLIENT_SECRET": "secret_sk_xyz"}
+    creds = tb.provision(
+        "http://tabby.test",
+        admin_email="a@b",
+        admin_password="pw",
+        client=client,
+        existing=existing,
+    )
+    assert creds["TABBY_CLIENT_ID"] == "agent_cl_abc" and creds["TABBY_ADMIN_TOKEN"] == "admin-jwt"
+    assert ("POST", "/admin/agent-clients") not in [(m, p) for m, p, _ in calls]
+
+
+def test_provision_replaces_a_dead_agent_client() -> None:
+    client, calls = fake_tabby([{"id": "t1", "name": tb.TENANT_NAME}])
+    existing = {"TABBY_CLIENT_ID": "agent_cl_old", "TABBY_CLIENT_SECRET": "revoked"}
+    creds = tb.provision(
+        "http://tabby.test",
+        admin_email="a@b",
+        admin_password="pw",
+        client=client,
+        existing=existing,
+    )
+    assert creds["TABBY_CLIENT_ID"] == "agent_cl_abc"
+    assert ("POST", "/admin/agent-clients") in [(m, p) for m, p, _ in calls]

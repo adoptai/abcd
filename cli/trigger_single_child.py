@@ -78,8 +78,9 @@ def main() -> int:
         "--param", action="append", default=[], metavar="KEY=VALUE", help="Workflow param"
     )
     parser.add_argument("--test-mode", action="store_true", help="test_mode=True (no side effects)")
-    parser.add_argument("--workstream-id", help="Reuse an existing workstream")
-    parser.add_argument("--create-workstream", metavar="NAME", help="Create a workstream first")
+    ws = parser.add_mutually_exclusive_group()
+    ws.add_argument("--workstream-id", help="Reuse an existing workstream")
+    ws.add_argument("--create-workstream", metavar="NAME", help="Create a workstream first")
     parser.add_argument(
         "--workstream-property",
         action="append",
@@ -95,6 +96,13 @@ def main() -> int:
         properties = parse_params(args.workstream_property)
     except ValueError as e:
         parser.error(str(e))
+    if args.workstream_property and not args.create_workstream:
+        parser.error("--workstream-property only applies with --create-workstream")
+    if "workstream_id" in params and (args.workstream_id or args.create_workstream):
+        parser.error(
+            "pass the workstream once: --param workstream_id conflicts with "
+            "--workstream-id/--create-workstream"
+        )
 
     base = WORKSPACES_DIR / env_name / "pipelines" / args.pipeline
     wdl = json.loads((base / "widdle.json").read_text())
@@ -115,7 +123,9 @@ def main() -> int:
     params.setdefault("trigger_source", "trigger_single_child")
     params["auth_token"] = token
     if workstream_id:
-        params.setdefault("workstream_id", workstream_id)
+        params["workstream_id"] = workstream_id
+    else:
+        workstream_id = params.get("workstream_id", "")
 
     print(f"  Triggering child pipeline {remote_id} (test_mode={args.test_mode})...")
     result = get_pipeline_client().test_run(

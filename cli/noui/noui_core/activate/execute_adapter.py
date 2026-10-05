@@ -76,8 +76,14 @@ def _find_env_file() -> str | None:
     """Walk up from this file to find .env, matching the auth adapter pattern."""
     if os.environ.get("NOUI_ENV_FILE"):
         return os.environ["NOUI_ENV_FILE"]
+    if os.environ.get("NOUI_IGNORE_DOTENV", "").strip().lower() in ("1", "true", "yes"):
+        return None
     here = Path(__file__).resolve().parent
     for _ in range(7):
+        # An abcd workspace root (it has env.json) holds WDL credentials under the
+        # names this runtime reads as a platform PAT: stop before it.
+        if (here / "env.json").is_file():
+            break
         candidate = here / ".env"
         if candidate.exists():
             return str(candidate)

@@ -412,6 +412,15 @@ def validate_plan(plan: dict[str, Any], operations: list[dict[str, Any]], kind: 
                 r"[a-zA-Z_][a-zA-Z0-9_]*", str(change["rename"])
             ):
                 problems.append(f"{name}.{pname}: rename {change['rename']!r} is not an identifier")
+        renamed = {
+            p: str(c["rename"])
+            for p, c in params.items()
+            if isinstance(c, dict) and c.get("rename") and p in path_names
+        }
+        after = [renamed.get(str(n), str(n)) for n in all_names]
+        clashes = sorted({n for n in after if after.count(n) > 1})
+        if clashes:
+            problems.append(f"{name}: parameter names would collide: {', '.join(clashes)}")
     dupes = sorted({n for n in final if final.count(n) > 1})
     if dupes:
         problems.append(f"operation names would collide: {', '.join(dupes)}")
@@ -447,19 +456,30 @@ def _apply_to_recipe(op: dict[str, Any], decision: dict[str, Any]) -> dict[str, 
         op["name"] = decision["rename"]
     if decision.get("description"):
         op["description"] = decision["description"]
-    for pname, change in (decision.get("params") or {}).items():
-        for key in ("path_params", "query_params", "body_params"):
-            for p in op.get(key) or []:
-                if p.get("name") != pname:
-                    continue
-                if change.get("description"):
-                    p["description"] = change["description"]
-                if change.get("rename") and key == "path_params":
-                    p["name"] = change["rename"]
-                    op["url_template"] = str(op.get("url_template", "")).replace(
-                        "{" + pname + "}", "{" + change["rename"] + "}"
-                    )
+    changes = decision.get("params") or {}
+    renames = {
+        p: str(c["rename"])
+        for p, c in changes.items()
+        if c.get("rename") and p in {x.get("name") for x in op.get("path_params") or []}
+    }
+    for key in ("path_params", "query_params", "body_params"):
+        for p in op.get(key) or []:
+            change = changes.get(p.get("name")) or {}
+            if change.get("description"):
+                p["description"] = change["description"]
+            if key == "path_params" and p.get("name") in renames:
+                p["name"] = renames[p["name"]]
+    # One pass over the template, so swaps (a->b, b->a) and chains stay correct.
+    op["url_template"] = _rename_placeholders(str(op.get("url_template", "")), renames)
     return op
+
+
+def _rename_placeholders(template: str, renames: dict[str, str]) -> str:
+    if not renames:
+        return template
+    return re.sub(
+        r"\{([^{}]+)\}", lambda m: "{" + renames.get(m.group(1), m.group(1)) + "}", template
+    )
 
 
 def _apply_to_browser_op(op: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
@@ -507,8 +527,40 @@ def _tool_defs_from_recipes(recipes: list[dict[str, Any]]) -> list[dict[str, Any
     return defs
 
 
+def _frontmatter_description(text: str | None) -> str:
+    """The SKILL.md description, without needing PyYAML (not a bundle dependency).
+
+    Reads the single-line form the compiler writes (see _escape_yaml_scalar): a plain
+    scalar, or a double-quoted one with \\ and \" escaped. A hand-written block scalar
+    falls back to PyYAML when it happens to be installed.
+    """
+    m = re.match(r"\A---\s*\n(.*?)\n---\s*\n", text or "", re.DOTALL)
+    if not m:
+        return ""
+    line = re.search(r"^description:[ \t]*(.*)$", m.group(1), re.MULTILINE)
+    if not line:
+        return ""
+    raw = line.group(1).strip()
+    if raw in ("|", ">", "|-", ">-", "") or raw.startswith("'"):
+        try:
+            import yaml  # type: ignore[import-untyped]
+        except ImportError:
+            return raw
+        try:
+            meta = yaml.safe_load(m.group(1))
+        except yaml.YAMLError:
+            return raw
+        return str(meta.get("description") or "") if isinstance(meta, dict) else raw
+    if raw.startswith('"') and raw.endswith('"') and len(raw) >= 2:
+        return re.sub(r'\\(["\\])', r"\1", raw[1:-1])
+    return raw
+
+
 def _rerender_replay_docs(
-    skill_dir: Path, recipes: list[dict[str, Any]], manifest: dict[str, Any]
+    skill_dir: Path,
+    recipes: list[dict[str, Any]],
+    manifest: dict[str, Any],
+    old_recipes: list[dict[str, Any]] | None = None,
 ) -> None:
     from noui_core.compile.api_doc_generator import generate_api_markdown
     from noui_core.compile.harness_md_generator import render_harness_skill_md
@@ -527,15 +579,30 @@ def _rerender_replay_docs(
     # compile (e.g. prefixed for an org); never let a re-render revert it.
     current = re.match(r"\A---\s*\nname:\s*(\S+)\s*\n", existing or "")
     skill_id = current.group(1) if current else str(manifest.get("skill_id") or skill_dir.name)
+    render_args: dict[str, Any] = {
+        "skill_id": skill_id,
+        "app_name": str(app.get("name") or skill_id),
+        "workflow_name": str(workflow.get("name") or skill_id),
+        "auth_plan": auth_plan,
+        "profile_slug": str(profile),
+    }
+    # The frontmatter description is regenerated from the operations -- unless a human
+    # wrote it. Tell the two apart by re-rendering the OLD operations: if that is what
+    # the file says, it was never edited and can follow the new operations.
+    description_override = ""
+    current_desc = _frontmatter_description(existing)
+    if current_desc and old_recipes is not None:
+        generated = _frontmatter_description(
+            render_harness_skill_md(tool_defs=_tool_defs_from_recipes(old_recipes), **render_args)
+        )
+        if current_desc != generated:
+            description_override = current_desc
     skill_md.write_text(
         render_harness_skill_md(
-            skill_id=skill_id,
-            app_name=str(app.get("name") or skill_id),
-            workflow_name=str(workflow.get("name") or skill_id),
             tool_defs=tool_defs,
-            auth_plan=auth_plan,
-            profile_slug=str(profile),
             existing=existing,
+            description_override=description_override,
+            **render_args,
         ),
         encoding="utf-8",
     )
@@ -560,8 +627,11 @@ def _rename_in_browser_skill_md(skill_dir: Path, renames: dict[str, str]) -> Non
     if not renames or not skill_md.exists():
         return
     text = skill_md.read_text(encoding="utf-8")
-    for old, new in renames.items():
-        text = re.sub(rf"(?<![A-Za-z0-9_-]){re.escape(old)}(?![A-Za-z0-9_-])", new, text)
+    # One alternation pass, so chains (a->b, b->c) do not cascade.
+    pattern = "|".join(re.escape(old) for old in sorted(renames, key=len, reverse=True))
+    text = re.sub(
+        rf"(?<![A-Za-z0-9_-])(?:{pattern})(?![A-Za-z0-9_-])", lambda m: renames[m.group(0)], text
+    )
     skill_md.write_text(text, encoding="utf-8")
 
 
@@ -627,15 +697,17 @@ def apply_plan(skill_dir: Path) -> dict[str, Any]:
                     entry["name"] = d["rename"]
                 if d.get("description"):
                     entry["description"] = d["description"]
-                for pname, change in (d.get("params") or {}).items():
-                    path_names = {p.get("name") for p in by_name[old].get("path_params") or []}
-                    if change.get("rename") and pname in path_names:
-                        entry["path"] = str(entry.get("path", "")).replace(
-                            "{" + pname + "}", "{" + change["rename"] + "}"
-                        )
-                        for arg in entry.get("args") or []:
-                            if arg.get("name") == pname:
-                                arg["name"] = change["rename"]
+                path_names = {p.get("name") for p in by_name[old].get("path_params") or []}
+                param_renames = {
+                    p: str(c["rename"])
+                    for p, c in (d.get("params") or {}).items()
+                    if c.get("rename") and p in path_names
+                }
+                if param_renames:
+                    entry["path"] = _rename_placeholders(str(entry.get("path", "")), param_renames)
+                    for arg in entry.get("args") or []:
+                        if arg.get("name") in param_renames:
+                            arg["name"] = param_renames[arg["name"]]
             new_entries.append(entry)
         if manifest.get("operations") is not None:
             manifest["operations"] = new_entries
@@ -645,7 +717,7 @@ def apply_plan(skill_dir: Path) -> dict[str, Any]:
         _write_json(skill_dir / "manifest.json", manifest)
 
     if kind == "replay":
-        _rerender_replay_docs(skill_dir, kept, manifest)
+        _rerender_replay_docs(skill_dir, kept, manifest, old_recipes=operations)
     else:
         _rename_in_browser_skill_md(skill_dir, renames)
 

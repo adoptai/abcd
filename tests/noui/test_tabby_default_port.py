@@ -43,3 +43,39 @@ def test_ignore_dotenv_skips_bundle_and_cwd_env_files(tmp_path, monkeypatch):
 
     assert run({}) == "from-cwd-dotenv"
     assert run({"NOUI_IGNORE_DOTENV": "1"}) == "-"
+
+
+def test_generated_runtime_stops_at_an_abcd_workspace_root(tmp_path):
+    """A compiled MCP/skill runtime under workspaces/<env>/harness/... must not
+    load the workspace .env (WDL creds under NoUI's PAT names)."""
+    import importlib.util
+    import os
+
+    from noui_core.activate.auth_adapter import generate_auth_adapter
+    from noui_core.activate.execute_adapter import generate_execute_adapter
+
+    ws = tmp_path / "workspaces" / "acme-dev"
+    runtime = ws / "harness" / "mcp_servers" / "app" / "srv" / "noui_runtime"
+    runtime.mkdir(parents=True)
+    (ws / "env.json").write_text("{}")
+    (ws / ".env").write_text("ADOPT_CLIENT_ID=wdl\n")
+    (runtime / "auth.py").write_text(generate_auth_adapter("http://localhost:8000"))
+    (runtime / "execute.py").write_text(generate_execute_adapter())
+
+    old = os.environ.pop("NOUI_ENV_FILE", None)
+    try:
+        for name in ("auth", "execute"):
+            spec = importlib.util.spec_from_file_location(f"_rt_{name}", runtime / f"{name}.py")
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            found = mod._find_env_file()
+            assert found is None or "acme-dev/.env" not in str(found), (name, found)
+        # A .env inside the harness tree (below the workspace root) is still found.
+        (ws / "harness" / ".env").write_text("TABBY_API_URL=http://t\n")
+        spec = importlib.util.spec_from_file_location("_rt_auth2", runtime / "auth.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        assert str(mod._find_env_file()).endswith("harness/.env")
+    finally:
+        if old is not None:
+            os.environ["NOUI_ENV_FILE"] = old

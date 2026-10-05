@@ -234,16 +234,24 @@ class LocalState:
         return self.root / "docker-compose.yml"
 
 
+_PERSISTENT_SECRETS = (
+    "JWT_SIGNING_KEY",
+    "TENANT_ENCRYPTION_KEY",
+    "AGENT_SECRET_HMAC_KEY",
+    "ADMIN_BOOTSTRAP_PASSWORD",
+)
+
+
 def api_environment(state: LocalState, port: int, offset: int = 0) -> dict[str, str]:
-    """The API's env: generated once, then reused so tokens survive restarts."""
+    """The API's env. Secrets are generated once and always reused -- the Postgres
+    volume outlives a port change, and Tabby only creates the bootstrap admin on an
+    empty database, so rotating them would lock out the admin and orphan every
+    agent client and encrypted profile. Only the port-derived values are recomputed."""
     state.root.mkdir(parents=True, exist_ok=True)
     ports = infra_ports(offset)
+    saved: dict[str, str] = {}
     if state.env_file.exists():
-        saved = json.loads(state.env_file.read_text())
-        if saved.get("API_PORT") == str(port) and saved.get("REDIS_URL", "").endswith(
-            f":{ports['redis']}"
-        ):
-            return {str(k): str(v) for k, v in saved.items()}
+        saved = {str(k): str(v) for k, v in json.loads(state.env_file.read_text()).items()}
     env = {
         "API_PORT": str(port),
         "NODE_ENV": "development",
@@ -254,11 +262,12 @@ def api_environment(state: LocalState, port: int, offset: int = 0) -> dict[str, 
         "MINIO_PORT": str(ports["minio"]),
         "MINIO_ACCESS_KEY": "minioadmin",
         "MINIO_SECRET_KEY": "minioadmin",
-        "JWT_SIGNING_KEY": secrets.token_hex(32),
-        "TENANT_ENCRYPTION_KEY": secrets.token_hex(32),
-        "AGENT_SECRET_HMAC_KEY": secrets.token_hex(32),
-        "ADMIN_BOOTSTRAP_EMAIL": ADMIN_EMAIL,
-        "ADMIN_BOOTSTRAP_PASSWORD": f"Local-{secrets.token_urlsafe(12)}!9a",
+        "JWT_SIGNING_KEY": saved.get("JWT_SIGNING_KEY") or secrets.token_hex(32),
+        "TENANT_ENCRYPTION_KEY": saved.get("TENANT_ENCRYPTION_KEY") or secrets.token_hex(32),
+        "AGENT_SECRET_HMAC_KEY": saved.get("AGENT_SECRET_HMAC_KEY") or secrets.token_hex(32),
+        "ADMIN_BOOTSTRAP_EMAIL": saved.get("ADMIN_BOOTSTRAP_EMAIL") or ADMIN_EMAIL,
+        "ADMIN_BOOTSTRAP_PASSWORD": saved.get("ADMIN_BOOTSTRAP_PASSWORD")
+        or f"Local-{secrets.token_urlsafe(12)}!9a",
     }
     state.env_file.write_text(json.dumps(env, indent=2))
     os.chmod(state.env_file, 0o600)
@@ -285,8 +294,13 @@ def provision(
     client: httpx.Client | None = None,
     tenant_name: str = TENANT_NAME,
     agent_name: str = AGENT_NAME,
+    existing: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Mint local agent credentials: admin login -> tenant -> agent client."""
+    """Mint local agent credentials: admin login -> tenant -> agent client.
+
+    ``existing`` (a previous provision result) is reused when its agent client still
+    authenticates, so repeated `up` runs do not pile up unrestricted agent clients.
+    """
     c = client or httpx.Client(base_url=url.rstrip("/"), timeout=30.0)
     try:
         r = c.post("/login", json={"email": admin_email, "password": admin_password})
@@ -306,6 +320,24 @@ def provision(
                 raise BootstrapError(f"creating tenant failed ({r.status_code}): {r.text[:200]}")
             tenant = _unwrap(r.json())
         tenant_id = str(tenant["id"])
+
+        if existing and existing.get("TABBY_CLIENT_ID") and existing.get("TABBY_CLIENT_SECRET"):
+            probe = c.post(
+                "/auth/agent-token",
+                json={
+                    "grant_type": "client_credentials",
+                    "client_id": existing["TABBY_CLIENT_ID"],
+                    "client_secret": existing["TABBY_CLIENT_SECRET"],
+                },
+            )
+            if probe.status_code < 400:
+                return {
+                    **existing,
+                    "TABBY_API_URL": url.rstrip("/"),
+                    "TABBY_ADMIN_TOKEN": admin_token,
+                    "TABBY_TENANT_ID": tenant_id,
+                    "NOUI_TABBY_AUTH_MODE": "agent_token",
+                }
 
         r = c.post(
             "/admin/agent-clients",
@@ -456,10 +488,12 @@ def cmd_up(env_name: str | None, port: int, write_env: bool, offset: int = 0) ->
             raise BootstrapError(f"Tabby API did not become healthy at {url}; see {state.log_file}")
     print(f"Tabby API is up at {url}")
 
+    previous = json.loads(state.creds_file.read_text()) if state.creds_file.exists() else None
     creds = provision(
         url,
         admin_email=env["ADMIN_BOOTSTRAP_EMAIL"],
         admin_password=env["ADMIN_BOOTSTRAP_PASSWORD"],
+        existing=previous,
     )
     state.creds_file.write_text(json.dumps(creds, indent=2))
     os.chmod(state.creds_file, 0o600)
