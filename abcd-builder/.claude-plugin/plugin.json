@@ -1,0 +1,17 @@
+{
+  "name": "abcd-builder",
+  "version": "0.1.0",
+  "description": "Build agent tools on the Adopt platform from an abcd checkout: record a website through Tabby and compile it into a skill (NoUI), verify, install and run it on the Agent Harness, or author WDL actions and pipelines.",
+  "author": {
+    "name": "Adopt AI"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "adopt-harness",
+    "noui",
+    "tabby",
+    "wdl",
+    "skills",
+    "pipelines"
+  ]
+}

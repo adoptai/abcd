@@ -14,6 +14,7 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 - **DO NOT** manually create workspace directories without `workspace.py`
 - **DO NOT** manually edit `metadata.json` files
 - **DO NOT** guess API endpoints or parameters - use `discover.py`
+- **DO NOT** use HAR files or network captures as direct input for WDL authoring. To turn a live website's traffic into tools, use the NoUI capture flow (`discover-and-plan` skill / `python cli/noui_workspace.py ...`), which records through Tabby and compiles deterministically
 - **DO NOT** skip testing before saving/publishing
 - **DO NOT** circumvent the workspace manager or context system
 
@@ -71,6 +72,33 @@ The CLI scripts:
 - **Ensure consistency** across the workspace hierarchy
 
 **If a CLI tool doesn't exist for what you need, ask the user first.**
+
+---
+
+## Skills & the abcd-builder plugin
+
+abcd is also packaged as a Claude Code plugin, `abcd-builder/`. It has four Agent Skills (`abcd-builder/skills/<name>/SKILL.md`). Each skill runs from this checkout, drives the same `cli/` scripts, and follows the rules in this document. Load the skill that matches the task:
+
+| Skill | Use it when |
+|-------|-------------|
+| `discover-and-plan` | Turning a live website into tools. It records the site through Tabby (NoUI capture), compiles the capture deterministically, and generalizes it into a plan. It is workspace-aware: everything lands under `workspaces/{env}/harness/` via `python cli/noui_workspace.py ...`. This is the replacement for HAR-based authoring. |
+| `skill-builder` | Shipping an Agent-Harness skill. It runs the verify/replay gate, installs locally, then pushes, runs and traces the skill on the Agent Harness with the `cli/harness_*.py` scripts below. |
+| `action-builder` | WDL actions: simple tools, multi-step workflows, uber agents (`PROMPT_AND_TOOLS_AGENT`), lambdas. It covers discover → create → compile → test → save → publish → CE e2e → diagnose/fix. |
+| `pipeline-builder` | WDL pipelines (data sync / ETL): `manage_pipeline.py` → `save_pipeline_draft.py` → `test_pipeline.py` (streamed) → `publish_pipeline.py`, plus pipeline connectors. |
+
+**Agent-Harness CLIs** (every one except `audit` calls the platform with the workspace's PAT, and each accepts `--env` and otherwise uses the active env):
+
+| Script | Purpose |
+|--------|---------|
+| `cli/harness_skill.py audit <skill_dir>` | Free, local, deterministic audit (vendored `adopt-skill-review/`) for frontmatter, step-budget, batching and file-placement issues |
+| `cli/harness_skill.py push <skill_dir> [--name] [--replace] [--force] [--skip-audit]` | Strict-YAML frontmatter lint, then audit, then upload the skill (SKILL.md + aux files) to the org tier, then re-fetch to confirm what landed |
+| `cli/harness_skill.py verify <skill_name>` | Re-fetch a pushed skill and confirm the frontmatter parsed as intended (a 200 on upload proves nothing) |
+| `cli/harness_workstream.py ensure <name>` / `seed <name> <file>...` | Create or reuse a real workstream plus a linked docstore for skill testing, and seed it with local files (IDs cached in `workspaces/{env}/harness/workstreams.json`) |
+| `cli/harness_run.py start --workstream NAME --message "..."` / `continue RUN_ID --message "..."` | Run one real harness turn, streamed live, then stop. It never auto-continues. Stream, trace and temporal history are saved under `workspaces/{env}/harness/traces/<run_id>/` |
+| `cli/harness_trace.py fetch TURN_ID --conversation-id ID` / `review RUN_ID` | Fetch a turn's status, trace and temporal history, or run the performance-checklist review on a persisted run |
+| `cli/harness_process.py list\|get\|create\|update\|delete\|get-workstreams\|set-workstreams\|run` | CRUD for a "Process" (an Agents-tab agent). Skills and plugins are attached by name. Writes need an admin PAT. Delete is soft-only |
+| `cli/harness_conversations.py list [--hours 24] [--transcripts --save DIR]` | Agents-tab conversations from the last N hours, limited to the PAT owner's own conversations |
+| `cli/harness_runs.py list\|detail\|trace` | Org-wide Studio "Runs", covering both pipeline runs and agent conversations, including other users' runs |
 
 ---
 
