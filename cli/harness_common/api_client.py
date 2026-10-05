@@ -99,6 +99,60 @@ class HarnessAPIClient:
     def delete_skill(self, skill_name: str) -> dict[str, Any]:
         return self._request("DELETE", f"/v1/end-user/agent-harness/skills/{skill_name}")
 
+    # -- Default ("Built-in") tier ----------------------------------------
+    # Platform-wide skills every org sees; gated to @adopt.ai principals.
+
+    def upload_default_skill(
+        self,
+        skill_name: str,
+        skill_md_b64: str,
+        aux_files: list[dict[str, str]] | None = None,
+        bundle_version: str = "dev",
+        min_platform_contract: int = 1,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/end-user/agent-harness/default-skills",
+            timeout=300,
+            json={
+                "skill_name": skill_name,
+                "skill_md_b64": skill_md_b64,
+                "aux_files": aux_files or [],
+                "bundle_version": bundle_version,
+                "min_platform_contract": min_platform_contract,
+            },
+        )
+
+    def get_default_skill(self, skill_name: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/end-user/agent-harness/default-skills/{skill_name}")
+
+    # -- Plugins ------------------------------------------------------------
+
+    def upload_plugin(
+        self, zip_bytes: bytes, filename: str, replace: bool = False
+    ) -> dict[str, Any]:
+        """Multipart upload of a plugin zip (.claude-plugin/plugin.json + skills/<slug>/...)."""
+        url = self._url("/v1/end-user/agent-harness/plugins")
+        response = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {self._bearer_token}"},
+            files={"plugin": (filename, zip_bytes, "application/zip")},
+            data={"replace": "true" if replace else "false"},
+            timeout=300,
+        )
+        if response.status_code >= 400:
+            raise HarnessAPIError("POST", url, response.status_code, response.text)
+        return response.json() if response.content else {}
+
+    def list_plugins(self) -> dict[str, Any]:
+        return self._request("GET", "/v1/end-user/agent-harness/plugins")
+
+    def get_plugin(self, plugin_name: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/end-user/agent-harness/plugins/{plugin_name}")
+
+    def delete_plugin(self, plugin_name: str) -> dict[str, Any]:
+        return self._request("DELETE", f"/v1/end-user/agent-harness/plugins/{plugin_name}")
+
     # -- Workstreams ------------------------------------------------------
 
     def create_workstream(self, name: str, description: str | None = None) -> dict[str, Any]:
@@ -192,9 +246,7 @@ class HarnessAPIClient:
             params["workstream_id"] = workstream_id
         if limit:
             params["limit"] = limit
-        return self._request(
-            "GET", "/v1/end-user/agent-harness/conversations", params=params
-        )
+        return self._request("GET", "/v1/end-user/agent-harness/conversations", params=params)
 
     def get_conversation_transcript(self, conversation_id: str) -> dict[str, Any]:
         return self._request(
@@ -226,11 +278,23 @@ class HarnessAPIClient:
         page: int = 1,
         page_size: int = 25,
     ) -> dict[str, Any]:
-        params: dict[str, Any] = {"tz_offset_minutes": tz_offset_minutes, "page": page, "page_size": page_size}
+        params: dict[str, Any] = {
+            "tz_offset_minutes": tz_offset_minutes,
+            "page": page,
+            "page_size": page_size,
+        }
         optional = {
-            "status": status, "type": type_, "agent": agent, "workstream_id": workstream_id,
-            "initiator": initiator, "hitl": hitl, "source": source, "search": search,
-            "range": time_range, "from": date_from, "to": date_to,
+            "status": status,
+            "type": type_,
+            "agent": agent,
+            "workstream_id": workstream_id,
+            "initiator": initiator,
+            "hitl": hitl,
+            "source": source,
+            "search": search,
+            "range": time_range,
+            "from": date_from,
+            "to": date_to,
         }
         params.update({k: v for k, v in optional.items() if v is not None})
         return self._request("GET", "/v1/runs", params=params)
@@ -256,9 +320,7 @@ class HarnessAPIClient:
     def get_process_workstreams(self, process_id: str) -> dict[str, Any]:
         return self._request("GET", f"/v1/org/processes/{process_id}/workstreams")
 
-    def set_process_workstreams(
-        self, process_id: str, workstream_ids: list[str]
-    ) -> dict[str, Any]:
+    def set_process_workstreams(self, process_id: str, workstream_ids: list[str]) -> dict[str, Any]:
         """Full replace of the process's assigned workstream set."""
         return self._request(
             "PUT",

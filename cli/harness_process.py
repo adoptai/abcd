@@ -160,8 +160,10 @@ def cmd_update(
         fields["is_enabled"] = False
 
     if not fields:
-        print("❌ Nothing to update -- pass at least one of --display-name/--description/"
-              "--component/--instructions/--enable/--disable")
+        print(
+            "❌ Nothing to update -- pass at least one of --display-name/--description/"
+            "--component/--instructions/--enable/--disable"
+        )
         return 1
 
     try:
@@ -235,8 +237,10 @@ def cmd_run(process_id: str, env: str | None) -> int:
         print(f"❌ {e}")
         return 1
 
-    print(f"▶️  Running process {process_id} (builder test-run -- fans out to all assigned "
-          "workstreams)...")
+    print(
+        f"▶️  Running process {process_id} (builder test-run -- fans out to all assigned "
+        "workstreams)..."
+    )
     try:
         result = client.run_process(process_id)
     except HarnessAPIError as e:
@@ -265,7 +269,9 @@ def main() -> None:
     create_p.add_argument("display_name", help="Customer-facing name")
     create_p.add_argument("--description")
     create_p.add_argument(
-        "--component", dest="components", action="append",
+        "--component",
+        dest="components",
+        action="append",
         help="TYPE:REF, e.g. skill:email-sorting-plugin -- repeatable",
     )
     create_p.add_argument("--instructions", help="Orchestration prompt (agent_instructions)")
@@ -277,7 +283,9 @@ def main() -> None:
     update_p.add_argument("--display-name")
     update_p.add_argument("--description")
     update_p.add_argument(
-        "--component", dest="components", action="append",
+        "--component",
+        dest="components",
+        action="append",
         help="TYPE:REF -- repeatable; passing any replaces the FULL components list",
     )
     update_p.add_argument("--instructions")
@@ -313,15 +321,26 @@ def main() -> None:
     elif args.command == "create":
         sys.exit(
             cmd_create(
-                args.name, args.display_name, args.description, args.components,
-                args.instructions, args.enable, args.env,
+                args.name,
+                args.display_name,
+                args.description,
+                args.components,
+                args.instructions,
+                args.enable,
+                args.env,
             )
         )
     elif args.command == "update":
         sys.exit(
             cmd_update(
-                args.process_id, args.display_name, args.description, args.components,
-                args.instructions, args.enable, args.disable, args.env,
+                args.process_id,
+                args.display_name,
+                args.description,
+                args.components,
+                args.instructions,
+                args.enable,
+                args.disable,
+                args.env,
             )
         )
     elif args.command == "delete":

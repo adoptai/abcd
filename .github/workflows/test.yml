@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: ["**"]
+  push:
+    branches: [main, master, dev]
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # tests pin the tabby submodule's recording schema
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # The suite needs only the light runtime set -- not the discovery stack
+      # (faiss / sentence-transformers) or playwright.
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest httpx python-dotenv mcp PyYAML requests pydantic colorama
+
+      - name: pytest
+        run: python -m pytest -q
+
+  skill-audit:
+    name: adopt-skill-review audit (abcd-builder skills)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Without PyYAML the audit cannot parse frontmatter and reports that as critical.
+      - name: Install audit dependencies
+        run: pip install PyYAML
+      - name: Audit every plugin skill (exit 2 = critical)
+        run: |
+          set -e
+          for d in abcd-builder/skills/*/; do
+            python adopt-skill-review/skills/adopt-skill-review/scripts/audit_skill.py "$d" --format text || [ $? -eq 1 ]
+          done

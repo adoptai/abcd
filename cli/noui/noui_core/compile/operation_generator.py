@@ -1,0 +1,472 @@
+"""Render an executable CLI operation for a generated Skill.
+
+Each Skill operation is a standalone script invoked from SKILL.md as
+`python operations/<name>.py --arg value …`. It exposes:
+
+  - `async def execute(...)`                — the HTTP-calling coroutine
+                                              (same shape the MCP output uses)
+  - `_build_parser() / main() / __main__`   — argparse wrapper that parses
+                                              CLI args, runs execute() under
+                                              asyncio.run, and prints the
+                                              result as JSON on stdout.
+
+On error: diagnostic on stderr, non-zero exit. On {"error": ...} return
+payloads: exits 2 (still prints the JSON). On success: exits 0.
+"""
+
+from __future__ import annotations
+
+import keyword
+import re
+
+
+def _assign_py_names(params: list[dict]) -> None:
+    """Give every param a valid, UNIQUE Python identifier in ``py_name``.
+
+    A wire parameter name is not necessarily a Python identifier. Form-encoded
+    bodies carry dots and percent-encoded brackets -- TP Catalyst's
+    AnalysisSummary/Export posts
+    ``component.AttachmentTypes%5BReviewSummaryProofs%5D.Selected`` -- and the
+    codegen used the wire name verbatim for BOTH the dict key and the Python
+    symbol, so the emitted module could not be parsed at all (found 2026-08-18).
+    The wire name stays the dict key; only the Python symbol is sanitized, and
+    collisions get a numeric suffix so two wire names can never collapse into
+    one duplicate parameter.
+    """
+    seen: set[str] = set()
+    for p in params:
+        ident = re.sub(r"\W", "_", p.get("name", "")) or "param"
+        if ident[0].isdigit():
+            ident = "p_" + ident
+        if keyword.iskeyword(ident):
+            ident += "_"
+        base, n = ident, 2
+        while ident in seen:
+            ident, n = f"{base}_{n}", n + 1
+        seen.add(ident)
+        p["py_name"] = ident
+
+
+def _pn(p: dict) -> str:
+    """The Python-side symbol for a param (falls back to the wire name)."""
+    return p.get("py_name") or p["name"]
+
+
+def _body_dict_entry(p: dict) -> str:
+    """Render one `body = {...}` entry for a skill CLI operation.
+
+    argparse can only ever hand a body param in as a plain string, but an
+    "object"/"array"-typed param (e.g. a GraphQL `variables` object) needs to
+    be a real JSON value on the wire — json.loads() it here rather than
+    forwarding the raw string, which double-encodes it and most servers
+    reject. See har_to_tools.py::_body_to_params for how "object"/"array" get
+    assigned.
+    """
+    wire, sym = p["name"], _pn(p)
+    if p.get("type", "").lower() in ("object", "array"):
+        return f"{wire!r}: json.loads({sym})"
+    return f"{wire!r}: {sym}"
+
+
+def _render_body_assignment(body_params: list[dict], var: str = "body") -> str:
+    """Render the `body = …` / `data = …` line for an operation.
+
+    A `whole_body` param IS the entire request body — a top-level JSON array,
+    which has no field names to key a dict on. Wrapping it would put
+    `{"body": [...]}` on the wire instead of `[...]`, which the server reads as
+    a different (empty) request. Everything else keeps the named-field dict.
+    See har_to_tools.py::_body_to_params.
+    """
+    whole = next((p for p in body_params if p.get("whole_body")), None)
+    if whole:
+        # _pn(), not the wire name. Today a whole_body param is always literally
+        # "body" so the two agree, but if another param's wire name also
+        # sanitises to "body" the collision suffix moves this one to "body_2" --
+        # and referencing the wire name would then silently bind json.loads() to
+        # the OTHER param's value. Caught in review on #145.
+        return f"    {var} = json.loads({_pn(whole)})"
+    entries = ", ".join(_body_dict_entry(p) for p in body_params)
+    return f"    {var} = {{{entries}}}"
+
+
+def render_skill_operation(td: dict, *, auth_plan: dict, execution_mode: str = "tabby") -> str:
+    """Render the full Python source for a single Skill operation.
+
+    The rendered file is standalone-runnable: `python operations/<name>.py`
+    works from inside the Skill directory, with `noui_runtime/` one level up.
+
+    `execution_mode` matches the MCP compiler:
+      - "tabby" (default): execute inside Tabby's browser via the /execute/fetch endpoint
+      - "http" (legacy): execute via httpx + resolve_auth()
+    """
+    _assign_py_names(td.get("params") or [])
+    if execution_mode == "tabby":
+        return _render_skill_operation_tabby(td, auth_plan=auth_plan)
+    return _render_skill_operation_http(td, auth_plan=auth_plan)
+
+
+def _render_skill_operation_tabby(td: dict, *, auth_plan: dict) -> str:
+    """Render a skill op that executes inside Tabby's browser via execute/fetch."""
+    name = td["name"]
+    method = td["method"].upper()
+    path_template = td["path"]
+    base_url = td.get("base_url", "")
+    content_type = td.get("request_content_type", "")
+    params: list[dict] = td.get("params", [])
+    request_headers: list[dict] = td.get("request_headers", [])
+    description = td.get("description", "")
+
+    profile_slug = auth_plan.get("profile_slug", "") if auth_plan else ""
+
+    # Any app with non-cookie required headers (Authorization/x-api-key/a
+    # dynamically-captured bearer, etc.) gets none of that from the browser
+    # session's credentials:'include' (cookies only) — the op must inject
+    # those headers itself via resolve_auth(), for BOTH auth strategies:
+    # static_secret_header (a manually-supplied secret) and tabby_credentials
+    # (Tabby dynamically captures the header from real page traffic — see
+    # login_assets.py's request_header_allowlist wiring). A cookie-only
+    # tabby_credentials app (required_auth.headers empty) needs no injection.
+    needs_header_injection = bool(auth_plan and auth_plan.get("required_auth", {}).get("headers"))
+
+    static_headers = {
+        h["name"]: h["value"] for h in request_headers if h.get("name") and h.get("value")
+    }
+
+    body_params = [p for p in params if p.get("source") in ("body", None, "")]
+    query_params = [p for p in params if p.get("source") == "query"]
+    has_body = bool(body_params) and method in ("POST", "PUT", "PATCH")
+
+    sig_parts = _py_signature(params)
+    desc_safe = description.replace('"""', "'''")
+
+    lines: list[str] = [
+        "#!/usr/bin/env python3",
+        f'"""Auto-generated skill operation: {name}',
+        f"Method: {method}",
+        f"Path: {path_template}",
+        "",
+        "Skill-variant entry point. Executes inside Tabby's authenticated browser",
+        "via the execute/fetch endpoint. Requires a live Tabby session for the configured profile.",
+        '"""',
+        "",
+        "from __future__ import annotations",
+        "",
+        "import argparse",
+        "import asyncio",
+        "import json",
+        "import sys",
+        "from pathlib import Path",
+        "",
+    ]
+    if query_params:
+        lines.append("import urllib.parse")
+    lines += [
+        "",
+        "# Make noui_runtime importable when this file is run as a standalone script",
+        "_SKILL_ROOT = Path(__file__).resolve().parent.parent",
+        "if str(_SKILL_ROOT) not in sys.path:",
+        "    sys.path.insert(0, str(_SKILL_ROOT))",
+        "",
+        "from noui_runtime.execute import execute_fetch  # noqa: E402",
+    ]
+    if needs_header_injection:
+        lines.append("from noui_runtime.auth import resolve_auth  # noqa: E402")
+    lines += [
+        "",
+        f"BASE_URL = {base_url!r}",
+        f"PROFILE_SLUG = {profile_slug!r}",
+        "",
+        "",
+    ]
+
+    if sig_parts:
+        _sep = ",\n    "
+        lines.append(f"async def execute(\n    {_sep.join(sig_parts)},\n) -> dict:")
+    else:
+        lines.append("async def execute() -> dict:")
+    lines.append(f'    """{desc_safe}"""')
+
+    url_expr = f'f"{base_url}{_path_to_fstring(path_template)}"'
+    lines.append(f"    url = {url_expr}")
+
+    if query_params:
+        q_dict = ", ".join(f"{p['name']!r}: {_pn(p)}" for p in query_params)
+        lines.append(f"    _query = {{{q_dict}}}")
+        lines.append("    url = url + ('?' + urllib.parse.urlencode(_query) if _query else '')")
+
+    if has_body:
+        _ = content_type
+        lines.append(_render_body_assignment(body_params))
+
+    if needs_header_injection and static_headers:
+        lines.append(f"    _recorded = {static_headers!r}")
+        lines.append("    headers = {**_recorded, **await resolve_auth()}")
+    elif needs_header_injection:
+        lines.append("    headers = await resolve_auth()")
+    elif static_headers:
+        lines.append(f"    headers = {static_headers!r}")
+    else:
+        lines.append("    headers: dict[str, str] | None = None")
+
+    call_kwargs: list[str] = [
+        "PROFILE_SLUG",
+        "url",
+        f'method="{method}"',
+        "headers=headers",
+    ]
+    if has_body:
+        call_kwargs.append("body=body")
+    lines.append(f"    return await execute_fetch({', '.join(call_kwargs)})")
+    lines.append("")
+    lines.append("")
+
+    lines += _render_cli_wrapper(name, description, params)
+
+    return "\n".join(lines)
+
+
+def _render_skill_operation_http(td: dict, *, auth_plan: dict) -> str:
+    """Render a skill op using httpx + resolve_auth (legacy mode)."""
+    _assign_py_names(td.get("params") or [])
+    name = td["name"]
+    method = td["method"].lower()
+    path_template = td["path"]
+    base_url = td.get("base_url", "")
+    content_type = td.get("request_content_type", "")
+    params: list[dict] = td.get("params", [])
+    request_headers: list[dict] = td.get("request_headers", [])
+    description = td.get("description", "")
+
+    needs_auth = bool(
+        auth_plan
+        and (
+            auth_plan.get("required_auth", {}).get("headers")
+            or auth_plan.get("required_auth", {}).get("cookies")
+            or auth_plan.get("strategy") in ("tabby_credentials", "static_secret_header")
+        )
+    )
+
+    static_headers = {
+        h["name"]: h["value"] for h in request_headers if h.get("name") and h.get("value")
+    }
+
+    sig_parts = _py_signature(params)
+    desc_safe = description.replace('"""', "'''")
+
+    lines: list[str] = [
+        "#!/usr/bin/env python3",
+        f'"""Auto-generated skill operation: {name}',
+        f"Method: {method.upper()}",
+        f"Path: {path_template}",
+        "",
+        "Skill-variant entry point. Runs from inside the skill directory with",
+        "noui_runtime/ as a sibling of operations/. Prints JSON on stdout.",
+        '"""',
+        "",
+        "from __future__ import annotations",
+        "",
+        "import argparse",
+        "import asyncio",
+        "import json",
+        "import sys",
+        "from pathlib import Path",
+        "",
+        "import httpx",
+        "",
+        "# Make noui_runtime importable when this file is run as a standalone script",
+        "_SKILL_ROOT = Path(__file__).resolve().parent.parent",
+        "if str(_SKILL_ROOT) not in sys.path:",
+        "    sys.path.insert(0, str(_SKILL_ROOT))",
+        "",
+    ]
+
+    if needs_auth:
+        lines.append("from noui_runtime.auth import resolve_auth  # noqa: E402")
+        lines.append("")
+
+    lines += [
+        f"BASE_URL = {base_url!r}",
+        "",
+        "",
+    ]
+
+    # execute() coroutine — same shape as MCP operation
+    if sig_parts:
+        _sep = ",\n    "
+        lines.append(f"async def execute(\n    {_sep.join(sig_parts)},\n) -> dict:")
+    else:
+        lines.append("async def execute() -> dict:")
+    lines.append(f'    """{desc_safe}"""')
+
+    body_params = [p for p in params if p.get("source") in ("body", None, "")]
+    query_params = [p for p in params if p.get("source") == "query"]
+
+    url_expr = f'f"{base_url}{_path_to_fstring(path_template)}"'
+    lines.append(f"    url = {url_expr}")
+
+    if body_params and method in ("post", "put", "patch"):
+        var = "body" if "json" in content_type else "data"
+        lines.append(_render_body_assignment(body_params, var))
+
+    if query_params:
+        q_dict = ", ".join(f"{p['name']!r}: {_pn(p)}" for p in query_params)
+        lines.append(f"    params = {{{q_dict}}}")
+
+    if needs_auth:
+        if static_headers:
+            lines.append(f"    _recorded = {static_headers!r}")
+            lines.append("    headers = {**_recorded, **await resolve_auth()}")
+        else:
+            lines.append("    headers = await resolve_auth()")
+    elif static_headers:
+        lines.append(f"    headers = {static_headers!r}")
+    else:
+        lines.append("    headers = {}")
+
+    lines.append("    async with httpx.AsyncClient() as client:")
+    call_kwargs: list[str] = ["url", "headers=headers"]
+    if query_params:
+        call_kwargs.append("params=params")
+    if body_params and method in ("post", "put", "patch"):
+        if "json" in content_type:
+            call_kwargs.append("json=body")
+        else:
+            call_kwargs.append("data=data")
+    lines.append(f"        resp = await client.{method}({', '.join(call_kwargs)})")
+    lines.append("        resp.raise_for_status()")
+    lines.append("        try:")
+    lines.append("            return resp.json()")
+    lines.append("        except Exception:")
+    lines.append('            return {"status": resp.status_code, "text": resp.text}')
+    lines.append("")
+    lines.append("")
+
+    # argparse wrapper
+    lines += _render_cli_wrapper(name, description, params)
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# CLI wrapper
+# ---------------------------------------------------------------------------
+
+
+def _render_cli_wrapper(name: str, description: str, params: list[dict]) -> list[str]:
+    """Render the argparse parser + main() + __main__ block."""
+    prog_description = description.replace('"', "'").splitlines()[0] if description else name
+
+    lines: list[str] = [
+        "def _build_parser() -> argparse.ArgumentParser:",
+        f"    parser = argparse.ArgumentParser(prog={name!r}, description={prog_description!r})",
+    ]
+
+    required = [p for p in params if p.get("required", True)]
+    optional = [p for p in params if not p.get("required", True)]
+
+    for p in [*required, *optional]:
+        pname = _pn(p)
+        flag = f"--{pname.replace('_', '-')}"
+        ptype = p.get("type", "string").lower()
+        help_text = (p.get("description") or "").replace('"', "'") or pname
+        if ptype in ("object", "array"):
+            help_text += " (JSON-encoded)"
+        req_flag = "required=True" if p.get("required", True) else f"default={_py_default(ptype)}"
+
+        if ptype in ("bool", "boolean"):
+            action = "store_true" if not p.get("required", True) else "store_true"
+            lines.append(
+                f"    parser.add_argument({flag!r}, dest={pname!r}, action={action!r}, "
+                f"help={help_text!r})"
+            )
+        else:
+            type_expr = {
+                "int": "int",
+                "integer": "int",
+                "float": "float",
+            }.get(ptype, "str")
+            if type_expr == "str":
+                lines.append(
+                    f"    parser.add_argument({flag!r}, dest={pname!r}, {req_flag}, "
+                    f"help={help_text!r})"
+                )
+            else:
+                lines.append(
+                    f"    parser.add_argument({flag!r}, dest={pname!r}, type={type_expr}, "
+                    f"{req_flag}, help={help_text!r})"
+                )
+
+    lines += [
+        "    return parser",
+        "",
+        "",
+        "def main(argv: list[str] | None = None) -> int:",
+        "    args = _build_parser().parse_args(argv)",
+        "    try:",
+    ]
+
+    if params:
+        kwargs = ", ".join(f"{_pn(p)}=args.{_pn(p)}" for p in params)
+        lines.append(f"        result = asyncio.run(execute({kwargs}))")
+    else:
+        lines.append("        result = asyncio.run(execute())")
+
+    lines += [
+        "    except Exception as exc:",
+        f'        print(f"{name} failed: {{exc}}", file=sys.stderr)',
+        "        return 1",
+        "    print(json.dumps(result, indent=2))",
+        '    if isinstance(result, dict) and "error" in result:',
+        "        return 2",
+        "    return 0",
+        "",
+        "",
+        'if __name__ == "__main__":',
+        "    sys.exit(main())",
+        "",
+    ]
+
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Private code-generation helpers (duplicated from noui_core.compile.server_generator
+# to avoid a cross-compiler private import; small enough to keep in sync by hand)
+# ---------------------------------------------------------------------------
+
+
+def _py_signature(params: list[dict]) -> list[str]:
+    parts: list[str] = []
+    required = [p for p in params if p.get("required", True)]
+    optional = [p for p in params if not p.get("required", True)]
+    for p in required:
+        parts.append(f"{_pn(p)}: {_py_type(p.get('type', 'string'))}")
+    for p in optional:
+        ptype = p.get("type", "string")
+        parts.append(f"{_pn(p)}: {_py_type(ptype)} = {_py_default(ptype)}")
+    return parts
+
+
+def _py_type(t: str) -> str:
+    return {
+        "int": "int",
+        "integer": "int",
+        "bool": "bool",
+        "boolean": "bool",
+        "float": "float",
+    }.get(t.lower(), "str")
+
+
+def _py_default(t: str) -> str:
+    return {
+        "int": "0",
+        "integer": "0",
+        "bool": "False",
+        "boolean": "False",
+        "float": "0.0",
+    }.get(t.lower(), '""')
+
+
+def _path_to_fstring(path_template: str) -> str:
+    """Convert /posts/{id} → /posts/{id} (already valid f-string interpolation)."""
+    return path_template

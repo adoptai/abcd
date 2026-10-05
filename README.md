@@ -2,6 +2,10 @@
 
 A comprehensive CLI toolkit designed for AI agents (like Cursor) to build, test, and manage actions and workflows on the AdoptAI platform.
 
+It is also the home of the **NoUI** skill builder (record a website through Tabby → compile
+it into an Agent Skill → verify, install and run it on the Agent Harness), and ships as a
+**Claude Code plugin marketplace** — see [Skills, plugins & NoUI](#skills-plugins--noui).
+
 ## Overview
 
 ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for building, testing, and managing AI-powered actions and workflows on the AdoptAI platform. Designed for AI agents (Cursor, Claude, etc.) to invoke as part of automated workflows.
@@ -71,15 +75,15 @@ curl -sSL https://install.python-poetry.org | python3 -
 ## Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/adoptai/abcd.git abcd
+# Clone the repository (the tabby submodule is only needed for a local Tabby)
+git clone --recurse-submodules https://github.com/adoptai/abcd.git abcd
 cd abcd
 
 # Install dependencies
 poetry install --no-root
 
 # Copy environment template to default workspace
-cp dev.env workspaces/default/.env
+cp dev.env.example workspaces/default/.env
 
 # Configure your credentials in workspaces/default/.env
 ```
@@ -151,6 +155,90 @@ poetry run mypy cli/
 The same checks run automatically on every pull request via the GitHub Actions workflow at `.github/workflows/lint.yml`.
 
 ---
+
+## Skills, plugins & NoUI
+
+### The plugin marketplace
+
+```bash
+claude plugin marketplace add ./          # from an abcd checkout
+claude plugin install abcd-builder@abcd
+claude plugin install adopt-skill-review@abcd
+# or, for other agents:  npx skills add <path-to-abcd>
+```
+
+| Plugin | Skills |
+|---|---|
+| `abcd-builder/` | `discover-and-plan` (record a site → compile → generalize), `skill-builder` (replay gate → install → push/run/trace on the Agent Harness), `action-builder` (WDL actions), `pipeline-builder` (WDL pipelines) |
+| `adopt-skill-review/` | audit a harness skill/plugin for step budget, batching and latency |
+
+The skills drive the CLI in `cli/`, so they run from an abcd checkout.
+
+### NoUI: a website → an Agent Skill
+
+The NoUI toolkit lives in `cli/noui/` (capture / compile / activate / verify; deterministic,
+no LLM key). Run it **through the workspace bridge**, which scopes everything to a workspace:
+
+```bash
+python cli/noui_workspace.py --env <env> doctor                       # config + Tabby reachability
+python cli/noui_workspace.py --env <env> capture_record --url https://app.example.com/login --name example
+python cli/noui_workspace.py --env <env> capture_import <session_id> --as skill --execution-mode harness --name example
+python cli/noui_workspace.py --env <env> generalize draft ws:skills/<skill_id>   # → member confirms → apply
+python cli/harness_skill.py push workspaces/<env>/harness/skills/<skill_id> --env <env>
+python cli/harness_run.py start --env <env> --workstream <ws> --message "..."
+```
+
+Everything NoUI produces lands under the workspace's harness tree (gitignored):
+
+```
+workspaces/<env>/harness/
+  bundles/          raw capture bundles (source of truth)
+  sessions/         recording provision ledger
+  skills/<id>/      compiled skills — the dir harness_skill.py push reads
+  mcp_servers/      compiled MCP servers
+  login_recordings/ compiled login drafts
+  traces/  workstreams.json  .token_cache.json      (harness debug loop)
+```
+
+The bridge maps the workspace `.env` onto NoUI's variables and always pins
+`NOUI_TABBY_AUTH_MODE`: `platform_jwt` (cloud Tabby; `ADOPT_WEBUI_ENDPOINT` +
+`ADOPT_HARNESS_PAT_CLIENT_ID/SECRET` + `TABBY_API_URL`) or `agent_token` (local Tabby;
+`TABBY_API_URL` + `TABBY_CLIENT_ID/SECRET`). The WDL `ADOPT_CLIENT_ID/SECRET` are never
+passed to NoUI.
+
+### A local Tabby
+
+`tabby/` is a submodule pinned to the Tabby version the toolkit is tested against
+(recording schema v5).
+
+```bash
+python cli/tabby_bootstrap.py status
+python cli/tabby_bootstrap.py up --env <env> --write-env [--port 18000 --port-offset 20000]
+python cli/tabby_bootstrap.py down
+```
+
+`up` starts the **API tier** (Docker Compose infra + the Tabby API) and writes agent credentials
+into the workspace — enough for auth, App Templates and profiles. Recording and `/execute` need
+browser workers: a cloud Tabby, or `python cli/tabby_bootstrap.py full` (Kind).
+
+### Publishing
+
+| Target | Command |
+|---|---|
+| Org tier (skill) | `python cli/harness_skill.py push <dir> --env <env> [--replace]` |
+| Org tier (plugin) | `python cli/harness_skill.py push-plugin <plugin_dir> --env <env>` |
+| Default "Built-in" tier | `python cli/harness_skill.py deploy-default <dir> --env <env>` (`@adopt.ai` only) |
+| The NoUI harness skill | `harness-skills/noui/` + `.github/workflows/deploy-skill.yml` |
+
+Every upload content-scans SKILL.md and all aux files (zip members included) for credentials
+before the PAT is exchanged.
+
+### CI
+
+`lint.yml` (ruff + mypy for `cli/`, and separately for `cli/noui`), `test.yml` (pytest + the
+skill audit), `secret-gate.yml` (gitleaks + `.github/scripts/sensitive_check.py`: forbidden
+file types and client identifiers, kept as SHA-256 digests), `deploy-skill.yml` (NoUI harness
+skill: PR dry-run, manual deploy).
 
 ## Environment Setup
 

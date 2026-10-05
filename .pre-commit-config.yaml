@@ -9,7 +9,30 @@ repos:
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.14.1
     hooks:
+      # cli/ (WDL + harness tooling). Tests are not strictly typed (as in noui);
+      # cli/noui is checked by its own hook below.
       - id: mypy
+        exclude: ^(tests/|cli/noui/|cli/wdl_common/tests/)
+        additional_dependencies:
+          - types-requests
+          - types-PyYAML
+      # The NoUI toolkit bundle imports itself as top-level `noui_core`.
+      - id: mypy
+        name: mypy (cli/noui)
+        files: ^cli/noui/
+        args: [--config-file, cli/noui/mypy.ini]
         additional_dependencies:
           - types-requests
 
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
+
+  - repo: local
+    hooks:
+      - id: sensitive-content
+        name: sensitive content (forbidden files, denylisted client names)
+        entry: python .github/scripts/sensitive_check.py
+        language: system
+        pass_filenames: true
