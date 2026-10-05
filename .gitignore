@@ -152,3 +152,20 @@ workspaces/.active_env
 
 # CE Testing
 user-profile/
+
+# --- NoUI merge (cli/noui toolkit) ---
+# Env templates are tracked as *.example only; never real env files.
+dev.env
+.env.*
+!.env.example
+!dev.env.example
+*.pem
+*.key
+# NoUI captures/compiled assets live under workspaces/<env>/harness/ (ignored
+# above); never commit stray capture output from elsewhere.
+bundles/
+captures/
+workbench/
+noui-bundle.zip
+# Local orchestration state
+.omc/
