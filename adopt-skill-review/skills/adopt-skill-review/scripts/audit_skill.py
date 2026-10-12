@@ -652,7 +652,7 @@ def check_discovery(b: SkillBundle) -> list[Finding]:
             if re.search(r"```json|\bprints?\b|\bstdout\b|\breturns?\b|"
                          r"output looks like|what the script prints", window):
                 shape_ok = True
-            if re.search(r"exit\s*(?:code)?\s*[0-9]|\bexits?\s+(?:non-?zero|0|1|2|3)\b|"
+            if re.search(r"exit\s*(?:code)?\s*[0-9]|\bexits?:?\s+(?:non-?zero|0|1|2|3)\b|"
                          r"\brefus(?:e|es|al)\b", window):
                 exits_ok = True
         if not shape_ok:
