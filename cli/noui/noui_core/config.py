@@ -1,0 +1,71 @@
+"""NoUI core configuration.
+
+Slim settings object read from environment / `.env`. Carries only what the
+three pillars (capture / compile / activate) need to reach Tabby. The former
+FastAPI backend, its SQLite store, and the Anthropic key are gone — the
+record→compile→export pipeline makes no LLM calls.
+
+Resolution order for `.env`: the bundle root (``skills/noui/.env``) first, then
+the current working directory, so an agent can drop a `.env` next to wherever it
+runs the scripts.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load .env from the bundle root (two levels up: noui_core/ -> cli/noui/),
+# then from CWD. Later loads do not override already-set vars.
+#
+# NOUI_IGNORE_DOTENV=1 skips both: abcd's workspace bridge (cli/noui_workspace.py)
+# passes the complete, resolved configuration in the environment, and a stray
+# .env -- notably abcd's own repo-root .env, whose ADOPT_CLIENT_ID/SECRET are WDL
+# client credentials, not a platform PAT -- must not fill in what it withheld.
+_BUNDLE_ROOT = Path(__file__).resolve().parent.parent
+if os.environ.get("NOUI_IGNORE_DOTENV", "").strip().lower() not in ("1", "true", "yes"):
+    load_dotenv(_BUNDLE_ROOT / ".env")
+    load_dotenv(Path.cwd() / ".env")
+
+
+@dataclass
+class Settings:
+    # Tabby API — the only external dependency. In ``broker`` auth mode this is
+    # the harness control-plane broker URL (not Tabby directly); the broker
+    # injects the per-user Tabby bearer so the sandbox holds no credential.
+    tabby_api_host: str = "http://localhost:8000"
+    tabby_admin_token: str = ""
+
+    # Auth mode: "agent_token" (default, mint from client creds), "platform_jwt"
+    # (per-user cloud token-exchange), or "broker" (run inside the Agent Harness
+    # sandbox — send an opaque per-conversation capability token; the broker swaps
+    # it for the real Tabby bearer). See the control-plane broker design (adoptai-workflows).
+    tabby_auth_mode: str = ""
+
+    # Opaque per-conversation capability token, only set in ``broker`` mode. NOT a
+    # Tabby credential — the broker validates it → (org, user) and injects the real
+    # per-user bearer server-side.
+    broker_token: str = ""
+
+    # Default output dir for generated assets (workbench inside the bundle).
+    workbench_dir: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.workbench_dir:
+            self.workbench_dir = str(_BUNDLE_ROOT / "workbench")
+
+    def broker_mode(self) -> bool:
+        """True when NoUI runs behind the harness control-plane broker."""
+        return self.tabby_auth_mode == "broker"
+
+
+settings = Settings(
+    tabby_api_host=os.environ.get("TABBY_API_URL", "http://localhost:8000"),
+    tabby_admin_token=os.environ.get("TABBY_ADMIN_TOKEN", ""),
+    tabby_auth_mode=os.environ.get("NOUI_TABBY_AUTH_MODE", "").strip().lower(),
+    broker_token=os.environ.get("NOUI_BROKER_TOKEN", ""),
+    workbench_dir=os.environ.get("NOUI_WORKBENCH_DIR", ""),
+)

@@ -1,0 +1,1598 @@
+{
+ "click_events": [
+  {
+   "event_time": "2026-10-05T13:13:05.086Z",
+   "event_type": "click",
+   "selector": "input#username",
+   "seq": 2,
+   "tag_name": "INPUT",
+   "text_content": "",
+   "timestamp": "2026-10-05T13:13:05.086Z",
+   "url": "https://toyapp.example.test/login"
+  },
+  {
+   "event_time": "2026-10-05T13:13:05.114Z",
+   "event_type": "change",
+   "selector": "input#username",
+   "seq": 3,
+   "tag_name": "INPUT",
+   "text_content": "",
+   "timestamp": "2026-10-05T13:13:05.114Z",
+   "url": "https://toyapp.example.test/login",
+   "value": "testuser"
+  },
+  {
+   "event_time": "2026-10-05T13:13:05.119Z",
+   "event_type": "change",
+   "selector": "input#password",
+   "seq": 4,
+   "tag_name": "INPUT",
+   "text_content": "",
+   "timestamp": "2026-10-05T13:13:05.119Z",
+   "url": "https://toyapp.example.test/login",
+   "value": "<redacted>"
+  },
+  {
+   "event_time": "2026-10-05T13:13:05.119Z",
+   "event_type": "click",
+   "selector": "button[type=submit]",
+   "seq": 5,
+   "tag_name": "BUTTON",
+   "text_content": "Sign In",
+   "timestamp": "2026-10-05T13:13:05.119Z",
+   "url": "https://toyapp.example.test/login"
+  },
+  {
+   "event_time": "2026-10-05T13:13:05.186Z",
+   "event_type": "click",
+   "selector": "a[href='/notes/new']",
+   "seq": 7,
+   "tag_name": "A",
+   "text_content": "New Note",
+   "timestamp": "2026-10-05T13:13:05.186Z",
+   "url": "https://toyapp.example.test/"
+  },
+  {
+   "event_time": "2026-10-05T13:13:05.280Z",
+   "event_type": "change",
+   "selector": "input#title",
+   "seq": 9,
+   "tag_name": "INPUT",
+   "text_content": "",
+   "timestamp": "2026-10-05T13:13:05.280Z",
+   "url": "https://toyapp.example.test/notes/new",
+   "value": "Quarterly plan"
+  },
+  {
+   "event_time": "2026-10-05T13:13:05.287Z",
+   "event_type": "change",
+   "selector": "textarea#body",
+   "seq": 10,
+   "tag_name": "TEXTAREA",
+   "text_content": "",
+   "timestamp": "2026-10-05T13:13:05.287Z",
+   "url": "https://toyapp.example.test/notes/new",
+   "value": "Draft the quarterly plan"
+  },
+  {
+   "event_time": "2026-10-05T13:13:05.287Z",
+   "event_type": "click",
+   "selector": "button[type=submit]",
+   "seq": 11,
+   "tag_name": "BUTTON",
+   "text_content": "Save Note",
+   "timestamp": "2026-10-05T13:13:05.287Z",
+   "url": "https://toyapp.example.test/notes/new"
+  }
+ ],
+ "download_events": [],
+ "har": {
+  "log": {
+   "browser": {
+    "name": "chromium",
+    "version": "153.0.8010.12"
+   },
+   "creator": {
+    "name": "Playwright",
+    "version": "1.63.0"
+   },
+   "entries": [
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 428.224,
+     "_resourceType": "document",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 0,
+      "cookies": [],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "document"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "navigate"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "none"
+       },
+       {
+        "name": "Sec-Fetch-User",
+        "value": "?1"
+       },
+       {
+        "name": "Upgrade-Insecure-Requests",
+        "value": "1"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 635,
+      "httpVersion": "HTTP/1.1",
+      "method": "GET",
+      "queryString": [],
+      "url": "https://toyapp.example.test/login"
+     },
+     "response": {
+      "_transferSize": 2485,
+      "bodySize": 2350,
+      "content": {
+       "compression": 0,
+       "mimeType": "text/html; charset=utf-8",
+       "size": 2350,
+       "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Login - ToyApp</title>\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; }\n    .container { max-width: 720px; margin: 40px auto; padding: 0 20px; }\n    h1 { margin-bottom: 20px; }\n    .card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 16px;\n             box-shadow: 0 1px 3px rgba(0,0,0,0.1); }\n    label { display: block; margin-bottom: 6px; font-weight: 600; }\n    input, textarea { width: 100%; padding: 8px 12px; border: 1px solid #ccc;\n                       border-radius: 4px; margin-bottom: 16px; font-size: 14px; }\n    textarea { min-height: 80px; resize: vertical; }\n    button { padding: 10px 20px; background: #2563eb; color: #fff; border: none;\n              border-radius: 4px; cursor: pointer; font-size: 14px; }\n    button:hover { background: #1d4ed8; }\n    .error { color: #dc2626; margin-bottom: 12px; }\n    .success { color: #16a34a; margin-bottom: 12px; }\n    nav { display: flex; gap: 16px; align-items: center; margin-bottom: 24px; }\n    nav a { color: #2563eb; text-decoration: none; }\n    .note { border-left: 3px solid #2563eb; padding-left: 12px; margin-bottom: 12px; }\n    .note h3 { margin-bottom: 4px; }\n    .note small { color: #888; }\n    .badge { background: #e5e7eb; padding: 2px 8px; border-radius: 12px; font-size: 12px; }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    \n        <div class=\"card\">\n          <h1>Login</h1>\n          \n          <form method=\"post\" action=\"/api/login\">\n            <label for=\"username\">Username</label>\n            <input type=\"text\" id=\"username\" name=\"username\" placeholder=\"Username\"\n                   autocomplete=\"username\" required>\n            <label for=\"password\">Password</label>\n            <input type=\"password\" id=\"password\" name=\"password\" placeholder=\"Password\"\n                   autocomplete=\"current-password\" required>\n            <button type=\"submit\">Sign In</button>\n          </form>\n        </div>\n        <p style=\"margin-top:12px; color:#888; font-size:13px;\">\n          Test credentials: <code>testuser</code> / <code>testpass</code>\n        </p>\n    \n  </div>\n</body>\n</html>"
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "2350"
+       },
+       {
+        "name": "content-type",
+        "value": "text/html; charset=utf-8"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:04 GMT"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 135,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "",
+      "status": 200,
+      "statusText": "OK"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.065Z",
+     "time": 12.648,
+     "timings": {
+      "connect": 0.172,
+      "dns": 0.082,
+      "receive": 2.16,
+      "send": 0,
+      "ssl": 1.513,
+      "wait": 8.721
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 530.019,
+     "_resourceType": "document",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 35,
+      "cookies": [],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Cache-Control",
+        "value": "max-age=0"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Content-Length",
+        "value": "35"
+       },
+       {
+        "name": "Content-Type",
+        "value": "application/x-www-form-urlencoded"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Origin",
+        "value": "https://toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/login"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "document"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "navigate"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "Sec-Fetch-User",
+        "value": "?1"
+       },
+       {
+        "name": "Upgrade-Insecure-Requests",
+        "value": "1"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 813,
+      "httpVersion": "HTTP/1.1",
+      "method": "POST",
+      "postData": {
+       "mimeType": "application/x-www-form-urlencoded",
+       "params": [
+        {
+         "name": "username",
+         "value": "testuser"
+        },
+        {
+         "name": "password",
+         "value": "testpass"
+        }
+       ],
+       "text": "username=testuser&password=testpass"
+      },
+      "queryString": [],
+      "url": "https://toyapp.example.test/api/login"
+     },
+     "response": {
+      "_transferSize": 247,
+      "bodySize": 0,
+      "content": {
+       "compression": 0,
+       "mimeType": "x-unknown",
+       "size": -1
+      },
+      "cookies": [
+       {
+        "expires": "2026-10-05T14:13:05.177Z",
+        "httpOnly": true,
+        "name": "toyapp_session",
+        "path": "/",
+        "sameSite": "lax",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "0"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:04 GMT"
+       },
+       {
+        "name": "location",
+        "value": "/"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       },
+       {
+        "name": "set-cookie",
+        "value": "toyapp_session=toyapp-session-fixture; HttpOnly; Max-Age=3600; Path=/; SameSite=lax"
+       }
+      ],
+      "headersSize": 247,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "https://toyapp.example.test/",
+      "status": 302,
+      "statusText": "Found"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.171Z",
+     "time": 4.0329999999999995,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 1.023,
+      "send": 0,
+      "ssl": -1,
+      "wait": 3.01
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 534.517,
+     "_resourceType": "document",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 0,
+      "cookies": [
+       {
+        "name": "toyapp_session",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Cache-Control",
+        "value": "max-age=0"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Cookie",
+        "value": "toyapp_session=toyapp-session-fixture"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/login"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "document"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "navigate"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "Sec-Fetch-User",
+        "value": "?1"
+       },
+       {
+        "name": "Upgrade-Insecure-Requests",
+        "value": "1"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 791,
+      "httpVersion": "HTTP/1.1",
+      "method": "GET",
+      "queryString": [],
+      "url": "https://toyapp.example.test/"
+     },
+     "response": {
+      "_transferSize": 2304,
+      "bodySize": 2169,
+      "content": {
+       "compression": 0,
+       "mimeType": "text/html; charset=utf-8",
+       "size": 2169,
+       "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Dashboard - ToyApp</title>\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; }\n    .container { max-width: 720px; margin: 40px auto; padding: 0 20px; }\n    h1 { margin-bottom: 20px; }\n    .card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 16px;\n             box-shadow: 0 1px 3px rgba(0,0,0,0.1); }\n    label { display: block; margin-bottom: 6px; font-weight: 600; }\n    input, textarea { width: 100%; padding: 8px 12px; border: 1px solid #ccc;\n                       border-radius: 4px; margin-bottom: 16px; font-size: 14px; }\n    textarea { min-height: 80px; resize: vertical; }\n    button { padding: 10px 20px; background: #2563eb; color: #fff; border: none;\n              border-radius: 4px; cursor: pointer; font-size: 14px; }\n    button:hover { background: #1d4ed8; }\n    .error { color: #dc2626; margin-bottom: 12px; }\n    .success { color: #16a34a; margin-bottom: 12px; }\n    nav { display: flex; gap: 16px; align-items: center; margin-bottom: 24px; }\n    nav a { color: #2563eb; text-decoration: none; }\n    .note { border-left: 3px solid #2563eb; padding-left: 12px; margin-bottom: 12px; }\n    .note h3 { margin-bottom: 4px; }\n    .note small { color: #888; }\n    .badge { background: #e5e7eb; padding: 2px 8px; border-radius: 12px; font-size: 12px; }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    \n        <nav>\n          <strong>ToyApp</strong>\n          <a href=\"/\">Dashboard</a>\n          <a href=\"/notes/new\">New Note</a>\n          <span class=\"badge\">Logged in as testuser</span>\n          <a href=\"/api/logout\" style=\"margin-left:auto; color:#dc2626;\">Logout</a>\n        </nav>\n        <h1>Notes</h1>\n        <div class=\"card\">\n          \n        <div class=\"note\">\n          <h3>Welcome note</h3>\n          <p>This is a sample note created at startup.</p>\n          <small>by system at 2026-10-05T13:13:04</small>\n        </div>\n        </div>\n    \n  </div>\n</body>\n</html>"
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "2169"
+       },
+       {
+        "name": "content-type",
+        "value": "text/html; charset=utf-8"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:04 GMT"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 135,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "",
+      "status": 200,
+      "statusText": "OK"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.176Z",
+     "time": 2.7960000000000003,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 1.339,
+      "send": 0,
+      "ssl": -1,
+      "wait": 1.457
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 599.073,
+     "_resourceType": "document",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 0,
+      "cookies": [
+       {
+        "name": "toyapp_session",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Cookie",
+        "value": "toyapp_session=toyapp-session-fixture"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "document"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "navigate"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "Sec-Fetch-User",
+        "value": "?1"
+       },
+       {
+        "name": "Upgrade-Insecure-Requests",
+        "value": "1"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 769,
+      "httpVersion": "HTTP/1.1",
+      "method": "GET",
+      "queryString": [],
+      "url": "https://toyapp.example.test/notes/new"
+     },
+     "response": {
+      "_transferSize": 2521,
+      "bodySize": 2386,
+      "content": {
+       "compression": 0,
+       "mimeType": "text/html; charset=utf-8",
+       "size": 2386,
+       "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>New Note - ToyApp</title>\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; }\n    .container { max-width: 720px; margin: 40px auto; padding: 0 20px; }\n    h1 { margin-bottom: 20px; }\n    .card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 16px;\n             box-shadow: 0 1px 3px rgba(0,0,0,0.1); }\n    label { display: block; margin-bottom: 6px; font-weight: 600; }\n    input, textarea { width: 100%; padding: 8px 12px; border: 1px solid #ccc;\n                       border-radius: 4px; margin-bottom: 16px; font-size: 14px; }\n    textarea { min-height: 80px; resize: vertical; }\n    button { padding: 10px 20px; background: #2563eb; color: #fff; border: none;\n              border-radius: 4px; cursor: pointer; font-size: 14px; }\n    button:hover { background: #1d4ed8; }\n    .error { color: #dc2626; margin-bottom: 12px; }\n    .success { color: #16a34a; margin-bottom: 12px; }\n    nav { display: flex; gap: 16px; align-items: center; margin-bottom: 24px; }\n    nav a { color: #2563eb; text-decoration: none; }\n    .note { border-left: 3px solid #2563eb; padding-left: 12px; margin-bottom: 12px; }\n    .note h3 { margin-bottom: 4px; }\n    .note small { color: #888; }\n    .badge { background: #e5e7eb; padding: 2px 8px; border-radius: 12px; font-size: 12px; }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    \n        <nav>\n          <strong>ToyApp</strong>\n          <a href=\"/\">Dashboard</a>\n          <a href=\"/notes/new\">New Note</a>\n          <span class=\"badge\">Logged in as testuser</span>\n          <a href=\"/api/logout\" style=\"margin-left:auto; color:#dc2626;\">Logout</a>\n        </nav>\n        <h1>Create Note</h1>\n        <div class=\"card\">\n          \n          <form method=\"post\" action=\"/api/notes\">\n            <label for=\"title\">Title</label>\n            <input type=\"text\" id=\"title\" name=\"title\" placeholder=\"Note title\" required>\n            <label for=\"body\">Body</label>\n            <textarea id=\"body\" name=\"body\" placeholder=\"Write your note here...\" required></textarea>\n            <button type=\"submit\">Save Note</button>\n          </form>\n        </div>\n    \n  </div>\n</body>\n</html>"
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "2386"
+       },
+       {
+        "name": "content-type",
+        "value": "text/html; charset=utf-8"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:04 GMT"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 135,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "",
+      "status": 200,
+      "statusText": "OK"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.241Z",
+     "time": 3.278,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 1.347,
+      "send": 0,
+      "ssl": -1,
+      "wait": 1.931
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 696.623,
+     "_resourceType": "document",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 50,
+      "cookies": [
+       {
+        "name": "toyapp_session",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Cache-Control",
+        "value": "max-age=0"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Content-Length",
+        "value": "50"
+       },
+       {
+        "name": "Content-Type",
+        "value": "application/x-www-form-urlencoded"
+       },
+       {
+        "name": "Cookie",
+        "value": "toyapp_session=toyapp-session-fixture"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Origin",
+        "value": "https://toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/notes/new"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "document"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "navigate"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "Sec-Fetch-User",
+        "value": "?1"
+       },
+       {
+        "name": "Upgrade-Insecure-Requests",
+        "value": "1"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 906,
+      "httpVersion": "HTTP/1.1",
+      "method": "POST",
+      "postData": {
+       "mimeType": "application/x-www-form-urlencoded",
+       "params": [
+        {
+         "name": "title",
+         "value": "Quarterly plan"
+        },
+        {
+         "name": "body",
+         "value": "Draft the quarterly plan"
+        }
+       ],
+       "text": "title=Quarterly+plan&body=Draft+the+quarterly+plan"
+      },
+      "queryString": [],
+      "url": "https://toyapp.example.test/api/notes"
+     },
+     "response": {
+      "_transferSize": 156,
+      "bodySize": 0,
+      "content": {
+       "compression": 0,
+       "mimeType": "x-unknown",
+       "size": -1
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "0"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:04 GMT"
+       },
+       {
+        "name": "location",
+        "value": "/notes/new?success=Note+created:+Quarterly%20plan"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 156,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "https://toyapp.example.test/notes/new?success=Note+created:+Quarterly%20plan",
+      "status": 302,
+      "statusText": "Found"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.338Z",
+     "time": 3.1900000000000004,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 0.74,
+      "send": 0,
+      "ssl": -1,
+      "wait": 2.45
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 700.684,
+     "_resourceType": "document",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 0,
+      "cookies": [
+       {
+        "name": "toyapp_session",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Cache-Control",
+        "value": "max-age=0"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Cookie",
+        "value": "toyapp_session=toyapp-session-fixture"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/notes/new"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "document"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "navigate"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "Sec-Fetch-User",
+        "value": "?1"
+       },
+       {
+        "name": "Upgrade-Insecure-Requests",
+        "value": "1"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 804,
+      "httpVersion": "HTTP/1.1",
+      "method": "GET",
+      "queryString": [
+       {
+        "name": "success",
+        "value": "Note created: Quarterly plan"
+       }
+      ],
+      "url": "https://toyapp.example.test/notes/new?success=Note+created:+Quarterly%20plan"
+     },
+     "response": {
+      "_transferSize": 2572,
+      "bodySize": 2437,
+      "content": {
+       "compression": 0,
+       "mimeType": "text/html; charset=utf-8",
+       "size": 2437,
+       "text": "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>New Note - ToyApp</title>\n  <style>\n    * { margin: 0; padding: 0; box-sizing: border-box; }\n    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #333; }\n    .container { max-width: 720px; margin: 40px auto; padding: 0 20px; }\n    h1 { margin-bottom: 20px; }\n    .card { background: #fff; border-radius: 8px; padding: 24px; margin-bottom: 16px;\n             box-shadow: 0 1px 3px rgba(0,0,0,0.1); }\n    label { display: block; margin-bottom: 6px; font-weight: 600; }\n    input, textarea { width: 100%; padding: 8px 12px; border: 1px solid #ccc;\n                       border-radius: 4px; margin-bottom: 16px; font-size: 14px; }\n    textarea { min-height: 80px; resize: vertical; }\n    button { padding: 10px 20px; background: #2563eb; color: #fff; border: none;\n              border-radius: 4px; cursor: pointer; font-size: 14px; }\n    button:hover { background: #1d4ed8; }\n    .error { color: #dc2626; margin-bottom: 12px; }\n    .success { color: #16a34a; margin-bottom: 12px; }\n    nav { display: flex; gap: 16px; align-items: center; margin-bottom: 24px; }\n    nav a { color: #2563eb; text-decoration: none; }\n    .note { border-left: 3px solid #2563eb; padding-left: 12px; margin-bottom: 12px; }\n    .note h3 { margin-bottom: 4px; }\n    .note small { color: #888; }\n    .badge { background: #e5e7eb; padding: 2px 8px; border-radius: 12px; font-size: 12px; }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    \n        <nav>\n          <strong>ToyApp</strong>\n          <a href=\"/\">Dashboard</a>\n          <a href=\"/notes/new\">New Note</a>\n          <span class=\"badge\">Logged in as testuser</span>\n          <a href=\"/api/logout\" style=\"margin-left:auto; color:#dc2626;\">Logout</a>\n        </nav>\n        <h1>Create Note</h1>\n        <div class=\"card\">\n          <p class=\"success\">Note created: Quarterly plan</p>\n          <form method=\"post\" action=\"/api/notes\">\n            <label for=\"title\">Title</label>\n            <input type=\"text\" id=\"title\" name=\"title\" placeholder=\"Note title\" required>\n            <label for=\"body\">Body</label>\n            <textarea id=\"body\" name=\"body\" placeholder=\"Write your note here...\" required></textarea>\n            <button type=\"submit\">Save Note</button>\n          </form>\n        </div>\n    \n  </div>\n</body>\n</html>"
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "2437"
+       },
+       {
+        "name": "content-type",
+        "value": "text/html; charset=utf-8"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:04 GMT"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 135,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "",
+      "status": 200,
+      "statusText": "OK"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.342Z",
+     "time": 2.2809999999999997,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 1.212,
+      "send": 0,
+      "ssl": -1,
+      "wait": 1.069
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 1212.292,
+     "_resourceType": "fetch",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 0,
+      "cookies": [
+       {
+        "name": "toyapp_session",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "*/*"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Cookie",
+        "value": "toyapp_session=toyapp-session-fixture"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/notes/new?success=Note+created:+Quarterly%20plan"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "empty"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "cors"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 628,
+      "httpVersion": "HTTP/1.1",
+      "method": "GET",
+      "queryString": [],
+      "url": "https://toyapp.example.test/api/notes"
+     },
+     "response": {
+      "_transferSize": 514,
+      "bodySize": 388,
+      "content": {
+       "compression": 0,
+       "mimeType": "application/json",
+       "size": 388,
+       "text": "{\"notes\":[{\"id\":\"8a78d97d-059d-4cac-a008-c7b154616b56\",\"title\":\"Welcome note\",\"body\":\"This is a sample note created at startup.\",\"created_by\":\"system\",\"created_at\":\"2026-10-05T13:13:04.508376+00:00\"},{\"id\":\"45072dba-a23a-492d-b63d-7ded5915f472\",\"title\":\"Quarterly plan\",\"body\":\"Draft the quarterly plan\",\"created_by\":\"testuser\",\"created_at\":\"2026-10-05T13:13:05.341309+00:00\"}],\"count\":2}"
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "388"
+       },
+       {
+        "name": "content-type",
+        "value": "application/json"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:05 GMT"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 126,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "",
+      "status": 200,
+      "statusText": "OK"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.854Z",
+     "time": 2.714,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 1.355,
+      "send": 0,
+      "ssl": -1,
+      "wait": 1.359
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 1218.492,
+     "_resourceType": "fetch",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 0,
+      "cookies": [
+       {
+        "name": "toyapp_session",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "*/*"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Cookie",
+        "value": "toyapp_session=toyapp-session-fixture"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/notes/new?success=Note+created:+Quarterly%20plan"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "empty"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "cors"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 665,
+      "httpVersion": "HTTP/1.1",
+      "method": "GET",
+      "queryString": [],
+      "url": "https://toyapp.example.test/api/notes/45072dba-a23a-492d-b63d-7ded5915f472"
+     },
+     "response": {
+      "_transferSize": 302,
+      "bodySize": 176,
+      "content": {
+       "compression": 0,
+       "mimeType": "application/json",
+       "size": 176,
+       "text": "{\"id\":\"45072dba-a23a-492d-b63d-7ded5915f472\",\"title\":\"Quarterly plan\",\"body\":\"Draft the quarterly plan\",\"created_by\":\"testuser\",\"created_at\":\"2026-10-05T13:13:05.341309+00:00\"}"
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "176"
+       },
+       {
+        "name": "content-type",
+        "value": "application/json"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:05 GMT"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 126,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "",
+      "status": 200,
+      "statusText": "OK"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.860Z",
+     "time": 2.5540000000000003,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 1.214,
+      "send": 0,
+      "ssl": -1,
+      "wait": 1.34
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 1223.119,
+     "_resourceType": "fetch",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 0,
+      "cookies": [
+       {
+        "name": "toyapp_session",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "*/*"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Cookie",
+        "value": "toyapp_session=toyapp-session-fixture"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/notes/new?success=Note+created:+Quarterly%20plan"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "empty"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "cors"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 625,
+      "httpVersion": "HTTP/1.1",
+      "method": "GET",
+      "queryString": [],
+      "url": "https://toyapp.example.test/health"
+     },
+     "response": {
+      "_transferSize": 171,
+      "bodySize": 46,
+      "content": {
+       "compression": 0,
+       "mimeType": "application/json",
+       "size": 46,
+       "text": "{\"status\":\"ok\",\"app\":\"toyapp\",\"notes_count\":2}"
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "46"
+       },
+       {
+        "name": "content-type",
+        "value": "application/json"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:05 GMT"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 125,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "",
+      "status": 200,
+      "statusText": "OK"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.865Z",
+     "time": 2.314,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 1.345,
+      "send": 0,
+      "ssl": -1,
+      "wait": 0.969
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 1228.442,
+     "_resourceType": "fetch",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 0,
+      "cookies": [
+       {
+        "name": "toyapp_session",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "*/*"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Cookie",
+        "value": "toyapp_session=toyapp-session-fixture"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/notes/new?success=Note+created:+Quarterly%20plan"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "empty"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "cors"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 625,
+      "httpVersion": "HTTP/1.1",
+      "method": "GET",
+      "queryString": [],
+      "url": "https://toyapp.example.test/health"
+     },
+     "response": {
+      "_transferSize": 171,
+      "bodySize": 46,
+      "content": {
+       "compression": 0,
+       "mimeType": "application/json",
+       "size": 46,
+       "text": "{\"status\":\"ok\",\"app\":\"toyapp\",\"notes_count\":2}"
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "46"
+       },
+       {
+        "name": "content-type",
+        "value": "application/json"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:05 GMT"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 125,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "",
+      "status": 200,
+      "statusText": "OK"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.870Z",
+     "time": 2.75,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 1.463,
+      "send": 0,
+      "ssl": -1,
+      "wait": 1.287
+     }
+    },
+    {
+     "_frameref": "frame@6eabb9d655c78abeae9ba78b1cffeaac",
+     "_monotonicTime": 1234.381,
+     "_resourceType": "fetch",
+     "_securityDetails": {},
+     "_serverPort": 38641,
+     "cache": {},
+     "pageref": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "request": {
+      "bodySize": 0,
+      "cookies": [
+       {
+        "name": "toyapp_session",
+        "value": "toyapp-session-fixture"
+       }
+      ],
+      "headers": [
+       {
+        "name": "Accept",
+        "value": "*/*"
+       },
+       {
+        "name": "Accept-Encoding",
+        "value": "gzip, deflate, br, zstd"
+       },
+       {
+        "name": "Connection",
+        "value": "keep-alive"
+       },
+       {
+        "name": "Cookie",
+        "value": "toyapp_session=toyapp-session-fixture"
+       },
+       {
+        "name": "Host",
+        "value": "toyapp.example.test"
+       },
+       {
+        "name": "Origin",
+        "value": "https://toyapp.example.test"
+       },
+       {
+        "name": "Referer",
+        "value": "https://toyapp.example.test/notes/new?success=Note+created:+Quarterly%20plan"
+       },
+       {
+        "name": "Sec-Fetch-Dest",
+        "value": "empty"
+       },
+       {
+        "name": "Sec-Fetch-Mode",
+        "value": "cors"
+       },
+       {
+        "name": "Sec-Fetch-Site",
+        "value": "same-origin"
+       },
+       {
+        "name": "User-Agent",
+        "value": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.8010.12 Safari/537.36"
+       },
+       {
+        "name": "sec-ch-ua",
+        "value": "\"HeadlessChrome\";v=\"153\", \"Not_A Brand\";v=\"8\", \"Chromium\";v=\"153\""
+       },
+       {
+        "name": "sec-ch-ua-mobile",
+        "value": "?0"
+       },
+       {
+        "name": "sec-ch-ua-platform",
+        "value": "\"Linux\""
+       }
+      ],
+      "headersSize": 700,
+      "httpVersion": "HTTP/1.1",
+      "method": "DELETE",
+      "queryString": [],
+      "url": "https://toyapp.example.test/api/notes/45072dba-a23a-492d-b63d-7ded5915f472"
+     },
+     "response": {
+      "_transferSize": 185,
+      "bodySize": 60,
+      "content": {
+       "compression": 0,
+       "mimeType": "application/json",
+       "size": 60,
+       "text": "{\"deleted\":true,\"id\":\"45072dba-a23a-492d-b63d-7ded5915f472\"}"
+      },
+      "cookies": [],
+      "headers": [
+       {
+        "name": "content-length",
+        "value": "60"
+       },
+       {
+        "name": "content-type",
+        "value": "application/json"
+       },
+       {
+        "name": "date",
+        "value": "Mon, 05 Oct 2026 13:13:05 GMT"
+       },
+       {
+        "name": "server",
+        "value": "uvicorn"
+       }
+      ],
+      "headersSize": 125,
+      "httpVersion": "HTTP/1.1",
+      "redirectURL": "",
+      "status": 200,
+      "statusText": "OK"
+     },
+     "serverIPAddress": "203.0.113.10",
+     "startedDateTime": "2026-10-05T13:13:05.876Z",
+     "time": 2.436,
+     "timings": {
+      "connect": -1,
+      "dns": -1,
+      "receive": 1.262,
+      "send": 0,
+      "ssl": -1,
+      "wait": 1.174
+     }
+    }
+   ],
+   "pages": [
+    {
+     "id": "page@506b6ad51aa84b2cce64064ab1d39776",
+     "pageTimings": {
+      "onContentLoad": 287,
+      "onLoad": 288
+     },
+     "startedDateTime": "2026-10-05T13:13:05.063Z",
+     "title": "New Note - ToyApp"
+    }
+   ],
+   "version": "1.2"
+  }
+ },
+ "recording_mode": "workflow",
+ "url_events": [
+  {
+   "from_url": "about:blank",
+   "seq": 1,
+   "timestamp": "2026-10-05T13:13:05.086Z",
+   "to_url": "https://toyapp.example.test/login"
+  },
+  {
+   "from_url": "https://toyapp.example.test/login",
+   "seq": 6,
+   "timestamp": "2026-10-05T13:13:05.186Z",
+   "to_url": "https://toyapp.example.test/"
+  },
+  {
+   "from_url": "https://toyapp.example.test/",
+   "seq": 8,
+   "timestamp": "2026-10-05T13:13:05.253Z",
+   "to_url": "https://toyapp.example.test/notes/new"
+  },
+  {
+   "from_url": "https://toyapp.example.test/notes/new",
+   "seq": 12,
+   "timestamp": "2026-10-05T13:13:05.852Z",
+   "to_url": "https://toyapp.example.test/notes/new?success=Note+created:+Quarterly%20plan"
+  }
+ ]
+}

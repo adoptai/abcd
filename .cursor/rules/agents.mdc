@@ -12,7 +12,7 @@
 - **DO NOT** manually edit `metadata.json` files
 - **DO NOT** call AdoptAI APIs directly bypassing CLI scripts
 - **DO NOT** manually create workspace directories
-- **DO NOT** use HAR files or network captures
+- **DO NOT** use HAR files or network captures as direct input for WDL authoring. To turn a live website's traffic into tools, use the NoUI capture flow (`discover-and-plan` skill / `python cli/noui_workspace.py ...`), which records through Tabby and compiles deterministically
 - **DO NOT** guess API endpoints - use `discover.py`
 - **DO NOT** skip testing before saving/publishing
 
@@ -35,6 +35,21 @@
 - **Validate locally**: Run `cli/test_wdl_action.py --local-only` after edits
 
 **If a CLI tool doesn't exist for what you need, ask the user first.**
+
+---
+
+## Skills & the abcd-builder plugin
+
+The Claude Code plugin `abcd-builder/` packages four skills (`abcd-builder/skills/<name>/SKILL.md`). They run from this checkout and drive the same `cli/` scripts:
+
+| Skill | Use it when |
+|-------|-------------|
+| `discover-and-plan` | Recording a website through Tabby (NoUI) → compile → generalize, workspace-aware (`python cli/noui_workspace.py ...`) |
+| `skill-builder` | Verify/replay gate → local install → push/run/trace on the Agent Harness |
+| `action-builder` | WDL actions, uber agents, lambdas |
+| `pipeline-builder` | WDL pipelines and pipeline connectors |
+
+Agent-Harness CLIs (all but `audit` take `--env`, defaulting to the active env): `harness_skill.py audit|push|verify` (lint/audit, upload, confirm a skill parsed), `harness_workstream.py ensure|seed` (test workstream + docstore), `harness_run.py start|continue` (one streamed turn, then stop), `harness_trace.py fetch|review` (trace and perf review), `harness_process.py` (Agents-tab Process CRUD, admin PAT for writes), `harness_conversations.py list` (own conversations), `harness_runs.py list|detail|trace` (org-wide pipeline and conversation runs). Full table: `agents.md` → "Skills & the abcd-builder plugin".
 
 ---
 

@@ -68,7 +68,9 @@ def list_recent(
         print(f"❌ Failed to list conversations: {e}")
         return 1
 
-    conversations = response.get("conversations", response) if isinstance(response, dict) else response
+    conversations = (
+        response.get("conversations", response) if isinstance(response, dict) else response
+    )
     if not isinstance(conversations, list):
         print(f"❌ Unexpected response shape: {response}")
         return 1
@@ -98,7 +100,9 @@ def list_recent(
     if as_json:
         print(json.dumps([c for _, c in recent], indent=2, default=str))
     else:
-        print(f"📋 {len(recent)} conversation(s) in the last {hours:g}h (owner-scoped to this PAT's user)")
+        print(
+            f"📋 {len(recent)} conversation(s) in the last {hours:g}h (owner-scoped to this PAT's user)"
+        )
         if undated:
             print(f"   ({undated} conversation(s) had no recognizable timestamp and were skipped)")
         for ts, conversation in recent:
@@ -122,7 +126,9 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", required=True)
 
     list_p = sub.add_parser("list", help="List conversations from the last N hours")
-    list_p.add_argument("--hours", type=float, default=24, help="Look-back window in hours (default 24)")
+    list_p.add_argument(
+        "--hours", type=float, default=24, help="Look-back window in hours (default 24)"
+    )
     list_p.add_argument("--process-id", help="Filter to a single process")
     list_p.add_argument("--workstream-id", help="Filter to a single workstream")
     list_p.add_argument("--env", help="Environment to use (defaults to active env)")
