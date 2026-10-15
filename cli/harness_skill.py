@@ -352,7 +352,15 @@ def verify(skill_name: str, expected_meta: dict | None, env: str | None) -> int:
 
     if expected_meta is not None:
         expected_has_process = "process" in expected_meta
+        # GET /skills/{name} never carries process info; only the catalog listing exposes
+        # has_process, computed from the same server-side frontmatter parse.
         live_has_process = bool(live.get("has_process") or live.get("process"))
+        if expected_has_process and not live_has_process:
+            catalog = client.list_skills()
+            entries = catalog if isinstance(catalog, list) else next(
+                (catalog[k] for k in ("skills", "items", "data") if isinstance(catalog, dict) and k in catalog), [])
+            live_has_process = any(
+                isinstance(s, dict) and s.get("name") == skill_name and s.get("has_process") for s in entries)
         if expected_has_process and not live_has_process:
             print(
                 "\n❌ MISMATCH: local SKILL.md has a 'process:' block, but the live skill does "
