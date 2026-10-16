@@ -23,6 +23,7 @@ generic "it failed."
 import json
 import os
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import requests
@@ -234,6 +235,39 @@ class HarnessAPIClient:
         }
         params.update({k: v for k, v in optional.items() if v is not None})
         return self._request("GET", "/v1/runs", params=params)
+
+    def list_run_ids(
+        self,
+        days: int,
+        status: str | None = None,
+        source: str | None = None,
+        workstream_id: str | None = None,
+        agent: str | None = None,
+        page_size: int = 100,
+    ) -> list[str]:
+        """All run IDs (source-prefixed, see list_runs) started in the last
+        `days` days, auto-paginating /v1/runs to completion.
+
+        `range` only offers fixed 24h/7d/30d/all buckets, so an arbitrary
+        day window has to go through date_from/date_to instead.
+        """
+        date_to = datetime.now(UTC).date().isoformat()
+        date_from = (datetime.now(UTC) - timedelta(days=days)).date().isoformat()
+
+        ids: list[str] = []
+        page = 1
+        while True:
+            response = self.list_runs(
+                status=status, source=source, workstream_id=workstream_id, agent=agent,
+                date_from=date_from, date_to=date_to, page=page, page_size=page_size,
+            )
+            runs = response.get("runs", [])
+            ids.extend(run["id"] for run in runs if run.get("id"))
+            total = response.get("total", len(ids))
+            if not runs or page * page_size >= total:
+                break
+            page += 1
+        return ids
 
     def get_run_detail(self, run_id: str) -> dict[str, Any]:
         """run_id is source-prefixed, e.g. "pr:<id>" or "cv:<id>" (see list_runs)."""
