@@ -499,6 +499,8 @@ python cli/manage_lambda.py --show my-lambda
 
 ## Agent-Harness Skill Debug Loop
 
+> **Planned:** the Adopt Builder extends this toolkit into the end-to-end way every Adopt agent is built, tested and released, using no new platform features. See [`docs/adopt-builder/PLAN.md`](docs/adopt-builder/PLAN.md) and the interactive explainer [`docs/adopt-builder/adopt_builder_spec.html`](docs/adopt-builder/adopt_builder_spec.html).
+
 A separate toolkit, alongside the WDL tooling above, for developing **agent-harness skills** (Claude Code `SKILL.md` + aux files run by the Adopt agent harness — not WDL actions). It exists because a skill that works fine in a local Claude Code session can still break on the harness: the harness merges a different system prompt, gates tools per-turn, stages skill scripts into a fresh sandbox, and runs inside a bounded tool-dispatch loop with its own token-budget conventions. This toolkit closes that gap the same way the WDL tooling above does — by always running the real artifact against the real deployed platform instead of trusting local execution.
 
 **One-time setup**: mint a Frontegg Personal Access Token in the Adopt webui, then set `ADOPT_WEBUI_ENDPOINT` / `ADOPT_HARNESS_PAT_CLIENT_ID` / `ADOPT_HARNESS_PAT_SECRET` in `workspaces/{env}/.env` (see `cli/harness_common/auth.py` docstring). This drives adoptwebui's **end-user** API (real Bearer JWT, real workstream-access checks) — the same path a real user/FDE hits, not an internal bypass.
