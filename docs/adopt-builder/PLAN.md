@@ -31,8 +31,9 @@ Each requirement maps to how it's met. Status values:
 | R4 | Onboarding is "take a PAT, download an MD file" | Mint a PAT in the UI (exists), clone the agents repo, then "follow ADOPT.md". `abcd init` does the rest | abcd |
 | R5 | Bring your own private git repo for agent versions | One private GitHub repo per org or client. abcd uses `git` and `gh` locally; the platform never talks to GitHub | setup |
 | R6 | Version control for skills and agents, testing a staged version, then going live | Git is the version store. Shadow staged objects on the platform. Release copies staged onto live (section 5) | workaround |
-| R7 | Native datasets: input/output work-product pairs, one workstream per pair | Pair workstreams tagged `custom_properties.kind = dataset`. Expected outputs live in a separate store. Indexed in tables (section 7) | setup |
-| R8 | Evals against datasets; a release is gated when the agent is linked to a dataset | `abcd eval run` (one turn per pair, scored by abcd). `abcd release` is the gate (section 8) | abcd |
+| R7 | Native datasets: input/output work-product pairs, one workstream per pair | Datasets have a kind. For work-product pairs, each pair gets a workstream tagged `custom_properties.kind = dataset`. Expectations live in a separate store, indexed in tables (section 8) | setup |
+| R7a | Flexible evals for agents with no work-product pairs (e.g. the CRM agent, email sorting) | Four dataset kinds share one case shape: `work_product`, `labeled` (known or synthetic, mappings known up front), `read_your_writes` (probe the target system after the write), and `custom` (a scorer script in the repo) | abcd |
+| R8 | Evals against datasets; a release is gated when the agent is linked to a dataset | `abcd eval run` runs each case the way its kind says (per case, batch, or sequential with a probe) and scores it. `abcd release` is the gate (section 8) | abcd |
 | R9 | An eval report on every release | Written to Builder: operations, copied to the client status workstream, attached to the GitHub release | abcd |
 | R10 | The FDE defines metrics, ground truth, targets and release criteria per agent | `bld_metrics`, `bld_checks`, `bld_release_criteria` tables, plus `abcd metric`, `check` and `criteria` commands | abcd |
 | R11 | The FDE defines and approves the skills, plugins and agents to build | `bld_build_plan` with `abcd plan propose` and `approve`. Nothing is built until it's approved | abcd |
@@ -50,7 +51,7 @@ Each requirement maps to how it's met. Status values:
 
 The FDE defines **five inputs**:
 1. metrics,
-2. ground truth (work-product pairs plus the client's checks),
+2. ground truth: a dataset of the right kind (work-product pairs, labelled cases, read-your-writes cases, or a custom scorer) plus the client's checks,
 3. the knowledge graph,
 4. call context,
 5. process documentation.
@@ -180,7 +181,7 @@ evals/reports/<agent>/<version>.html
 | 3 | Review with abcd | `abcd review` (adopt-skill-review) | none | Subscription |
 | 4 | Run on the harness, get logs | `abcd push --staged`, `abcd run --staged` | skills upload, process patch, `POST /turns`, trace | Platform |
 | 5 | Performance review and optimise | `abcd trace review` | `/v1/runs` trace | Subscription |
-| 6 | Run evals again on the platform | `abcd eval run --tier platform` | `POST /turns` per pair, outputs download | Platform |
+| 6 | Run evals again on the platform | `abcd eval run --tier platform` | `POST /turns` per case or batch, outputs download, probe turns | Platform |
 | 7 | Iterate until they pass | `abcd status`, `abcd decide` | org-db rows | Subscription |
 | 8 | Freeze as staged | `abcd stage` | org-db rows | n/a |
 | 9 | Test the staged agent | `abcd test-staged` | skills read, `POST /turns` | Platform |
@@ -205,7 +206,7 @@ evals/reports/<agent>/<version>.html
 | `builder-ops` | One per org | Versions, releases, eval runs and reports, metrics, FDE activity, dataset expected-output stores | FDEs (write); the Status reporter process |
 | `builder-status-<client>` | One per client | Scorecard, agent status pages, eval reports, training kit, as files | Status reporter (write); client stakeholders (read) |
 | `<client>-staging` | One per client | A copy of selected client files; staged agents run here | FDEs only |
-| `ds:<dataset>:<pair>` | One per pair | That pair's inputs only; `custom_properties.kind = dataset` | FDEs only |
+| `ds:<dataset>[:<case>]` | One per case (work-product pairs) or one per dataset (labelled, read-your-writes) | Case inputs only; `custom_properties.kind = dataset`. For read-your-writes, its secrets point at the test system | FDEs only |
 
 **Doc Store layouts:**
 
@@ -223,15 +224,15 @@ builder-context/
 
 builder-ops/
   releases/<agent>/<version>/{manifest.json, eval_report.html, eval_report.json, diff.md, notes.md}
-  evals/<eval_run_id>/{summary.json, pairs/<pair_id>/{checks.json, trace.ndjson}}
+  evals/<eval_run_id>/{summary.json, cases/<case_id>/{checks.json, observed.json, trace.ndjson}}
   sessions/<fde>/<date>/<session_id>/{transcript.jsonl, summary.md}
   reports/daily/<date>/<fde>.md
 
 ds-<dataset>/ (store linked to builder-ops only)
-  manifests/v<n>.json  expected/<pair_id>/...
+  manifests/v<n>.json  expected/<case_id>/...   expected files, labels or states
 
-ds:<dataset>:<pair_id>/ (pair workstream)
-  inputs/...  outputs/<eval_run_id>/...
+ds:<dataset>[:<case_id>]/ (dataset workstream)
+  inputs/... or inbox/...  outputs/<eval_run_id>/...
 
 builder-status-<client>/
   scorecard.md  scorecards/<date>.html
@@ -256,13 +257,13 @@ builder-status-<client>/
 | Versions | `bld_versions` | version_id | Every version: kind, name, content hash, git SHA, state, pinned components, reason |
 | Versions | `bld_releases` | release_id | Every release: version, previous version, eval run, gate result, report path, approver, forced reason |
 | Versions | `bld_release_criteria` | criteria_key | Per agent: dataset version, metric, comparator, target, decision reference |
-| Datasets | `bld_datasets` | dataset_key | Dataset index: client, current version, expected store, default scorer |
-| Datasets | `bld_dataset_versions` | dataset_version_key | One row per version: pair count, change note, manifest path |
-| Datasets | `bld_dataset_pairs` | pair_key | Pair: workstream, input and expected paths, scorer, tags, active versions |
+| Datasets | `bld_datasets` | dataset_key | Dataset index: client, kind, layout, run mode, test environment and probe agent (read-your-writes), default scorers, current version |
+| Datasets | `bld_dataset_versions` | dataset_version_key | One row per version: case count, change note, manifest path |
+| Datasets | `bld_dataset_cases` | case_key | Case of any kind: workstream, inputs, setup, expected (files, labels or state), teardown, scorers, source (real, known, synthetic, production), tags, active versions |
 | Quality | `bld_checks` | check_key | Client checks: deterministic rule or judged rubric, severity, source decision |
 | Quality | `bld_metrics` | metric_key | Metric definitions: category, unit, formula, source, baseline, gate flag |
 | Quality | `bld_eval_runs` | eval_run_id | One row per eval run: version, dataset version, tier, cost, report path |
-| Quality | `bld_eval_results` | result_key | Per pair per run: passed, score, failed checks, miss cause, steps, tokens, duration, HITL count |
+| Quality | `bld_eval_results` | result_key | Per case per run: observed (outputs, labels or rows read back), passed, score, failed checks, miss cause, steps, tokens, duration, HITL count |
 | Quality | `bld_check_results` | check_result_key | Per check per subject, in evals and in production (written by the maker-checker step) |
 | Quality | `bld_metric_values` | value_key | Computed values per run, phase and week |
 | Context | `bld_kg_nodes` | node_key | Knowledge graph nodes: type, name, page path, proposed or vetted |
@@ -279,16 +280,54 @@ Column-level detail is in the HTML's Data tables page.
 
 **Datasets**
 
-**Why expected outputs live in a separate store:** the harness copies every store linked to a workstream into the sandbox. If the expected outputs sat in the pair's own store, the agent under test could read the answers. They live in `ds-<dataset>`, which is linked only to `builder-ops`.
+A dataset is how an FDE says what "correct" means for an agent. Not every agent produces a document to compare against, so every dataset has a **kind**. All kinds share one case shape:
+- `inputs`
+- optional `setup`
+- `expected`
+- optional `teardown`
+- `scorers`
+- `source` (real, known, synthetic, production)
+- `tags`
+
+Adding a new kind means a new runner and scorer in abcd. It never needs a new table or a platform change.
+
+| Kind | Example agent | A case holds | Workstreams | How it runs | Scored by |
+|---|---|---|---|---|---|
+| `work_product` | GPW return prep (1120-PC) | Input files plus the expected output files | One per case | One turn per case | `field_match`, `rubric`, client checks |
+| `labeled` | GPWA email sorting | One input item (an email with attachments) plus its expected labels: client workstream, document types, page splits | One shared dataset workstream (inbox folder) | One batch turn, or one turn per case | `label_match` (confusion matrix per client), `boundary_match` |
+| `read_your_writes` | GPWA CRM updates (Dynamics 365) | An instruction that should cause a write, a setup snapshot, the expected state and outcome code, and a teardown | One shared workstream whose secrets point at the test system | Sequential: probe snapshot, agent turn, probe read-back, teardown | `outcome_match`, `state_match`, `collateral` |
+| `custom` | Anything else (SMB drops, API side effects, property checks) | Any inputs and expectation | Either | Any | `script:<name>`, i.e. `evals/scorers/<name>.py` |
+
+**Labelled cases (email sorting)**
+- Cases are **known** (historical emails whose routing a person confirmed) or **synthetic**. Synthetic cases are generated by `abcd dataset synth` in the FDE's coding agent from templates and the known client list, so every mapping is known up front.
+- Known and synthetic cases are tagged separately, so release criteria can hold known cases to their own target.
+- Boundary-detection HITLs stay blocking. The eval counts them; it doesn't tune them away.
+
+**Read your writes (CRM)**
+- The output that matters is what the CRM holds after the write.
+- **The probe:** a small read-only agent, `gpwa-crm-probe`. It has one SQL skill using the `CRMReaderRole` login, and it runs through `POST /turns` on the same workstream. It runs there because the CRM is reachable only from the harness sandbox over the tunnel.
+- **Each case runs in order:**
+  1. The probe snapshots the target record.
+  2. The agent turn performs the write.
+  3. The probe reads the record back.
+  4. The teardown restores the snapshot through the same WinRM executables. There are no direct database writes, ever.
+- **Scoring:**
+  - `outcome_match` checks the result code class: 0 updated, 1 updated with an overwrite warning, below 0 refused (for example -1 no tax return, -2 invalid year).
+  - `state_match` checks the fields read back.
+  - `collateral` checks that other rows in scope are unchanged.
+- **Safety:** the dataset declares `target_env` (`D365TEST_MSCRM`). Before the first case, abcd asks the probe which server and database it's connected to, and refuses if the answer isn't the declared one.
+
+**Why expectations live in a separate store:** the harness copies every store linked to a workstream into the sandbox. If expected outputs or labels sat in the dataset workstream, the agent under test could read the answers. They live in `ds-<dataset>`, which is linked only to `builder-ops`.
 
 | Operation | abcd | Platform routes underneath | Effect on the dataset version |
 |---|---|---|---|
-| Create | `abcd dataset create` | store resolve, org-db rows | v1 |
-| Add a pair | `abcd dataset add-pair` | workstream create (kind = dataset), upload-urls + confirm, assign staged process, rows | New version |
-| List and search | `abcd dataset show --tag` | org-db rows and SQL | None |
-| Correct an expected output | `abcd dataset update-pair` | upload to a new path, PATCH the row; needs a lead's approval if it loosens a gate | New version |
-| Retire a pair | `abcd dataset retire-pair` | PATCH the row (`retired_in_version`); files kept | New version |
-| Archive | `abcd dataset archive` | Refused while any criteria reference it; otherwise soft-delete the pair workstreams | Frozen |
+| Create | `abcd dataset create --kind ... [--target-env --probe]` | Store resolve, workstream create (shared layouts), assign the staged agent and probe, rows | v1 |
+| Add a case | `abcd dataset add-case` (files, `--label`, or `--expect-state`) | upload-urls + confirm, workstream create (per-case layout), rows | New version |
+| Generate synthetic cases | `abcd dataset synth --from templates --count N` | upload-urls + confirm, rows | New version |
+| List and search | `abcd dataset show --source --tag` | org-db rows and SQL | None |
+| Correct an expectation | `abcd dataset update-case` | Upload to a new path, PATCH the row; needs a lead's approval if it loosens a gate | New version |
+| Retire a case | `abcd dataset retire-case` | PATCH the row (`retired_in_version`); files kept | New version |
+| Archive | `abcd dataset archive` | Refused while any criteria reference it; otherwise soft-delete the dataset workstreams | Frozen |
 
 Two releases are only ever compared on the same dataset version.
 
@@ -310,7 +349,7 @@ Two releases are only ever compared on the same dataset version.
 
 **The gate (`abcd release`)**
 - Every criterion must pass on a staged run of the exact staged hashes.
-- `no_regression` fails if any pair that passed on live now fails without a recorded reason.
+- `no_regression` fails if any case that passed on live now fails without a recorded reason.
 - The gate refuses on any error.
 - A lead can force a release with a recorded decision. A forced release stays flagged until a passing run catches up.
 
@@ -378,7 +417,7 @@ On every release:
 - `abcd explain` regenerates `agents/<agent>/explainer.html`: an interactive page for the agent, covering steps, skills, versions, dataset, criteria, checks, last eval, open items and scenarios.
 - `abcd train` regenerates `training/`: quickstart, simple prompts, scenarios, FAQ (from real questions in runs and HITL) and what's new.
 
-Both run in the FDE's coding agent. Prompts in the kit are run on a dataset pair during `abcd test-staged`, and only the ones that work ship. A kit that fails to generate is flagged on the release; the release itself isn't blocked.
+Both run in the FDE's coding agent. Prompts in the kit are run on a dataset case during `abcd test-staged`, and only the ones that work ship. A kit that fails to generate is flagged on the release; the release itself isn't blocked.
 
 ## 14. Build order (all in abcd)
 
@@ -396,13 +435,15 @@ Both run in the FDE's coding agent. Prompts in the kit are run on a dataset pair
 
 ## 15. Open questions
 
-1. **One workstream per pair:** is the `kind = dataset` tag enough at hundreds of pairs, or should pairs share workstreams by folder?
+1. **One workstream per case:** work-product pairs get a workstream each, while labelled and read-your-writes datasets share one. Is the `kind = dataset` tag enough at hundreds of workstreams?
+1. **Test systems for read-your-writes:** which agents have a test tenant to write to? The GPWA CRM does (`D365TEST_MSCRM`). Agents without one can only be evaluated on refusals and dry runs.
+1. **Synthetic realism:** how much may a release rely on synthetic cases? Should known cases always have their own target?
 2. **FDEs as org admins:** this is needed for every write route. Is it acceptable, given the drift audit?
 3. **Loosening criteria:** should every lowered target or edited expected output need a lead's recorded approval?
 4. **Drift response:** revert automatically, or open an item for the owner?
 5. **Client logins:** Operator role plus `studio.agents_enduser` per client org, or only the Friday email at first?
 6. **Call context source:** meeting-recorder import, uploaded transcripts, or both?
 7. **Onshore and offshore role:** where is it recorded per client user, a custom property or a table?
-8. **Eval cost:** should wording-only changes run a sample of pairs?
+8. **Eval cost:** should wording-only changes run a sample of cases?
 9. **Shared skills:** ship to every dependent agent at once, or copy shared skills per agent?
 10. **Verify at runtime:** decode a real PAT JWT to confirm it carries `roles` (Admin) and `email`.
