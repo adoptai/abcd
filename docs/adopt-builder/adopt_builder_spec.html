@@ -216,7 +216,7 @@ const DEC = '<span class="pill p-rv">To decide</span>';
 
 const INPUTS = [
   { name: 'Metrics', what: 'Named business measures, each with a formula, a data source, a baseline and a target per phase.', ex: 'Automation rate, human time per client, accuracy, first-pass yield, AI cost per client.', use: 'Computed on every eval run and in production. The ones marked as gates decide whether a release can go live.', where: 'bld_metrics' },
-  { name: 'Ground truth', what: 'Work-product pairs (real inputs plus the output a good analyst produced) and the checks an output must pass to count as accurate.', ex: 'Filed 1120-PC returns; GPW checks such as headline values within $2.', use: 'Builds datasets. Each check becomes a scorer and a maker-checker step that runs in production too.', where: 'Dataset workstreams, bld_checks' },
+  { name: 'Ground truth', what: 'An eval set the FDE defines: work-product pairs, labelled cases (known or synthetic), or read-your-writes cases against a test system, plus the checks an output must pass to count as accurate.', ex: 'Filed 1120-PC returns; known email routings; CRM read-backs; checks such as headline values within $2.', use: 'Builds datasets. Each check becomes a scorer and a maker-checker step that runs in production too.', where: 'Dataset workstreams, bld_checks' },
   { name: 'Knowledge graph', what: 'The client\'s systems, APIs and entities, and the skills and agents that already exist.', ex: 'GPW CRM, file shares, the email-sorting skill.', use: 'Context for drafting. Shows what a change affects before it ships.', where: 'Builder: context workstream' },
   { name: 'Call context', what: 'Transcripts and notes from client calls and email threads.', ex: 'The 10/20 metrics call with Nicklas.', use: 'Pulls out requirements, decisions and new checks, each linked back to the call it came from.', where: 'context/calls/, bld_decisions' },
   { name: 'Process documentation', what: 'SOPs, playbooks, step lists and sign-off rules.', ex: 'The 7-step return prep and its sign-offs.', use: 'Drafts the agent: its steps, HITL gates, approvals and a skill per step.', where: 'context/process-docs/' },
@@ -235,7 +235,7 @@ const LOOP = [
   { n: 3, name: 'Review with abcd', where: 'local', who: 'Builder, in your coding agent', what: 'Runs adopt-skill-review over every changed skill and plugin: batching gaps, missing script contracts, frontmatter traps, HITL and process shape. Critical findings block the push.', cmd: 'abcd review <path>', api: 'none (local, free)', writes: 'bld_dev_events (review findings)', skills: 'builder-review (wraps adopt-skill-review)' },
   { n: 4, name: 'Run on the harness', where: 'platform', who: 'Builder', what: 'Pushes the draft as the shadow staged objects (skill <name>--staged, agent "<agent> (staged)") and runs real harness turns with that process on the client staging workstream. Pulls the transcript, trace and Temporal history back.', cmd: 'abcd push <agent> --staged\nabcd run <agent> --staged --workstream <client>-staging', api: 'POST /v1/end-user/agent-harness/skills · PATCH /v1/org/processes/{id} · POST /v1/end-user/agent-harness/turns', writes: 'bld_versions (draft), harness run + trace', skills: 'builder-harness-run' },
   { n: 5, name: 'Performance review', where: 'local', who: 'Builder, in your coding agent', what: 'Analyses where the run spent its steps, tokens and time (analyze_run_trace) and fixes the waste: batching, scripts instead of model passes, files instead of context.', cmd: 'abcd trace review <run_id>', api: 'GET /v1/runs/conversation-trace', writes: 'bld_dev_events (perf findings)', skills: 'builder-perf' },
-  { n: 6, name: 'Run evals again', where: 'platform', who: 'abcd eval runner', what: 'Runs the staged process on every pair workstream of the linked dataset, one turn per pair, downloads the outputs and scores them against the expected outputs and the client\'s checks. Judged checks are scored by your coding agent, on your subscription.', cmd: 'abcd eval run <agent> --tier platform', api: 'POST /turns · GET /turns/{id}/status · GET /conversations/{id}/outputs/download', writes: 'bld_eval_runs, bld_eval_results, bld_check_results, bld_metric_values', skills: 'builder-eval' },
+  { n: 6, name: 'Run evals again', where: 'platform', who: 'abcd eval runner', what: 'Runs the staged process on every case of the linked dataset, the way the dataset\'s kind says (one turn per case, one batch turn, or sequential writes with a read-back probe), and scores what it observes against the expected outputs, labels or system state and the client\'s checks. Judged checks are scored by your coding agent, on your subscription.', cmd: 'abcd eval run <agent> --tier platform', api: 'POST /turns · GET /turns/{id}/status · GET /conversations/{id}/outputs/download', writes: 'bld_eval_runs, bld_eval_results, bld_check_results, bld_metric_values', skills: 'builder-eval' },
   { n: 7, name: 'Iterate until they pass', where: 'local', who: 'Builder, FDE only on questions', what: 'Repeats 1 to 6 until every gate metric meets its target. If the Builder needs something the inputs do not settle, it asks the FDE and records the answer as a decision.', cmd: 'abcd status <agent>\nabcd decide', api: 'POST /v1/org-db/tables/{id}/rows', writes: 'bld_decisions, bld_open_items', skills: 'all of the above' },
   { n: 8, name: 'Freeze as staged', where: 'platform', who: 'Builder', what: 'Records the passing content hashes as the staged version and tags the git commit. The shadow objects already hold it; nothing changes on the platform except the version row.', cmd: 'abcd stage <agent>', api: 'POST /v1/org-db/tables/{id}/rows', writes: 'bld_versions (state = staged), git tag <agent>@v<n>-rc', skills: 'builder-release' },
   { n: 9, name: 'Test the staged agent', where: 'platform', who: 'abcd eval runner + FDE', what: 'Re-verifies the shadow objects still match the staged hashes, then runs the full dataset and a few real client files on the staging workstream. This run is the gate\'s evidence.', cmd: 'abcd test-staged <agent>', api: 'GET /v1/end-user/agent-harness/skills/{name} · POST /turns', writes: 'bld_eval_runs (tier = staged), eval report', skills: 'builder-eval, builder-release' },
@@ -254,7 +254,7 @@ const ABCDCMDS = [
   { cmd: 'abcd run <agent> --staged | --live', what: 'Posts one harness turn with the chosen process, streams it, saves NDJSON, trace and Temporal history. Always stops after one turn.', status: 'exists', replaces: 'cli/harness_run.py start | continue (--process)' },
   { cmd: 'abcd trace fetch | review', what: 'Pulls a past turn\'s trace and runs the performance checklist over it.', status: 'exists', replaces: 'cli/harness_trace.py fetch | review' },
   { cmd: 'abcd runs list', what: 'Org-wide run visibility through /v1/runs.', status: 'exists', replaces: 'cli/harness_runs.py' },
-  { cmd: 'abcd dataset create | add-pair | update-pair | retire-pair | show | archive', what: 'Dataset CRUD. See the Datasets page.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd dataset create | add-case | synth | update-case | retire-case | show | archive', what: 'Dataset CRUD for every kind, including synthetic case generation. See the Datasets page.', status: 'abcd', replaces: '' },
   { cmd: 'abcd check add | list', what: 'Adds a client check (deterministic rule or judged rubric) and re-scores past runs.', status: 'abcd', replaces: '' },
   { cmd: 'abcd metric define | compute', what: 'Defines a metric; computes metric values from eval results, check results and /v1/runs.', status: 'abcd', replaces: '' },
   { cmd: 'abcd criteria set <agent>', what: 'Sets the dataset, gate metrics and targets for the next release.', status: 'abcd', replaces: '' },
@@ -273,7 +273,7 @@ const WORKSTREAMS = [
   { name: 'Builder status: <client>', key: 'builder-status-gpw', count: 'One per client', created: 'abcd builder setup --client gpw', holds: 'The scorecard, each agent\'s status page, release history and eval reports, as files. The only Builder workstream a client can see.', store: 'builder-status-gpw (Doc Store)', tables: 'none', who: 'Status reporter writes; client stakeholders get a read grant', status: 'setup' },
   { name: 'Client workstream', key: 'gpw (example)', count: 'One per client, as today', created: 'Already exists', holds: 'The client\'s real files and runs. Live agents run here.', store: 'Client Doc Store', tables: 'bld_check_results (write, from the maker-checker step)', who: 'As today', status: 'exists' },
   { name: 'Client staging workstream', key: 'gpw-staging', count: 'One per client with a Builder agent', created: 'abcd workstream ensure', holds: 'A copy of selected client files. Staged agents are assigned only here and to dataset workstreams, so no client user ever sees them.', store: 'gpw-staging (Doc Store)', tables: 'none', who: 'FDEs only', status: 'setup' },
-  { name: 'Dataset pair workstream', key: 'ds:gpw-1120pc:pair-017', count: 'One per work-product pair', created: 'abcd dataset add-pair', holds: 'The pair\'s inputs only. The agent under test runs here exactly as it would on a client.', store: 'Its own Doc Store, inputs/ only', tables: 'none', who: 'FDEs only', status: 'setup' },
+  { name: 'Dataset workstream', key: 'ds:gpw-1120pc:pair-017 or ds:gpwa-email-sorting', count: 'One per case (work-product pairs) or one per dataset (labelled, read-your-writes)', created: 'abcd dataset create | add-case', holds: 'Case inputs only, never expected outputs. For read-your-writes, the workstream whose secrets point at the test system. The agent under test runs here exactly as it would on a client.', store: 'Its own Doc Store, inputs/ only', tables: 'none', who: 'FDEs only', status: 'setup' },
 ];
 
 const META_TREE = [
@@ -317,8 +317,9 @@ const OPS_TREE = [
   ]},
   { n: 'evals/<eval_run_id>/', d: 'Everything one eval run produced', k: [
     { n: 'summary.json', d: 'Totals per metric and per check' },
-    { n: 'pairs/<pair_id>/checks.json', d: 'Per-check results for one pair' },
-    { n: 'pairs/<pair_id>/trace.ndjson', d: 'The harness trace for that pair' },
+    { n: 'cases/<case_id>/checks.json', d: 'Per-check results for one case' },
+    { n: 'cases/<case_id>/observed.json', d: 'What was observed: output paths, labels produced, or rows read back' },
+    { n: 'cases/<case_id>/trace.ndjson', d: 'The harness trace for that case' },
   ]},
   { n: 'scorecards/<client>/<date>.html', d: 'The weekly client scorecard, same format every time' },
   { n: 'sessions/<fde>/<date>/<session_id>/', d: 'FDE coding-agent sessions: transcript.jsonl, summary.md' },
@@ -326,12 +327,12 @@ const OPS_TREE = [
 ];
 
 const DS_TREE = [
-  { n: 'Dataset store: ds-<dataset>', d: 'Holds expected outputs. Linked to Builder: operations only, never to a pair workstream', k: [
+  { n: 'Dataset store: ds-<dataset>', d: 'Holds expected outputs, labels and expected states. Linked to Builder: operations only, never to a dataset workstream', k: [
     { n: 'manifests/v<n>.json', d: 'Immutable manifest per dataset version' },
-    { n: 'expected/<pair_id>/...', d: 'Expected output files for one pair' },
+    { n: 'expected/<case_id>/...', d: 'Expected output files, labels or state for one case' },
   ]},
-  { n: 'Pair workstream: ds:<dataset>:<pair_id>', d: 'One per pair; custom_properties.kind = dataset', k: [
-    { n: 'inputs/...', d: 'The real inputs, exactly as a client would provide them' },
+  { n: 'Dataset workstream: ds:<dataset>[:<case_id>]', d: 'Per case or per dataset, by kind; custom_properties.kind = dataset', k: [
+    { n: 'inputs/... or inbox/...', d: 'Case inputs, exactly as a client would provide them' },
     { n: 'outputs/<eval_run_id>/...', d: 'What the agent produced in each eval run' },
   ]},
 ];
@@ -368,14 +369,14 @@ const TABLES = [
   { name: 'bld_versions', group: 'Versions and releases', ws: 'Builder: operations (write)', purpose: 'Every immutable version of a skill, plugin or agent.', key: 'version_id', by: 'abcd push', reads: 'Everyone', cols: [T('version_id','varchar','unique, e.g. gpw-1120pc-prep@v12'), T('object_kind','enum','skill, plugin, agent'), T('object_name','text',''), T('content_hash','varchar','v=<hash> bundle id'), T('git_sha','varchar',''), T('parent_version_id','varchar',''), T('state','enum','draft, staged, live, superseded'), T('pinned_components','jsonb','agents only: exact skill and plugin versions'), T('author_user_id','varchar',''), T('reason_ref','varchar',''), T('notes_path','text','')] },
   { name: 'bld_releases', group: 'Versions and releases', ws: 'Builder: operations (write)', purpose: 'Every promotion to live, with its evidence.', key: 'release_id', by: 'abcd release', reads: 'Everyone; Status reporter', cols: [T('release_id','varchar','unique'), T('agent_key','varchar',''), T('version_id','varchar',''), T('previous_version_id','varchar','rollback target'), T('eval_run_id','varchar','the staged run used as evidence'), T('gate_result','enum','pass, fail, forced'), T('report_path','text','releases/<agent>/<version>/eval_report.html'), T('approved_by','varchar',''), T('forced_reason','text','required when forced'), T('released_at','timestamptz','')] },
   { name: 'bld_release_criteria', group: 'Versions and releases', ws: 'Builder: operations (write)', purpose: 'What the next release must meet, per agent.', key: 'criteria_key', by: 'FDE', reads: 'abcd release, Status reporter', cols: [T('criteria_key','varchar','unique'), T('agent_key','varchar',''), T('applies_from_version','varchar',''), T('dataset_key','varchar',''), T('dataset_version','int',''), T('metric_key','varchar',''), T('comparator','enum','>=, <=, no_regression'), T('target','numeric',''), T('set_by','varchar',''), T('decision_ref','varchar','client sign-off')] },
-  { name: 'bld_datasets', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'The dataset index.', key: 'dataset_key', by: 'abcd dataset create', reads: 'Eval runner, FDEs', cols: [T('dataset_key','varchar','unique, e.g. gpw-1120pc'), T('name','text',''), T('client_workstream_id','varchar',''), T('current_version','int',''), T('expected_store_id','varchar','ds-<dataset> store'), T('default_scorer','enum','field_match, rubric, mixed'), T('owner_user_id','varchar','')] },
-  { name: 'bld_dataset_versions', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'One row per dataset version; comparisons only happen within one version.', key: 'dataset_version_key', by: 'Every dataset change', reads: 'Eval runner, release gate', cols: [T('dataset_version_key','varchar','unique, e.g. gpw-1120pc@4'), T('dataset_key','varchar',''), T('version','int',''), T('pair_count','int',''), T('change_note','text','what changed and why'), T('manifest_path','text','manifests/v4.json'), T('created_by','varchar','')] },
-  { name: 'bld_dataset_pairs', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'Every work-product pair and where its files live.', key: 'pair_key', by: 'abcd dataset add-pair', reads: 'Eval runner', cols: [T('pair_key','varchar','unique, dataset:pair'), T('dataset_key','varchar',''), T('pair_id','varchar',''), T('workstream_id','varchar','the pair workstream'), T('input_paths','text[]',''), T('expected_paths','text[]','in the dataset store'), T('scorer','enum',''), T('tags','text[]','e.g. edge-case, multi-entity'), T('first_version','int',''), T('retired_in_version','int','null while active')] },
+  { name: 'bld_datasets', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'The dataset index.', key: 'dataset_key', by: 'abcd dataset create', reads: 'Eval runner, FDEs', cols: [T('dataset_key','varchar','unique, e.g. gpw-1120pc'), T('name','text',''), T('client_workstream_id','varchar',''), T('current_version','int',''), T('expected_store_id','varchar','ds-<dataset> store'), T('kind','enum','work_product, labeled, read_your_writes, custom'), T('layout','enum','workstream_per_case, shared_workstream'), T('run_mode','enum','per_case, batch, sequential'), T('target_env','varchar','read_your_writes only, e.g. D365TEST_MSCRM'), T('probe_process_id','varchar','read_your_writes only: the read-only probe agent'), T('default_scorers','text[]','field_match, label_match, rubric, state_match, outcome_match, collateral, script:<name>'), T('owner_user_id','varchar','')] },
+  { name: 'bld_dataset_versions', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'One row per dataset version; comparisons only happen within one version.', key: 'dataset_version_key', by: 'Every dataset change', reads: 'Eval runner, release gate', cols: [T('dataset_version_key','varchar','unique, e.g. gpw-1120pc@4'), T('dataset_key','varchar',''), T('version','int',''), T('case_count','int',''), T('change_note','text','what changed and why'), T('manifest_path','text','manifests/v4.json'), T('created_by','varchar','')] },
+  { name: 'bld_dataset_cases', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'Every case of every dataset kind, and what it expects.', key: 'case_key', by: 'abcd dataset add-case | synth', reads: 'Eval runner', cols: [T('case_key','varchar','unique, dataset:case'), T('dataset_key','varchar',''), T('case_id','varchar',''), T('workstream_id','varchar','its own, or the shared dataset workstream'), T('inputs','jsonb','file paths or an inline payload (an instruction, an email)'), T('setup','jsonb','read_your_writes: snapshot query, fixture to ensure'), T('expected','jsonb','output paths, labels, or the state and outcome code to read back'), T('teardown','jsonb','read_your_writes: restore through the same write path'), T('scorers','text[]','overrides the dataset default'), T('source','enum','real, known, synthetic, production'), T('tags','text[]','e.g. edge-case, overwrite, unknown-client'), T('first_version','int',''), T('retired_in_version','int','null while active')] },
   { name: 'bld_checks', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'Client checks an output must pass to count as accurate.', key: 'check_key', by: 'FDE; client checker proposes', reads: 'abcd eval runner, maker-checker step', cols: [T('check_key','varchar','unique'), T('client_workstream_id','varchar',''), T('agent_key','varchar',''), T('title','text','e.g. Headline values within $2'), T('kind','enum','deterministic, judged'), T('rule','jsonb','the rule or rubric'), T('severity','enum','blocking, warning'), T('source_decision','varchar',''), T('active_from','timestamptz','')] },
   { name: 'bld_metrics', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'Metric definitions, versioned.', key: 'metric_key', by: 'FDE', reads: 'Everyone', cols: [T('metric_key','varchar','unique, e.g. gpw-1120pc:accuracy@2'), T('agent_key','varchar',''), T('name','text',''), T('category','enum','volume, time, quality, cost'), T('unit','varchar','%, hrs, $, #'), T('formula','text',''), T('source','enum','check_results, hitl_events, user_actions, run_timings, cost'), T('baseline','numeric',''), T('is_gate','boolean',''), T('decision_ref','varchar','client sign-off')] },
   { name: 'bld_eval_runs', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'One row per eval run.', key: 'eval_run_id', by: 'Eval runner', reads: 'Release gate, everyone', cols: [T('eval_run_id','varchar','unique'), T('agent_key','varchar',''), T('version_id','varchar',''), T('dataset_version_key','varchar',''), T('tier','enum','local, platform, staged, production'), T('status','enum','running, done, failed'), T('cost_usd','numeric',''), T('started_at','timestamptz',''), T('finished_at','timestamptz',''), T('report_path','text','')] },
-  { name: 'bld_eval_results', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'One row per pair per eval run.', key: 'result_key', by: 'Eval runner', reads: 'Reports, scorecards', cols: [T('result_key','varchar','unique, run:pair'), T('eval_run_id','varchar',''), T('pair_key','varchar',''), T('harness_run_id','varchar','link to the trace'), T('passed','boolean','all blocking checks passed'), T('score','numeric',''), T('failed_checks','text[]',''), T('miss_cause','enum','rounding, missing_context, playbook_difference, real_error'), T('steps','int',''), T('tokens','bigint',''), T('duration_s','int',''), T('hitl_count','int','')] },
-  { name: 'bld_check_results', group: 'Quality', ws: 'Builder: operations, and each client workstream (write)', purpose: 'One row per check per subject, in evals and in production.', key: 'check_result_key', by: 'abcd eval runner, maker-checker step', reads: 'Metrics, reports', cols: [T('check_result_key','varchar','unique'), T('check_key','varchar',''), T('subject_kind','enum','eval_pair, production_client'), T('subject_ref','varchar',''), T('eval_run_id','varchar','null in production'), T('passed','boolean',''), T('detail','jsonb','expected vs found')] },
+  { name: 'bld_eval_results', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'One row per case per eval run.', key: 'result_key', by: 'Eval runner', reads: 'Reports, scorecards', cols: [T('result_key','varchar','unique, run:case'), T('eval_run_id','varchar',''), T('case_key','varchar',''), T('observed','jsonb','output paths, labels produced, or rows read back'), T('harness_run_id','varchar','link to the trace'), T('passed','boolean','all blocking checks passed'), T('score','numeric',''), T('failed_checks','text[]',''), T('miss_cause','enum','rounding, missing_context, playbook_difference, real_error'), T('steps','int',''), T('tokens','bigint',''), T('duration_s','int',''), T('hitl_count','int','')] },
+  { name: 'bld_check_results', group: 'Quality', ws: 'Builder: operations, and each client workstream (write)', purpose: 'One row per check per subject, in evals and in production.', key: 'check_result_key', by: 'abcd eval runner, maker-checker step', reads: 'Metrics, reports', cols: [T('check_result_key','varchar','unique'), T('check_key','varchar',''), T('subject_kind','enum','eval_case, production_run'), T('subject_ref','varchar',''), T('eval_run_id','varchar','null in production'), T('passed','boolean',''), T('detail','jsonb','expected vs found')] },
   { name: 'bld_metric_values', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'Computed metric values for runs, phases and weeks.', key: 'value_key', by: 'Eval runner, Status reporter', reads: 'Scorecards, Status reporter', cols: [T('value_key','varchar','unique'), T('metric_key','varchar',''), T('agent_key','varchar',''), T('version_id','varchar',''), T('scope','enum','eval_run, phase, week'), T('scope_ref','varchar','e.g. UAT 1, 2026-W43'), T('value','numeric',''), T('computed_at','timestamptz','')] },
   { name: 'bld_kg_nodes', group: 'Context', ws: 'Builder: context (write)', purpose: 'Nodes of the knowledge graph.', key: 'node_key', by: 'FDEs (vetted), Context curator (proposed)', reads: 'Builder, every FDE', cols: [T('node_key','varchar','unique, type:slug'), T('type','enum','client, system, api, skill, agent, dataset, incident, person'), T('name','text',''), T('page_path','text','kg/... in Builder: context'), T('status','enum','proposed, vetted, retired'), T('owner_user_id','varchar','')] },
   { name: 'bld_kg_edges', group: 'Context', ws: 'Builder: context (write)', purpose: 'Typed links between nodes.', key: 'edge_key', by: 'Same as nodes', reads: 'Impact analysis before a change', cols: [T('edge_key','varchar','unique'), T('from_node','varchar',''), T('to_node','varchar',''), T('relation','enum','uses, calls, owns, replaced_by, failed_on, tested_by'), T('source_ref','varchar','call, doc, run or release that showed it'), T('status','enum','proposed, vetted')] },
@@ -387,12 +388,70 @@ const TABLES = [
 ];
 
 const DS_CRUD = [
-  { op: 'Create a dataset', cmd: 'abcd dataset create gpw-1120pc --client gpw', api: 'POST /v1/docstore/stores/resolve · POST /v1/org-db/tables/{id}/rows', under: 'Creates the ds-gpw-1120pc Doc Store, links it to Builder: operations only, inserts bld_datasets and bld_dataset_versions v1, writes kg/datasets/gpw-1120pc.md.', ver: 'Starts at v1' },
-  { op: 'Add a pair', cmd: 'abcd dataset add-pair gpw-1120pc --inputs ./client-017/in --expected ./client-017/filed', api: 'POST /v1/org/workstreams · upload-urls + upload-confirm · PUT /v1/org/processes/{staged}/workstreams', under: 'Creates workstream ds:gpw-1120pc:pair-017 with custom_properties.kind = dataset, uploads inputs to its store, uploads expected outputs to the dataset store, assigns the staged agent to it, inserts bld_dataset_pairs.', ver: 'New dataset version' },
-  { op: 'List and search', cmd: 'abcd dataset show gpw-1120pc --tag edge-case', api: 'GET /v1/org-db/tables/{id}/rows · POST /v1/org-db/sql', under: 'Reads the index tables (bld_dataset_pairs filtered by version and tags). The Doc Store is never listed, so its missing prefix filter does not matter.', ver: 'Read only' },
-  { op: 'Correct an expected output', cmd: 'abcd dataset update-pair gpw-1120pc pair-017 --expected ./fixed', api: 'upload-urls + upload-confirm · PATCH /v1/org-db/tables/{id}/rows/{row}', under: 'Writes the new files under a new path (never overwrites), updates expected_paths, records a change note. abcd asks for a lead\'s approval if it loosens a gate.', ver: 'New dataset version' },
-  { op: 'Retire a pair', cmd: 'abcd dataset retire-pair gpw-1120pc pair-009 --reason "client left"', api: 'PATCH /v1/org-db/tables/{id}/rows/{row}', under: 'Sets retired_in_version. Files and the workstream are kept so old eval runs stay reproducible.', ver: 'New dataset version' },
-  { op: 'Archive a dataset', cmd: 'abcd dataset archive gpw-1120pc', api: 'POST /v1/org/workstreams/{id}/delete (soft) · PATCH rows', under: 'Refused while any agent\'s release criteria point at it. Otherwise marks the rows archived and soft-deletes the pair workstreams. Workstreams have no archive state, only soft delete.', ver: 'Frozen' },
+  { op: 'Create a dataset', cmd: 'abcd dataset create gpwa-crm-writes --kind read_your_writes --target-env D365TEST_MSCRM --probe gpwa-crm-probe', api: 'POST /v1/docstore/stores/resolve · POST /v1/org/workstreams (shared kinds) · POST /v1/org-db/tables/{id}/rows', under: 'Creates the ds-<dataset> store linked to Builder: operations only. For shared layouts, also creates the dataset workstream and assigns the staged agent (and the probe) to it. Inserts bld_datasets and bld_dataset_versions v1, writes kg/datasets/<dataset>.md.', ver: 'Starts at v1' },
+  { op: 'Add a case', cmd: 'abcd dataset add-case gpw-1120pc --inputs ./client-017/in --expected ./client-017/filed\nabcd dataset add-case gpwa-email-sorting --input ./mail/0412.eml --label workstream=40644 --label doc=engagement-letter\nabcd dataset add-case gpwa-crm-writes --input "Update 2026 tax return for 40644" --expect-state ./cases/40644.yaml', api: 'upload-urls + upload-confirm · POST /v1/org/workstreams (per-case layout) · rows', under: 'Uploads inputs to the case\'s workstream (or the shared one) and expected outputs, labels or state to the dataset store. Per-case layout creates the case workstream with custom_properties.kind = dataset and assigns the staged agent. Inserts bld_dataset_cases.', ver: 'New dataset version' },
+  { op: 'Generate synthetic cases', cmd: 'abcd dataset synth gpwa-email-sorting --from ./templates --clients ./known_clients.csv --count 200', api: 'upload-urls + upload-confirm · rows', under: 'Your coding agent generates inputs from templates and a known mapping, so every expected label is known up front. Cases are tagged source = synthetic, so criteria can hold known and synthetic cases to different targets.', ver: 'New dataset version' },
+  { op: 'List and search', cmd: 'abcd dataset show gpwa-email-sorting --source known --tag multi-attachment', api: 'GET /v1/org-db/tables/{id}/rows · POST /v1/org-db/sql', under: 'Reads the index tables (bld_dataset_cases filtered by version, source and tags). The Doc Store is never listed.', ver: 'Read only' },
+  { op: 'Correct an expectation', cmd: 'abcd dataset update-case gpw-1120pc pair-017 --expected ./fixed', api: 'upload-urls + upload-confirm · PATCH /v1/org-db/tables/{id}/rows/{row}', under: 'Writes new expected files or labels under a new path (never overwrites) and records a change note. abcd asks for a lead\'s approval if it loosens a gate.', ver: 'New dataset version' },
+  { op: 'Retire a case', cmd: 'abcd dataset retire-case gpw-1120pc pair-009 --reason "client left"', api: 'PATCH /v1/org-db/tables/{id}/rows/{row}', under: 'Sets retired_in_version. Files and workstreams are kept so old eval runs stay reproducible.', ver: 'New dataset version' },
+  { op: 'Archive a dataset', cmd: 'abcd dataset archive gpw-1120pc', api: 'POST /v1/org/workstreams/{id}/delete (soft) · PATCH rows', under: 'Refused while any agent\'s release criteria point at it. Otherwise marks the rows archived and soft-deletes the dataset workstreams.', ver: 'Frozen' },
+];
+
+const DS_KINDS = [
+  { key: 'work_product', name: 'Work-product pairs', agent: 'GPW return prep (1120-PC)', when: 'The agent produces a document or structured output that a person used to produce, and you have past examples of both sides.', caseShape: 'Input files plus the expected output files.', layout: 'One workstream per case, so the agent sees exactly what it would see for a real client.', run: 'One turn per case.', score: 'field_match on structured outputs (tolerances for money and dates), rubric for documents, plus every client check.', metrics: 'Accuracy, first-pass yield, human time per client.', source: 'Real past work.', isolate: 'Expected outputs live in the dataset store, which the agent under test cannot read.',
+    manifest: `{
+  "dataset": "gpw-1120pc", "kind": "work_product", "version": 4,
+  "layout": "workstream_per_case", "run_mode": "per_case",
+  "cases": [{
+    "id": "pair-017",
+    "inputs": ["inputs/trial_balance.xlsx", "inputs/prior_year_1120pc.pdf"],
+    "expected": { "files": ["expected/pair-017/1120pc_filed.json"] },
+    "scorers": ["field_match"], "source": "real", "tags": ["multi-entity"]
+  }]
+}` },
+  { key: 'labeled', name: 'Labelled cases, known or synthetic', agent: 'GPWA email sorting', when: 'The agent classifies or routes items, and the right answer for each item can be written down in advance.', caseShape: 'One input item (an email with attachments) plus its expected labels: target client workstream, document type, and where one document ends and the next begins.', layout: 'One shared dataset workstream holding every case in an inbox folder.', run: 'One batch turn over the inbox, or one turn per case.', score: 'label_match per label, a confusion matrix across clients, and boundary checks on attachment splits.', metrics: 'Routing accuracy, precision and recall per client, unnecessary HITL rate. Boundary-detection HITLs stay blocking; they are counted, not tuned away.', source: 'Known: historical emails whose routing a person confirmed. Synthetic: generated by abcd dataset synth from templates and the known client list, so every mapping is known up front.', isolate: 'Labels live in the dataset store. Synthetic and known cases are tagged, so criteria can require a target on known cases alone.',
+    manifest: `{
+  "dataset": "gpwa-email-sorting", "kind": "labeled", "version": 2,
+  "layout": "shared_workstream", "run_mode": "batch",
+  "cases": [{
+    "id": "mail-0412",
+    "inputs": ["inbox/mail-0412.eml"],
+    "expected": { "labels": {
+      "workstream": "40644",
+      "documents": [ {"pages": "1-3", "type": "engagement-letter"},
+                     {"pages": "4",   "type": "w9"} ] } },
+    "scorers": ["label_match", "boundary_match"],
+    "source": "synthetic", "tags": ["multi-attachment"]
+  }]
+}` },
+  { key: 'read_your_writes', name: 'Read your writes', agent: 'GPWA CRM updates (Dynamics 365)', when: 'The agent changes state in another system, so the output that matters is what the system holds afterwards, not a file.', caseShape: 'An instruction or input that should cause a write, a setup that snapshots the target record, the expected state and outcome code, and a teardown that restores the snapshot.', layout: 'One dataset workstream whose secrets point at the test system (D365TEST_MSCRM), with the staged agent and a read-only probe agent assigned.', run: 'Sequential, one case at a time, because cases share records. Each case: probe snapshot, agent turn, probe read-back, teardown.', score: 'state_match (each expected field equals the read-back value), outcome_match (0 updated, 1 updated with an overwrite warning, below 0 refused, such as -1 no tax return or -2 invalid year), and collateral (other rows in scope unchanged).', metrics: 'Write correctness, correct refusals, no collateral changes, failures detected and retried.', source: 'Known records in the test tenant, plus negative cases (unknown client, invalid year, overwrite).', isolate: 'The probe uses the read-only SQL login (CRMReaderRole), never the write path. Teardown goes through the same WinRM executables as the agent; there are no direct database writes, ever.',
+    manifest: `{
+  "dataset": "gpwa-crm-writes", "kind": "read_your_writes", "version": 1,
+  "layout": "shared_workstream", "run_mode": "sequential",
+  "target_env": "D365TEST_MSCRM", "probe": "gpwa-crm-probe",
+  "cases": [{
+    "id": "tax-40644-overwrite",
+    "inputs": { "message": "Update the 2026 tax return for client 40644: taxable income 2230.05, total tax -234.2, tax due -32, dep credit carryforward 7948" },
+    "setup":    { "snapshot": "tax_return(client=40644, year=2026)" },
+    "expected": { "outcome": 1,
+                  "state": { "taxable_income": 2230.05, "total_tax": -234.2,
+                             "tax_due": -32, "dep_credit_carryforward": 7948 } },
+    "teardown": { "restore": "snapshot" },
+    "scorers": ["outcome_match", "state_match", "collateral"],
+    "source": "known", "tags": ["overwrite"]
+  }]
+}` },
+  { key: 'custom', name: 'Custom scorer', agent: 'Anything else', when: 'None of the above fits: files dropped on an SMB share, an API side effect, or property checks with no expected output at all.', caseShape: 'Any inputs, any expectation, and a scorer script in the repo.', layout: 'Either layout.', run: 'Any run mode.', score: 'evals/scorers/<name>.py in the agents repo, with a fixed contract: it reads the case and what was observed, and prints {passed, score, detail} as JSON. abcd runs it locally.', metrics: 'Whatever the FDE defines over the scorer\'s results.', source: 'Any.', isolate: 'The same rules: expectations in the dataset store, probes read only, teardown through the agent\'s own write path.',
+    manifest: `{
+  "dataset": "gpwa-smb-drops", "kind": "custom", "version": 1,
+  "layout": "shared_workstream", "run_mode": "per_case",
+  "cases": [{
+    "id": "drop-0031",
+    "inputs": ["inbox/signed_8879.pdf"],
+    "expected": { "path": "\\\\\\\\gpwa-fs\\\\clients\\\\40644\\\\2026\\\\8879.pdf" },
+    "scorers": ["script:smb_file_landed"], "source": "known"
+  }]
+}` },
 ];
 
 const META_SKILLS = [
@@ -402,7 +461,7 @@ const META_SKILLS = [
   ['builder-process-from-sop', 'Turns process docs into agent.yaml: steps, HITL gates, approvals.'],
   ['builder-skill-author', 'Writes and refines skills to the Adopt authoring guidelines.'],
   ['builder-checks', 'Turns client checks into scorers and a maker-checker step.'],
-  ['builder-dataset', 'Dataset CRUD through abcd.'],
+  ['builder-dataset', 'Dataset CRUD for every kind, synthetic case generation, probe agents for read-your-writes.'],
   ['builder-metrics', 'Metric definitions and release criteria.'],
   ['builder-eval', 'Runs evals, reads results, explains misses by cause.'],
   ['builder-review', 'Wraps adopt-skill-review.'],
@@ -415,12 +474,13 @@ const META_SKILLS = [
   ['builder-train', 'Generates the agent\'s training kit.'],
 ];
 
+
 const META_AGENTS = [
   { name: 'Context curator', kind: 'Platform process', ws: 'Builder: context', trigger: 'Nightly cron pipeline', does: 'Reads new files under context/ with the workstream file tools; extracts requirements, decisions and candidate checks; proposes knowledge graph pages and edges; opens items for anything unresolved.', writes: 'proposed/, bld_decisions (proposed), bld_open_items (db_insert_rows)', status: 'setup' },
   { name: 'Status reporter', kind: 'Platform process', ws: 'Builder: operations, with write access to every Builder status workstream', trigger: 'Daily and Friday cron pipelines', does: 'Reads the tables with db_query, writes the scorecard and agent status pages into each client\'s status workstream, and sends the FDE daily report and Friday scorecard through the connected Slack or Gmail integration.', writes: 'builder-status-<client>/, reports/daily/', status: 'setup' },
   { name: 'Status agent', kind: 'Platform process', ws: 'Builder status: <client>', trigger: 'A client stakeholder asks a question', does: 'Answers questions such as "what is pending on the 1120-PC agent?" from the status files. Read only.', writes: 'nothing', status: 'setup' },
   { name: 'Maker-checker step', kind: 'Step inside each live agent', ws: 'Client workstream', trigger: 'Every production run', does: 'Runs the client\'s checks on the output before a person sees it and records each result.', writes: 'bld_check_results (db_insert_rows)', status: 'abcd' },
-  { name: 'Eval runner', kind: 'abcd command', ws: 'Runs from your machine', trigger: 'abcd eval run, abcd test-staged', does: 'One turn per pair with the staged process, downloads outputs, scores deterministic checks in Python and judged checks with your coding agent, computes metrics.', writes: 'bld_eval_runs, bld_eval_results, bld_check_results, bld_metric_values, evals/', status: 'abcd' },
+  { name: 'Eval runner', kind: 'abcd command', ws: 'Runs from your machine', trigger: 'abcd eval run, abcd test-staged', does: 'Runs every case the way its dataset kind says (per case, batch, or sequential with a probe), collects outputs, labels or read-back rows, scores deterministic checks in Python and judged checks with your coding agent, computes metrics.', writes: 'bld_eval_runs, bld_eval_results, bld_check_results, bld_metric_values, evals/', status: 'abcd' },
   { name: 'Explainer and trainer', kind: 'abcd command', ws: 'Runs in your coding agent', trigger: 'abcd release', does: 'Regenerates explainer.html and the training kit for the new live version on your subscription, uploads them and commits them to git.', writes: 'agents/<agent>/, bld_training_assets', status: 'abcd' },
 ];
 
@@ -482,6 +542,21 @@ const RBAC_NOTES = {
 };
 
 const SCENARIOS = [
+  { name: 'Eval the CRM agent (read your writes)', who: 'FDE', trigger: 'The GPWA CRM agent writes tax-return fields into Dynamics 365. There is no document to compare against; what matters is what the CRM holds afterwards.', steps: [
+    ['FDE', 'abcd dataset create gpwa-crm-writes --kind read_your_writes --target-env D365TEST_MSCRM --probe gpwa-crm-probe.', 'A shared dataset workstream whose secrets point at the test CRM; the staged agent and the probe are assigned to it.'],
+    ['Builder', 'Drafts the probe agent: one read-only SQL skill using the CRMReaderRole login, returning rows as JSON.', 'A small agent that can read but never write.'],
+    ['FDE', 'abcd dataset add-case for an update, an overwrite, an unknown client and an invalid year.', 'Four cases with expected outcomes 0, 1, -1 and -2 and the expected field values.'],
+    ['abcd', 'Checks the probe is connected to D365TEST_MSCRM before anything runs.', 'Refuses if the probe reports any other database.'],
+    ['abcd', 'For each case, in order: probe snapshot, agent turn, probe read-back, teardown through the same WinRM write path.', 'bld_eval_results with the rows read back; the record ends as it started.'],
+    ['abcd', 'Scores outcome_match, state_match and collateral.', 'Write correctness and correct refusals on the scorecard; any collateral change fails the case.'],
+  ]},
+  { name: 'Eval email sorting (labelled cases)', who: 'FDE', trigger: 'The email sorter routes incoming mail to client workstreams and splits attachments into documents. The right answer for each email can be written down in advance.', steps: [
+    ['FDE', 'abcd dataset create gpwa-email-sorting --kind labeled --layout shared --run-mode batch.', 'One dataset workstream with an inbox folder; labels go to the dataset store.'],
+    ['FDE', 'abcd dataset add-case for 60 historical emails whose routing a person already confirmed.', 'Known cases with their workstream, document types and page splits.'],
+    ['Builder', 'abcd dataset synth --count 200 from templates and the known client list.', 'Synthetic cases whose labels are known up front, tagged source = synthetic.'],
+    ['FDE', 'abcd criteria set: routing accuracy of at least 98% on known cases and 95% on synthetic, no regressions.', 'Known and synthetic cases held to their own targets.'],
+    ['abcd', 'Runs one batch turn over the inbox and scores label_match and boundary_match.', 'A confusion matrix per client and the unnecessary HITL rate. Boundary-detection HITLs stay blocking and are counted, not tuned away.'],
+  ]},
   { name: 'New agent from an SOP', who: 'FDE', trigger: 'A new client process is signed. You have the SOP, a call transcript and 30 past filed returns.', steps: [
     ['FDE', 'Uploads the SOP and transcript to Builder: context (context/process-docs/, context/calls/).', 'Context curator extracts requirements, decisions and candidate checks.'],
     ['FDE', 'abcd dataset create, then add-pair for each of the 30 returns.', '30 pair workstreams, one dataset store, dataset v1.'],
@@ -550,7 +625,9 @@ const GPW_METRICS = [
 ];
 
 const OPEN_Q = [
-  ['One workstream per pair', 'A custom_properties.kind = dataset tag keeps pair workstreams apart. Is that enough at hundreds of pairs, or should pairs share workstreams by folder?'],
+  ['One workstream per case', 'Work-product pairs get a workstream each; labelled and read-your-writes datasets share one. Is the custom_properties.kind = dataset tag enough at hundreds of workstreams?'],
+  ['Test systems for read-your-writes', 'Which agents have a test tenant to write to (the GPWA CRM does: D365TEST_MSCRM)? Agents without one can only be evaluated on refusals and dry runs.'],
+  ['Synthetic realism', 'How many synthetic cases is a release allowed to rely on, and should known cases have their own target?'],
   ['FDEs as org admins', 'Every write route needs Admin, so FDEs are admins in the orgs they build for. Acceptable, given the drift audit?'],
   ['Loosening release criteria', 'Should lowering a target or editing an expected output always need a lead\'s recorded approval?'],
   ['Drift response', 'When abcd audit drift finds an edit made outside the Builder: revert it automatically, or open an item for the owner?'],
@@ -575,7 +652,7 @@ function tree(nodes) {
   }).join('');
 }
 
-const state = { step: 0, table: 'bld_agents', tfilter: 'All', scen: 0, sstep: 0, role: -1, agent: 0, ptab: 'Scorecard', crud: 0, train: 'prompts' };
+const state = { kind: 'work_product', step: 0, table: 'bld_agents', tfilter: 'All', scen: 0, sstep: 0, role: -1, agent: 0, ptab: 'Scorecard', crud: 0, train: 'prompts' };
 
 const PAGES = [
   { id: 'overview', group: 'Start here', label: 'Overview', render: pOverview },
@@ -723,7 +800,7 @@ function pScenarios() {
 
 function pWorkstreams() {
   return `<h1>Workstreams and folders</h1>
-  <p class="lead"><code>abcd builder setup</code> creates two standard workstreams per org and one status workstream per client, using the existing workstream routes. Datasets add one workstream per work-product pair, and each client with a Builder agent gets a staging workstream. Client workstreams stay as they are.</p>
+  <p class="lead"><code>abcd builder setup</code> creates two standard workstreams per org and one status workstream per client, using the existing workstream routes. Datasets add a workstream per work-product pair, or one per labelled or read-your-writes dataset, and each client with a Builder agent gets a staging workstream. Client workstreams stay as they are.</p>
   <table class="t"><tr><th>Workstream</th><th>How many</th><th>Holds</th><th>Tables linked</th><th>Who writes and reads</th><th>Status</th></tr>
   ${WORKSTREAMS.map(w => `<tr><td><b>${w.name}</b><br><span class="tag">${w.key}</span><div style="color:var(--muted);font-size:12.5px">${w.created}</div></td><td>${w.count}</td><td>${w.holds}<div style="color:var(--muted);font-size:12.5px">Store: ${w.store}</div></td><td>${w.tables}</td><td>${w.who}</td><td>${st(w.status)}</td></tr>`).join('')}</table>
   <div class="note">Pair workstreams carry <code>custom_properties.kind = dataset</code> (an existing JSON field on workstreams, with its schema set once through member-config) so they can be kept out of client lists, Spaces and the email router.</div>
@@ -766,31 +843,45 @@ function pTables() {
 
 function pDatasets() {
   const c = DS_CRUD[state.crud];
+  const k = DS_KINDS.find(x => x.key === state.kind) || DS_KINDS[0];
   return `<h1>Datasets</h1>
-  <p class="lead">A dataset is a list of work-product pairs: real inputs and the output a good analyst produced. Each pair gets its own workstream, so the agent runs on it exactly as it would on a client. An agent linked to a dataset cannot go live until it meets its release criteria on it.</p>
+  <p class="lead">A dataset is how an FDE says what "correct" means for an agent. Not every agent produces a document to compare against, so a dataset has a kind. Each kind says what a case holds, how the agent runs on it, and how the result is scored. An agent linked to a dataset cannot go live until it meets its release criteria on it.</p>
+  <h2>Pick the kind that fits the agent</h2>
+  <div class="seg">${DS_KINDS.map(x => `<button class="${x.key === k.key ? 'on' : ''}" data-kind="${x.key}">${x.name}</button>`).join('')}</div>
+  <div class="card">
+    <h3>${k.name} <span class="who-chip">Example: ${k.agent}</span></h3>
+    <div class="kv" style="margin-top:8px">
+      <div class="k">Use it when</div><div>${esc(k.when)}</div>
+      <div class="k">A case holds</div><div>${esc(k.caseShape)}</div>
+      <div class="k">Workstreams</div><div>${esc(k.layout)}</div>
+      <div class="k">How it runs</div><div>${esc(k.run)}</div>
+      <div class="k">How it is scored</div><div>${esc(k.score)}</div>
+      <div class="k">Typical metrics</div><div>${esc(k.metrics)}</div>
+      <div class="k">Where cases come from</div><div>${esc(k.source)}</div>
+      <div class="k">Keeping it honest</div><div>${esc(k.isolate)}</div>
+    </div>
+    <div class="term" style="margin-top:12px">${esc(k.manifest)}</div>
+  </div>
+  <div class="note">Every kind shares one case shape: inputs, optional setup, expected, optional teardown, scorers, source and tags. A new kind is a new runner and scorer in abcd, not a new table or a platform change.</div>
+  <h2>Scorers</h2>
+  <table class="t"><tr><th>Scorer</th><th>Compares</th><th>Kinds</th></tr>
+  <tr><td class="mono">field_match</td><td>Structured output fields, with tolerances for money and dates</td><td>work_product</td></tr>
+  <tr><td class="mono">rubric</td><td>A document against a written rubric, judged by your coding agent</td><td>work_product, custom</td></tr>
+  <tr><td class="mono">label_match</td><td>Each produced label with the expected one; feeds a confusion matrix</td><td>labeled</td></tr>
+  <tr><td class="mono">boundary_match</td><td>Where documents were split against the expected page ranges</td><td>labeled</td></tr>
+  <tr><td class="mono">state_match</td><td>Rows read back by the probe with the expected state</td><td>read_your_writes</td></tr>
+  <tr><td class="mono">outcome_match</td><td>The write's result code class: updated, updated with a warning, refused</td><td>read_your_writes</td></tr>
+  <tr><td class="mono">collateral</td><td>Rows in scope other than the target, before and after</td><td>read_your_writes</td></tr>
+  <tr><td class="mono">script:&lt;name&gt;</td><td>Anything, through evals/scorers/&lt;name&gt;.py</td><td>custom</td></tr>
+  <tr><td class="mono">check:&lt;check_key&gt;</td><td>Any client check from bld_checks</td><td>all</td></tr></table>
   <h2>How a dataset is stored</h2>
   <div class="tree">${tree(DS_TREE)}</div>
-  <div class="note rv"><b>Why expected outputs live apart.</b> The harness copies every Doc Store linked to a workstream into the agent's sandbox. If the expected output sat in the pair's store, the agent under test could read the answer. The dataset store is linked to Builder: operations only.</div>
+  <div class="note rv"><b>Why expectations live apart.</b> The harness copies every Doc Store linked to a workstream into the agent's sandbox. If expected outputs or labels sat in the dataset workstream, the agent under test could read the answers. They live in the dataset store, which is linked to Builder: operations only.</div>
   <h2>How it is indexed</h2>
-  <ul><li><span class="tag">bld_datasets</span> one row per dataset, with its current version.</li>
+  <ul><li><span class="tag">bld_datasets</span> one row per dataset: kind, layout, run mode, test environment and probe, default scorers, current version.</li>
   <li><span class="tag">bld_dataset_versions</span> one row per version, with a change note and the immutable manifest path.</li>
-  <li><span class="tag">bld_dataset_pairs</span> one row per pair: its workstream, input and expected paths, scorer, tags, and the versions it was active in.</li>
+  <li><span class="tag">bld_dataset_cases</span> one row per case: inputs, setup, expected, teardown, scorers, source, tags, and the versions it was active in.</li>
   <li>A <span class="tag">kg/datasets/&lt;dataset&gt;.md</span> page explains what the dataset covers, and a <span class="tag">tested_by</span> edge links each agent to it.</li></ul>
-  <h2>Manifest</h2>
-  <div class="term">{
-  "dataset": "gpw-1120pc",
-  "version": 4,
-  "pairs": [
-    {
-      "id": "pair-017",
-      "workstream": "ds:gpw-1120pc:pair-017",
-      "inputs": ["inputs/trial_balance.xlsx", "inputs/prior_year_1120pc.pdf"],
-      "expected": ["expected/pair-017/1120pc_filed.json"],
-      "scorer": "field_match",
-      "tags": ["multi-entity"]
-    }
-  ]
-}</div>
   <h2>Create, read, update, delete</h2>
   <div class="seg">${DS_CRUD.map((x, i) => `<button class="${i === state.crud ? 'on' : ''}" data-crud="${i}">${x.op}</button>`).join('')}</div>
   <div class="card"><h3>${c.op}</h3>
@@ -799,10 +890,11 @@ function pDatasets() {
     <div class="k">Underneath</div><div>${esc(c.under)}</div>
     <div class="k">Dataset version</div><div>${c.ver}</div></div></div>
   <h2>Rules</h2>
-  <ul><li>Any change to pairs or expected outputs creates a new dataset version. Two releases are only compared on the same version.</li>
-  <li>Retired pairs keep their files, so any past eval run can be reproduced.</li>
-  <li>An eval run starts one turn per active pair with the staged process, in that pair's workstream. The staged process is assigned to every pair workstream when the pair is added.</li>
-  <li>Expected outputs and targets are owned by the FDE; abcd asks for a lead's recorded approval before loosening either.</li></ul>`;
+  <ul><li>Any change to cases or expectations creates a new dataset version. Two releases are only compared on the same version.</li>
+  <li>Retired cases keep their files, so any past eval run can be reproduced.</li>
+  <li>The staged agent is assigned to every dataset workstream when it is created, and never to a client workstream.</li>
+  <li>Read-your-writes datasets run only against the declared test environment. Before the first case, abcd asks the probe which server and database it is connected to and refuses if it is not the declared one.</li>
+  <li>Expectations and targets are owned by the FDE; abcd asks for a lead's recorded approval before loosening either.</li></ul>`;
 }
 
 function pKg() {
@@ -1059,7 +1151,7 @@ function pTraining() {
   <div class="note">Illustrative content for an example agent.</div>
   <h2>Rules</h2>
   <ul><li>abcd release regenerates the explainer and the kit. A release whose kit fails to generate is flagged, not blocked.</li>
-  <li>Prompts in the kit are tested: each runs on a dataset pair during the staged test, and only prompts that work ship.</li>
+  <li>Prompts in the kit are tested: each runs on a dataset case during the staged test, and only prompts that work ship.</li>
   <li>The FAQ comes from real questions users asked in runs and HITL, not invented ones.</li></ul>`;
 }
 
@@ -1071,7 +1163,7 @@ function pQuestions() {
 
 /* Events */
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-go],[data-step],[data-scen],[data-sstep],[data-table],[data-tfilter],[data-role],[data-agent],[data-ptab],[data-crud],[data-train],[data-tree],#theme');
+  const el = e.target.closest('[data-go],[data-step],[data-scen],[data-sstep],[data-table],[data-tfilter],[data-role],[data-agent],[data-ptab],[data-crud],[data-train],[data-kind],[data-tree],#theme');
   if (!el) return;
   const d = el.dataset;
   if (el.id === 'theme') {
@@ -1092,6 +1184,7 @@ document.addEventListener('click', e => {
   if (d.ptab) state.ptab = d.ptab;
   if (d.crud !== undefined) state.crud = +d.crud;
   if (d.train) state.train = d.train;
+  if (d.kind) state.kind = d.kind;
   render();
 });
 window.addEventListener('hashchange', render);
