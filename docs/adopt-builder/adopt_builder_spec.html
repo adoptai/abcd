@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Adopt Builder: how agents are built, tested and released</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500&display=swap" rel="stylesheet">
+<style>
+/* Ledger Ink tokens, inlined from adoptwebui docs/design-language/tokens.css */
+:root {
+  --frame: #ebeae5; --paper: #f8f8f6; --canvas: #efeee9; --sunken: #f2f2ef; --surface: #ffffff; --raised: #ffffff; --hover: #f0f0ec;
+  --line: #e4e3df; --line-strong: #d3d2cd;
+  --text: #1a1c1f; --muted: #63666b; --faint: #8a8d92;
+  --ink: #15171a; --ink-hover: #2c2f34; --on-ink: #ffffff; --sel-bg: var(--ink); --sel-fg: var(--on-ink); --sel-line: var(--ink);
+  --accent: #1f4e8c; --accent-hover: #183f72; --accent-soft: rgba(31, 78, 140, .08); --accent-line: rgba(31, 78, 140, .30); --accent-2: #a9bedb;
+  --term-bg: #0f172a; --term-line: #1e293b; --term-rule: rgba(148, 163, 184, .12);
+  --term-text: #e2e8f0; --term-muted: #94a3b8; --term-out: #cbd5e1;
+  --term-err: #fca5a5; --term-err-bg: rgba(239, 68, 68, .12); --term-link: #93c5fd;
+  --ok: #2f6b45; --ok-bg: #e7f0e9; --rv: #8a5a12; --rv-bg: #f6eedf; --ex: #a3291f; --ex-bg: #f8e6e3; --dr: #5f6368; --dr-bg: #eeeeeb;
+  --skel: #efeee9;
+  --shadow-card: 0 1px 2px rgba(20, 22, 26, .04);
+  --shadow-pop: 0 10px 30px rgba(20, 22, 26, .12), 0 2px 6px rgba(20, 22, 26, .06);
+  --scrim: rgba(17, 18, 20, .30);
+  --bubble: #1f2226; --on-bubble: #ffffff; --logo-tile: #ffffff;
+  --sheet: #ffffff; --sheet-ink: #1d1d1f; --sheet-mute: #5c5f64; --sheet-rule: #d9d9d6; --sheet-fill: #f2f2ef; --sheet-hl: #fbe7b5; --sheet-ev: #cfe0f7; --pv-canvas: #e6e6e3;
+  --sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --serif: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --r-pill: 4px; --r-btn: 6px; --r-card: 10px; --r-modal: 12px;
+  --t-fast: .12s; --t-base: .2s;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --frame: #0b0c0e; --paper: #111214; --canvas: #16171b; --sunken: #15161a; --surface: #191b1e; --raised: #1f2125; --hover: #202226;
+  --line: #2a2c31; --line-strong: #3a3d43;
+  --text: #e8e9eb; --muted: #9a9ea5; --faint: #7b7f86;
+  --ink: #34373e; --ink-hover: #3d4048; --on-ink: #f2f3f5; --sel-bg: #30333a; --sel-fg: #eceef0; --sel-line: #4a4e56;
+  --accent: #86abdf; --accent-hover: #a3c0e8; --accent-soft: rgba(134, 171, 223, .14); --accent-line: rgba(134, 171, 223, .38); --accent-2: #3f5878;
+  --ok: #7fc296; --ok-bg: rgba(127, 194, 150, .14); --rv: #dcae5e; --rv-bg: rgba(220, 174, 94, .15); --ex: #ec8a7e; --ex-bg: rgba(236, 138, 126, .15); --dr: #a7aab0; --dr-bg: rgba(167, 170, 176, .12);
+  --skel: #222428; --shadow-card: none; --shadow-pop: 0 14px 36px rgba(0, 0, 0, .55), 0 0 0 1px #2e3136; --scrim: rgba(0, 0, 0, .55);
+  --bubble: #2b2e34; --on-bubble: #eceef0; --logo-tile: var(--raised); --pv-canvas: #0d0e10;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--frame); color: var(--text); font-family: var(--sans); font-size: 14px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); text-decoration: underline; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+code { background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 4px; }
+
+.shell { display: flex; height: 100vh; }
+.side { width: 256px; flex: none; display: flex; flex-direction: column; padding: 14px 10px; overflow-y: auto; }
+.brand { display: flex; align-items: center; gap: 10px; padding: 6px 10px 14px; cursor: pointer; }
+.brand-tile { width: 30px; height: 30px; border-radius: 8px; background: var(--logo-tile); display: grid; place-items: center; box-shadow: var(--shadow-card); }
+.brand-name { font-weight: 600; font-size: 14px; }
+.brand-sub { font-size: 12px; color: var(--muted); }
+.nav-group { font-size: 11.5px; color: var(--faint); text-transform: uppercase; letter-spacing: .04em; padding: 14px 10px 4px; }
+.nav-item { display: block; width: 100%; text-align: left; border: 1px solid transparent; background: none; color: var(--text); font: inherit; font-size: 13.5px; padding: 6px 10px; border-radius: var(--r-btn); cursor: pointer; transition: background var(--t-fast); }
+.nav-item:hover { background: var(--hover); }
+.nav-item.on { background: var(--surface); border-color: var(--line); box-shadow: var(--shadow-card); }
+.side-foot { margin-top: auto; padding: 12px 10px 4px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); }
+.side-foot .who { font-size: 12.5px; color: var(--muted); }
+.icon-btn { width: 32px; height: 32px; border: none; background: none; color: var(--text); border-radius: var(--r-btn); cursor: pointer; display: grid; place-items: center; }
+.icon-btn:hover { background: var(--hover); }
+
+.panel { flex: 1; margin: 10px 10px 10px 0; background: var(--paper); border-radius: 14px; border: 1px solid var(--line); overflow-y: auto; }
+.page { max-width: 1180px; padding: 36px 44px 80px; }
+h1 { font-family: var(--serif); font-weight: 400; font-size: 32px; line-height: 1.1; letter-spacing: -0.015em; margin: 0 0 10px; }
+.lead { font-size: 15.5px; color: var(--text); max-width: 820px; margin: 0 0 22px; }
+.sub { color: var(--muted); max-width: 820px; }
+h2 { font-size: 17px; font-weight: 600; margin: 34px 0 10px; }
+h3 { font-size: 14.5px; font-weight: 600; margin: 0 0 6px; }
+p { margin: 0 0 10px; max-width: 860px; }
+ul, ol { margin: 0 0 12px; padding-left: 20px; max-width: 860px; }
+li { margin: 3px 0; }
+
+.grid { display: grid; gap: 12px; }
+.g2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.g3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.g5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--shadow-card); padding: 16px 18px; }
+.card .k { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.card p, .card li { color: var(--text); font-size: 13.5px; }
+.card .meta { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
+.card.click { cursor: pointer; transition: border-color var(--t-fast); }
+.card.click:hover { border-color: var(--line-strong); }
+.card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px; border-radius: var(--r-pill); font-size: 12px; font-weight: 500; white-space: nowrap; vertical-align: middle; }
+.pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.p-ok { color: var(--ok); background: var(--ok-bg); }
+.p-rv { color: var(--rv); background: var(--rv-bg); }
+.p-ex { color: var(--ex); background: var(--ex-bg); }
+.p-dr { color: var(--dr); background: var(--dr-bg); }
+.tag { display: inline-block; font-family: var(--mono); font-size: 11.5px; color: var(--muted); background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 6px; margin: 1px 2px 1px 0; }
+
+table.t { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; font-size: 13px; margin: 6px 0 14px; }
+table.t th { background: var(--sunken); color: var(--muted); font-weight: 500; text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+table.t td { padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.t tr:last-child td { border-bottom: none; }
+table.t td.num, table.t th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.t tr.click { cursor: pointer; }
+table.t tr.click:hover td { background: var(--hover); }
+
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-btn); overflow: hidden; background: var(--surface); margin: 0 6px 10px 0; flex-wrap: wrap; }
+.seg button { border: none; background: none; font: inherit; font-size: 13px; padding: 5px 12px; cursor: pointer; color: var(--text); border-right: 1px solid var(--line); }
+.seg button:last-child { border-right: none; }
+.seg button.on { background: var(--sel-bg); color: var(--sel-fg); }
+.btn { border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 6px 12px; border-radius: var(--r-btn); cursor: pointer; }
+.btn:hover { background: var(--hover); }
+.btn.primary { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
+.btn.primary:hover { background: var(--ink-hover); }
+.btn:disabled { opacity: .45; cursor: default; }
+.input { border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; padding: 6px 10px; border-radius: var(--r-btn); width: 260px; }
+
+.term { background: var(--term-bg); border: 1px solid var(--term-line); color: var(--term-text); border-radius: var(--r-card); padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; overflow-x: auto; white-space: pre; margin: 6px 0 14px; }
+.term .c { color: var(--term-muted); }
+.term .o { color: var(--term-out); }
+.term .l { color: var(--term-link); }
+.term .e { color: var(--term-err); }
+
+.tree { font-family: var(--mono); font-size: 12.5px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: 10px 6px; }
+.tree .row { display: flex; gap: 12px; padding: 3px 8px; border-radius: var(--r-pill); cursor: default; }
+.tree .row.dir { cursor: pointer; }
+.tree .row:hover { background: var(--hover); }
+.tree .name { white-space: nowrap; }
+.tree .desc { font-family: var(--sans); font-size: 12.5px; color: var(--muted); }
+.tree .kids { margin-left: 18px; border-left: 1px solid var(--line); }
+.tree .kids.closed { display: none; }
+.caret { display: inline-block; width: 12px; color: var(--faint); }
+
+.split { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 14px; align-items: start; }
+.list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; }
+.list button { display: block; width: 100%; text-align: left; border: none; border-bottom: 1px solid var(--line); background: none; color: var(--text); font: inherit; font-size: 13px; padding: 8px 12px; cursor: pointer; }
+.list button:last-child { border-bottom: none; }
+.list button:hover { background: var(--hover); }
+.list button.on { background: var(--accent-soft); }
+.list button .small { display: block; font-size: 12px; color: var(--muted); }
+
+.loop { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 6px; margin: 8px 0 14px; }
+.loop button { border: 1px solid var(--line); background: var(--surface); border-radius: var(--r-btn); padding: 8px 6px; font: inherit; font-size: 12px; color: var(--text); cursor: pointer; text-align: left; min-height: 64px; }
+.loop button .n { display: block; font-weight: 600; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.loop button.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.loop button.plat { background: var(--sunken); }
+.legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; flex-wrap: wrap; }
+.sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line-strong); vertical-align: -2px; margin-right: 6px; }
+
+.kv { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 6px 14px; font-size: 13px; }
+.kv .k { color: var(--muted); }
+.note { border-left: 3px solid var(--line-strong); padding: 6px 12px; color: var(--muted); font-size: 13px; margin: 8px 0 14px; max-width: 860px; background: var(--surface); border-radius: 0 var(--r-btn) var(--r-btn) 0; }
+.note.rv { border-left-color: var(--rv); }
+.steps { counter-reset: s; list-style: none; padding: 0; }
+.steps li { counter-increment: s; position: relative; padding: 8px 12px 8px 40px; border: 1px solid var(--line); border-radius: var(--r-btn); background: var(--surface); margin: 6px 0; }
+.steps li::before { content: counter(s); position: absolute; left: 12px; top: 8px; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; }
+.steps li.cur { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.steps li.future { opacity: .55; }
+.who-chip { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 6px; margin-left: 6px; }
+
+.portal { border: 1px solid var(--line-strong); border-radius: var(--r-modal); overflow: hidden; background: var(--frame); }
+.portal-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--sunken); font-size: 13px; }
+.portal-body { padding: 18px; background: var(--paper); }
+.stat { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-card); padding: 12px 14px; }
+.stat .k { font-size: 12px; color: var(--muted); }
+.stat .v { font-size: 22px; font-weight: 500; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.stat .d { font-size: 12px; color: var(--muted); }
+.bar { height: 6px; background: var(--sunken); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+.bar > span { display: block; height: 100%; background: var(--ink); }
+
+.report { background: var(--sheet); color: var(--sheet-ink); border: 1px solid var(--sheet-rule); border-radius: var(--r-card); padding: 22px 26px; }
+.report .rh { display: flex; justify-content: space-between; border-bottom: 1px solid var(--sheet-rule); padding-bottom: 10px; margin-bottom: 12px; }
+.report .muted { color: var(--sheet-mute); font-size: 12.5px; }
+.report table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin: 6px 0 14px; }
+.report th { text-align: left; color: var(--sheet-mute); font-weight: 500; border-bottom: 1px solid var(--sheet-rule); padding: 5px 6px; }
+.report td { border-bottom: 1px solid var(--sheet-rule); padding: 5px 6px; }
+.report td.num, .report th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.report h4 { font-size: 13px; margin: 14px 0 4px; }
+
+.matrix td.c { text-align: center; }
+.yes { color: var(--ok); font-weight: 600; }
+.part { color: var(--rv); font-weight: 600; }
+.no { color: var(--faint); }
+.hl td { background: var(--accent-soft); }
+
+@media (max-width: 1000px) {
+  .side { display: none; }
+  .panel { margin: 0; border-radius: 0; }
+  .page { padding: 24px 18px 60px; }
+  .g3, .g5, .g2, .split { grid-template-columns: 1fr; }
+  .loop { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <main class="panel" id="panel"><div class="page" id="page"></div></main>
+</div>
+
+<script>
+/* ------------------------------------------------------------------
+   Content. Everything on the page is rendered from these objects so the
+   Builder's explainer meta skill can regenerate it from live state.
+   ------------------------------------------------------------------ */
+
+const LOGO = `<svg width="20" height="20" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5.3832 0.00617539C2.45887 0.13994 0.0977433 2.53538 0.00357974 5.46149C-0.0492223 7.09484 0.591442 8.57944 1.6554 9.6434C2.678 10.6651 4.08956 11.2979 5.64988 11.2979H7.41872C8.05057 11.2979 8.56278 10.7857 8.56278 10.1538H9.01071C9.01071 10.7857 9.52288 11.2979 10.1547 11.2979H11.2988V5.64894C11.2988 2.44122 8.62438 -0.14255 5.3841 0.00617539H5.3832ZM9.00984 9.00977H5.70883C3.83612 9.00977 2.27847 7.50492 2.28814 5.63222C2.29694 3.79383 3.79037 2.29866 5.62876 2.2881C7.50234 2.27666 9.00984 3.83518 9.00984 5.70967V9.00977Z" fill="#0364FF"/><path d="M9.0098 11.7449V17.5655H8.56183C8.56183 16.9327 8.04966 16.4205 7.41781 16.4205H5.73255C2.60492 16.4205 0.00794307 18.9269 2.28008e-05 22.0536C-0.00437735 23.6201 0.628365 25.0378 1.65448 26.0639C2.6806 27.09 4.09833 27.7228 5.66478 27.7184C8.79242 27.7096 11.2979 25.1135 11.2979 21.9859V12.889C11.2979 12.2571 10.7857 11.7449 10.1538 11.7449H9.0098ZM9.0098 22.0694C9.0098 24.0029 7.36854 25.5596 5.40782 25.4215C3.75248 25.3053 2.41219 23.965 2.29603 22.3097C2.15874 20.349 3.71552 18.7077 5.64805 18.7077H9.00892V22.0686L9.0098 22.0694Z" fill="#FFB1F2"/><path d="M22.0721 18.7095C23.9254 18.7095 25.4329 20.217 25.4329 22.0703C25.4329 23.9236 23.9254 25.4311 22.0721 25.4311C20.2188 25.4311 18.7113 23.9236 18.7113 22.0703C18.7113 20.217 20.2188 18.7095 22.0721 18.7095ZM22.0721 16.4214C18.9524 16.4214 16.4232 18.9506 16.4232 22.0703C16.4232 25.19 18.9524 27.7192 22.0721 27.7192C25.1918 27.7192 27.721 25.19 27.721 22.0703C27.721 18.9506 25.1918 16.4214 22.0721 16.4214Z" fill="#FF5000"/><path d="M26.0666 1.65448C25.0404 0.629243 23.6236 -0.00437738 22.0571 2.27696e-05C18.9295 0.00794307 16.4232 2.6058 16.4232 5.73342V7.41868C16.4232 8.05057 16.9353 8.56274 17.5672 8.56274V9.00979H12.889C12.2571 9.00979 11.7449 9.52197 11.7449 10.1538V11.2979H16.4232V15.9735H17.5672C18.1991 15.9735 18.7113 15.4613 18.7113 14.8294V11.2979H21.9885C25.1135 11.2979 27.7096 8.79593 27.721 5.67095C27.7272 4.10272 27.0936 2.68236 26.0666 1.65448ZM22.0087 9.00979H18.7113V5.64896C18.7113 3.7965 20.2188 2.28811 22.0721 2.28811C23.9254 2.28811 25.4778 3.84137 25.4321 5.73168C25.3863 7.62198 23.8436 9.00979 22.0087 9.00979Z" fill="#F6CC1C"/><path d="M18.7113 16.4205V16.4302C18.7113 16.769 18.5511 17.085 18.2862 17.2953C17.7837 17.6948 17.3446 18.1718 16.989 18.7086H12.889C12.2571 18.7086 11.7449 18.1965 11.7449 17.5646V16.4205H18.7113Z" fill="#FFB1F2"/></svg>`;
+
+const EX = '<span class="pill p-ok">Platform: exists</span>';
+const ABCD = '<span class="pill p-dr">Build in abcd</span>';
+const SETUP = '<span class="pill p-dr">Set up once</span>';
+const WORK = '<span class="pill p-rv">Workaround</span>';
+const DEC = '<span class="pill p-rv">To decide</span>';
+
+const INPUTS = [
+  { name: 'Metrics', what: 'Named business measures, each with a formula, a data source, a baseline and a target per phase.', ex: 'Automation rate, human time per client, accuracy, first-pass yield, AI cost per client.', use: 'Computed on every eval run and in production. The ones marked as gates decide whether a release can go live.', where: 'bld_metrics' },
+  { name: 'Ground truth', what: 'An eval set the FDE defines: work-product pairs, labelled cases (known or synthetic), or read-your-writes cases against a test system, plus the checks an output must pass to count as accurate.', ex: 'Filed 1120-PC returns; known email routings; CRM read-backs; checks such as headline values within $2.', use: 'Builds datasets. Each check becomes a scorer and a maker-checker step that runs in production too.', where: 'Dataset workstreams, bld_checks' },
+  { name: 'Knowledge graph', what: 'The client\'s systems, APIs and entities, and the skills and agents that already exist.', ex: 'GPW CRM, file shares, the email-sorting skill.', use: 'Context for drafting. Shows what a change affects before it ships.', where: 'Builder: context workstream' },
+  { name: 'Call context', what: 'Transcripts and notes from client calls and email threads.', ex: 'The 10/20 metrics call with Nicklas.', use: 'Pulls out requirements, decisions and new checks, each linked back to the call it came from.', where: 'context/calls/, bld_decisions' },
+  { name: 'Process documentation', what: 'SOPs, playbooks, step lists and sign-off rules.', ex: 'The 7-step return prep and its sign-offs.', use: 'Drafts the agent: its steps, HITL gates, approvals and a skill per step.', where: 'context/process-docs/' },
+];
+
+const FDE_DOES = [
+  ['Defines and approves the build plan', 'Which skills, plugins and agents to build or change. The Builder can propose them from the inputs; nothing is built until the FDE approves.'],
+  ['Sets each agent\'s release criteria', 'The dataset it is tested against, its gate metrics, and the target each metric must hit for the next release to go live.'],
+  ['Closes context gaps with the customer SME', 'Every case a blind eval cannot reproduce becomes a context gap. The FDE answers it or routes it to the customer-appointed SME; the answer becomes a generic instruction, and the gap closes only when a blind eval reproduces the case.'],
+  ['Approves staged to live', 'Once the staged version meets its release criteria on the harness.'],
+];
+
+const LOOP = [
+  { n: 1, name: 'Build or refine', where: 'local', who: 'Builder, in your coding agent', what: 'Pulls the context bundle for the agent (knowledge graph pages, decisions, open items, process docs, checks) and drafts or edits the skills, plugins and agent definition in your git repo.', cmd: 'abcd context pull <agent>\nabcd plan show <agent>', api: 'GET /v1/end-user/agent-harness/docstore/* · GET /v1/org-db/tables/{id}/rows', writes: 'Git working tree; bld_dev_events', skills: 'builder-context, builder-plan, builder-process-from-sop, builder-skill-author' },
+  { n: 2, name: 'Run evals', where: 'local', who: 'Builder, in your coding agent', what: 'Runs the skills against the dataset inputs locally, on your subscription, and scores the outputs with the deterministic checks. A fast first signal before any platform spend.', cmd: 'abcd eval run <agent> --tier local', api: 'Doc Store downloads of dataset inputs', writes: 'bld_eval_runs, bld_eval_results (tier = local)', skills: 'builder-eval, builder-checks' },
+  { n: 3, name: 'Review with abcd', where: 'local', who: 'Builder, in your coding agent', what: 'Runs adopt-skill-review over every changed skill and plugin: batching gaps, missing script contracts, frontmatter traps, HITL and process shape. Critical findings block the push.', cmd: 'abcd review <path>', api: 'none (local, free)', writes: 'bld_dev_events (review findings)', skills: 'builder-review (wraps adopt-skill-review)' },
+  { n: 4, name: 'Run on the harness', where: 'platform', who: 'Builder', what: 'Pushes the draft as the shadow staged objects (skill <name>--staged, agent "<agent> (staged)") and runs real harness turns with that process on the client staging workstream. Pulls the transcript, trace and Temporal history back.', cmd: 'abcd push <agent> --staged\nabcd run <agent> --staged --workstream <client>-staging', api: 'POST /v1/end-user/agent-harness/skills · PATCH /v1/org/processes/{id} · POST /v1/end-user/agent-harness/turns', writes: 'bld_versions (draft), harness run + trace', skills: 'builder-harness-run' },
+  { n: 5, name: 'Performance review', where: 'local', who: 'Builder, in your coding agent', what: 'Analyses where the run spent its steps, tokens and time (analyze_run_trace) and fixes the waste: batching, scripts instead of model passes, files instead of context.', cmd: 'abcd trace review <run_id>', api: 'GET /v1/runs/conversation-trace', writes: 'bld_dev_events (perf findings)', skills: 'builder-perf' },
+  { n: 6, name: 'Run blind evals', where: 'platform', who: 'abcd eval runner', what: 'Runs the staged agent on every case with nothing but a generic prompt (the kind of thing a real user types), the compiled knowledge graph instructions and the skills. No case notes, no expected output, no FDE steering, no follow-up turns. Scores the result against the golden dataset and the client\'s checks, and turns every miss caused by missing context into a context gap.', cmd: 'abcd eval run <agent> --blind', api: 'POST /turns per case or batch · outputs download · probe turns', writes: 'bld_eval_runs (tier = blind), bld_eval_results, bld_context_gaps', skills: 'builder-eval, builder-gaps' },
+  { n: 7, name: 'Close gaps until they pass', where: 'local', who: 'Builder, FDE and customer SME', what: 'For each open gap the Builder proposes the question with its evidence. The FDE answers it or routes it to the SME. The Builder turns the answer into a generic instruction page, abcd checks it does not leak the answer, and the affected cases re-run blind. Repeats 1 to 6 until every gate metric, including the blind reproduction rate, meets its target.', cmd: 'abcd gap list | ask | answer | encode | waive\nabcd eval run <agent> --blind --cases <gap cases>', api: 'Doc Store upload (builder-sme-<client>) · org-db rows', writes: 'bld_context_gaps, bld_case_notes, bld_instructions, kg/instructions/', skills: 'builder-gaps, builder-kg, builder-instructions' },
+  { n: 8, name: 'Freeze as staged', where: 'platform', who: 'Builder', what: 'Records the passing content hashes as the staged version and tags the git commit. The shadow objects already hold it; nothing changes on the platform except the version row.', cmd: 'abcd stage <agent>', api: 'POST /v1/org-db/tables/{id}/rows', writes: 'bld_versions (state = staged), git tag <agent>@v<n>-rc', skills: 'builder-release' },
+  { n: 9, name: 'Test the staged agent', where: 'platform', who: 'abcd eval runner + FDE', what: 'Re-verifies the shadow objects still match the staged hashes, then runs the full dataset blind and a few real client files on the staging workstream. This blind run is the gate\'s evidence.', cmd: 'abcd test-staged <agent>', api: 'GET /v1/end-user/agent-harness/skills/{name} · POST /turns', writes: 'bld_eval_runs (tier = staged), eval report', skills: 'builder-eval, builder-release' },
+  { n: 10, name: 'Publish new version', where: 'platform', who: 'FDE approves, abcd gate decides', what: 'The gate checks every criterion against the staged run. If all pass and the FDE approves, abcd uploads the staged bundles under the live names, patches the live agent, verifies what landed, attaches the eval report, tags git and regenerates the explainer and training kit.', cmd: 'abcd release <agent>', api: 'POST /skills (replace) · PATCH /v1/org/processes/{id} · Doc Store upload', writes: 'bld_releases, bld_versions (live), bld_training_assets, git tag <agent>@v<n>', skills: 'builder-release, builder-explain, builder-train' },
+];
+
+const ABCDCMDS = [
+  { cmd: 'abcd init', what: 'Follows ADOPT.md: checks the PAT in workspaces/<env>/.env, installs the adopt-builder plugin into your coding agent, checks the git repo, pulls context, runs a smoke test.', status: 'abcd', replaces: 'manual .env setup' },
+  { cmd: 'abcd builder setup', what: 'One time per org, run by an admin: creates the Builder workstreams, Doc Stores, tables, links and the custom property for dataset workstreams. Idempotent.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd context pull <agent>', what: 'Downloads the context bundle into ./context: knowledge graph pages, decisions, open items, process docs, checks, metrics, release criteria.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd plan propose | approve | show', what: 'The Builder proposes skills, plugins and agents to build or change; the FDE approves items.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd review <path>', what: 'adopt-skill-review audit. Exit 0 clean, 1 advisory, 2 critical (blocks push).', status: 'exists', replaces: 'cli/harness_skill.py audit' },
+  { cmd: 'abcd push <agent | skill> --staged', what: 'Uploads the shadow staged skill (name rewritten to <name>--staged in frontmatter, flows and instructions) and patches the staged process. Verifies what landed.', status: 'abcd', replaces: 'cli/harness_skill.py push | verify' },
+  { cmd: 'abcd workstream ensure | seed', what: 'Creates a real workstream with a linked Doc Store and seeds test data.', status: 'exists', replaces: 'cli/harness_workstream.py ensure | seed' },
+  { cmd: 'abcd agent create | update | assign', what: 'Process CRUD and workstream assignment.', status: 'exists', replaces: 'cli/harness_process.py' },
+  { cmd: 'abcd run <agent> --staged | --live', what: 'Posts one harness turn with the chosen process, streams it, saves NDJSON, trace and Temporal history. Always stops after one turn.', status: 'exists', replaces: 'cli/harness_run.py start | continue (--process)' },
+  { cmd: 'abcd trace fetch | review', what: 'Pulls a past turn\'s trace and runs the performance checklist over it.', status: 'exists', replaces: 'cli/harness_trace.py fetch | review' },
+  { cmd: 'abcd runs list', what: 'Org-wide run visibility through /v1/runs.', status: 'exists', replaces: 'cli/harness_runs.py' },
+  { cmd: 'abcd dataset create | add-case | synth | update-case | retire-case | show | archive', what: 'Dataset CRUD for every kind, including synthetic case generation. See the Datasets page.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd check add | list', what: 'Adds a client check (deterministic rule or judged rubric) and re-scores past runs.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd metric define | compute', what: 'Defines a metric; computes metric values from eval results, check results and /v1/runs.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd criteria set <agent>', what: 'Sets the dataset, gate metrics and targets for the next release.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd eval run <agent> --tier local | platform | staged [--blind]', what: 'Runs an eval, scores it, writes results and the report. --blind gives the agent only a generic prompt, the compiled instructions and the skills. Gated evals are always blind.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd prompts set <agent>', what: 'The generic prompts blind evals use, from agents/<agent>/prompts.yaml. The same prompts ship in the training kit.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd gap list | ask | answer | encode | waive', what: 'Context gaps: see what is open and who it waits on, send a question to the SME, record an answer, turn it into a generic instruction, or waive a gap with a reason.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd instructions compile <agent>', what: 'Builds the instruction skill (<agent>-instructions) from vetted knowledge graph instruction pages, after the leak check. Shipped and versioned like any skill.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd stage | test-staged | release | rollback <agent>', what: 'The release flow. Release is the gate.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd audit drift', what: 'Compares every live skill and agent with its last recorded release and flags anything changed outside the Builder.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd scenario noui <app>', what: 'NoUI and Tabby scenario: session, record, extract, draft skill, wire agent.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd explain | train <agent>', what: 'Regenerates the agent\'s explainer HTML and training kit, using your coding agent.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd report daily | scorecard', what: 'FDE daily report and the client scorecard files.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd status <agent>', what: 'Where the agent stands: versions, criteria, last eval, open items, drift.', status: 'abcd', replaces: '' },
+];
+
+const WORKSTREAMS = [
+  { name: 'Builder: context', key: 'builder-context', count: 'One per org', created: 'abcd builder setup', holds: 'The knowledge graph, call context, process docs, decisions, each agent\'s design page, explainer and training kit.', store: 'builder-context (Doc Store)', tables: 'bld_kg_nodes, bld_kg_edges, bld_decisions (write)', who: 'FDEs write; Context curator writes proposed pages; FDEs read', status: 'setup' },
+  { name: 'Builder: operations', key: 'builder-ops', count: 'One per org', created: 'abcd builder setup', holds: 'Versions, releases, eval runs and reports, metrics, FDE activity, dataset expected outputs.', store: 'builder-ops (Doc Store), ds-<dataset> stores', tables: 'All other bld_ tables (write)', who: 'abcd and the Status reporter write; FDEs and leads read', status: 'setup' },
+  { name: 'Builder status: <client>', key: 'builder-status-gpw', count: 'One per client', created: 'abcd builder setup --client gpw', holds: 'The scorecard, each agent\'s status page, release history and eval reports, as files. The only Builder workstream a client can see.', store: 'builder-status-gpw (Doc Store)', tables: 'none', who: 'Status reporter writes; client stakeholders get a read grant', status: 'setup' },
+  { name: 'Builder SME: <client>', key: 'builder-sme-gpw', count: 'One per client with an appointed SME', created: 'abcd builder setup --client gpw --sme <user>', holds: 'Context gap questions (gaps/<gap_id>.md, with evidence), the SME\'s answers and repro notes, and uploads such as playbooks and worked examples.', store: 'builder-sme-gpw (Doc Store)', tables: 'bld_context_gaps, bld_case_notes (write, through the Context agent)', who: 'Customer SME (write grant); FDEs; the Context agent', status: 'setup' },
+  { name: 'Client workstream', key: 'gpw (example)', count: 'One per client, as today', created: 'Already exists', holds: 'The client\'s real files and runs. Live agents run here.', store: 'Client Doc Store', tables: 'bld_check_results (write, from the maker-checker step)', who: 'As today', status: 'exists' },
+  { name: 'Client staging workstream', key: 'gpw-staging', count: 'One per client with a Builder agent', created: 'abcd workstream ensure', holds: 'A copy of selected client files. Staged agents are assigned only here and to dataset workstreams, so no client user ever sees them.', store: 'gpw-staging (Doc Store)', tables: 'none', who: 'FDEs only', status: 'setup' },
+  { name: 'Dataset workstream', key: 'ds:gpw-1120pc:pair-017 or ds:gpwa-email-sorting', count: 'One per case (work-product pairs) or one per dataset (labelled, read-your-writes)', created: 'abcd dataset create | add-case', holds: 'Case inputs only, never expected outputs. For read-your-writes, the workstream whose secrets point at the test system. The agent under test runs here exactly as it would on a client.', store: 'Its own Doc Store, inputs/ only', tables: 'none', who: 'FDEs only', status: 'setup' },
+];
+
+const META_TREE = [
+  { n: 'kg/', d: 'The knowledge graph, as pages people and agents can read', k: [
+    { n: 'index.md', d: 'Entry point: every entity type, one line per page' },
+    { n: 'schema.md', d: 'Node and edge types, and the rules for each page type' },
+    { n: 'log.md', d: 'Append-only: what changed in the graph, when, from which source' },
+    { n: 'clients/<client>.md', d: 'Who they are, contacts, systems, agents in use' },
+    { n: 'systems/<system>.md', d: 'A client system (CRM, file share, tax software) and how we reach it' },
+    { n: 'apis/<system>/<api>.md', d: 'One API: endpoint, auth, inputs, outputs. NoUI extraction writes these' },
+    { n: 'skills/<skill>.md', d: 'What the skill does, which agents use it, live version' },
+    { n: 'agents/<agent>.md', d: 'The agent in one page: steps, skills, dataset, criteria, live version' },
+    { n: 'datasets/<dataset>.md', d: 'What the dataset covers and how pairs were chosen' },
+    { n: 'incidents/<date>-<slug>.md', d: 'Something that went wrong, its cause and the check added for it' },
+  ]},
+  { n: 'context/', d: 'Raw context the Builder reads before building', k: [
+    { n: 'calls/<client>/<date>-<slug>.md', d: 'Transcript plus extracted requirements, decisions and checks' },
+    { n: 'emails/<client>/<date>-<slug>.md', d: 'An email thread that settled something' },
+    { n: 'process-docs/<client>/<process>/sop.md', d: 'The SOP as markdown, attachments beside it' },
+  ]},
+  { n: 'decisions/<client>/<decision_id>.md', d: 'One decision: question, answer, who decided, source link' },
+  { n: 'agents/<agent>/', d: 'Everything an FDE needs to understand one agent', k: [
+    { n: 'design.md', d: 'Current design and the open items list, regenerated on change' },
+    { n: 'explainer.html', d: 'Interactive explainer of the current implementation, regenerated on every release' },
+    { n: 'training/quickstart.md', d: 'How to use the agent in five minutes' },
+    { n: 'training/prompts.md', d: 'Simple prompts that work, with what each does' },
+    { n: 'training/scenarios.md', d: 'Worked scenarios end to end' },
+    { n: 'training/faq.md', d: 'Questions users actually asked, from runs and HITL' },
+    { n: 'training/whats-new.md', d: 'What changed in the live version, in plain words' },
+  ]},
+  { n: 'proposed/', d: 'Pages and facts the Context curator proposed, waiting for review' },
+];
+
+const OPS_TREE = [
+  { n: 'releases/<agent>/<version>/', d: 'One folder per release, never overwritten', k: [
+    { n: 'manifest.json', d: 'Version ids, content hashes, pinned skill versions, git SHA' },
+    { n: 'eval_report.html', d: 'The eval report attached to the release' },
+    { n: 'eval_report.json', d: 'Same report, machine-readable' },
+    { n: 'diff.md', d: 'Platform-computed diff against the previous live version' },
+    { n: 'notes.md', d: 'Reason for the change and what was changed' },
+  ]},
+  { n: 'evals/<eval_run_id>/', d: 'Everything one eval run produced', k: [
+    { n: 'summary.json', d: 'Totals per metric and per check' },
+    { n: 'cases/<case_id>/checks.json', d: 'Per-check results for one case' },
+    { n: 'cases/<case_id>/observed.json', d: 'What was observed: output paths, labels produced, or rows read back' },
+    { n: 'cases/<case_id>/trace.ndjson', d: 'The harness trace for that case' },
+  ]},
+  { n: 'scorecards/<client>/<date>.html', d: 'The weekly client scorecard, same format every time' },
+  { n: 'sessions/<fde>/<date>/<session_id>/', d: 'FDE coding-agent sessions: transcript.jsonl, summary.md' },
+  { n: 'reports/daily/<date>/<fde>.md', d: 'Daily FDE report' },
+];
+
+const DS_TREE = [
+  { n: 'Dataset store: ds-<dataset>', d: 'Holds expected outputs, labels and expected states. Linked to Builder: operations only, never to a dataset workstream', k: [
+    { n: 'manifests/v<n>.json', d: 'Immutable manifest per dataset version' },
+    { n: 'expected/<case_id>/...', d: 'Expected output files, labels or state for one case' },
+  ]},
+  { n: 'Dataset workstream: ds:<dataset>[:<case_id>]', d: 'Per case or per dataset, by kind; custom_properties.kind = dataset', k: [
+    { n: 'inputs/... or inbox/...', d: 'Case inputs, exactly as a client would provide them' },
+    { n: 'outputs/<eval_run_id>/...', d: 'What the agent produced in each eval run' },
+  ]},
+];
+
+const STATUS_TREE = [
+  { n: 'scorecard.md', d: 'The current scorecard in the agreed format; rewritten daily' },
+  { n: 'scorecards/<date>.html', d: 'Frozen every Friday, never overwritten' },
+  { n: 'agents/<agent>/status.md', d: 'Live and staged versions, criteria progress, open items, who each waits on' },
+  { n: 'agents/<agent>/releases/<version>/eval_report.html', d: 'Copied from Builder: operations on release' },
+  { n: 'agents/<agent>/training/', d: 'The training kit for the client\'s users' },
+];
+
+const REPO_TREE = [
+  { n: 'ADOPT.md', d: 'Manifest the coding agent follows; regenerated by the platform' },
+  { n: '.adopt/project.json', d: 'Org, environment, enrolled agents' },
+  { n: 'agents/<agent>/', d: 'One folder per agent', k: [
+    { n: 'agent.yaml', d: 'Process: steps, HITL gates, approvals, pinned skill versions' },
+    { n: 'release.yaml', d: 'Release criteria: dataset, gate metrics, targets' },
+    { n: 'metrics.yaml', d: 'Metric definitions for this agent' },
+    { n: 'docs/explainer.html', d: 'Committed on release' },
+    { n: 'training/', d: 'Committed on release' },
+  ]},
+  { n: 'skills/<skill>/', d: 'SKILL.md plus scripts and reference files' },
+  { n: 'plugins/<plugin>/', d: 'Plugin bundles' },
+  { n: 'checks/<client>/<check>.yaml', d: 'Client checks as code' },
+  { n: 'datasets/<dataset>/manifest.json', d: 'Manifest only; the files stay in the Doc Store' },
+  { n: 'evals/reports/<agent>/<version>.html', d: 'Also attached to the git release' },
+];
+
+const T = (name, type, note) => ({ name, type, note });
+const TABLES = [
+  { name: 'bld_agents', group: 'Registry', ws: 'Builder: operations (write)', purpose: 'One row per agent built through the Builder.', key: 'agent_key', by: 'abcd', reads: 'Everyone; Status reporter for client files', cols: [T('agent_key','varchar','unique, e.g. gpw-1120pc-prep'), T('process_id','varchar','the db_org_process id'), T('name','text',''), T('client_workstream_id','varchar',''), T('owner_user_id','varchar','the FDE'), T('repo_path','text','agents/<agent> in the git repo'), T('live_version','varchar',''), T('staged_version','varchar',''), T('phase','enum','designing, building, staged, live, paused')] },
+  { name: 'bld_build_plan', group: 'Registry', ws: 'Builder: operations (write)', purpose: 'Skills, plugins and agents to build or change, and their approval.', key: 'item_key', by: 'Builder proposes, FDE approves', reads: 'FDEs, leads, Status reporter', cols: [T('item_key','varchar','unique'), T('agent_key','varchar',''), T('kind','enum','skill, plugin, agent'), T('name','text',''), T('action','enum','new, change, retire'), T('reason_ref','varchar','decision, run or ticket id'), T('status','enum','proposed, approved, building, done, dropped'), T('approved_by','varchar',''), T('approved_at','timestamptz','')] },
+  { name: 'bld_versions', group: 'Versions and releases', ws: 'Builder: operations (write)', purpose: 'Every immutable version of a skill, plugin or agent.', key: 'version_id', by: 'abcd push', reads: 'Everyone', cols: [T('version_id','varchar','unique, e.g. gpw-1120pc-prep@v12'), T('object_kind','enum','skill, plugin, agent'), T('object_name','text',''), T('content_hash','varchar','v=<hash> bundle id'), T('git_sha','varchar',''), T('parent_version_id','varchar',''), T('state','enum','draft, staged, live, superseded'), T('pinned_components','jsonb','agents only: exact skill and plugin versions'), T('author_user_id','varchar',''), T('reason_ref','varchar',''), T('notes_path','text','')] },
+  { name: 'bld_releases', group: 'Versions and releases', ws: 'Builder: operations (write)', purpose: 'Every promotion to live, with its evidence.', key: 'release_id', by: 'abcd release', reads: 'Everyone; Status reporter', cols: [T('release_id','varchar','unique'), T('agent_key','varchar',''), T('version_id','varchar',''), T('previous_version_id','varchar','rollback target'), T('eval_run_id','varchar','the staged run used as evidence'), T('gate_result','enum','pass, fail, forced'), T('report_path','text','releases/<agent>/<version>/eval_report.html'), T('approved_by','varchar',''), T('forced_reason','text','required when forced'), T('released_at','timestamptz','')] },
+  { name: 'bld_release_criteria', group: 'Versions and releases', ws: 'Builder: operations (write)', purpose: 'What the next release must meet, per agent.', key: 'criteria_key', by: 'FDE', reads: 'abcd release, Status reporter', cols: [T('criteria_key','varchar','unique'), T('agent_key','varchar',''), T('applies_from_version','varchar',''), T('dataset_key','varchar',''), T('dataset_version','int',''), T('metric_key','varchar',''), T('comparator','enum','>=, <=, no_regression'), T('target','numeric',''), T('set_by','varchar',''), T('decision_ref','varchar','client sign-off')] },
+  { name: 'bld_datasets', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'The dataset index.', key: 'dataset_key', by: 'abcd dataset create', reads: 'Eval runner, FDEs', cols: [T('dataset_key','varchar','unique, e.g. gpw-1120pc'), T('name','text',''), T('client_workstream_id','varchar',''), T('current_version','int',''), T('expected_store_id','varchar','ds-<dataset> store'), T('kind','enum','work_product, labeled, read_your_writes, custom'), T('layout','enum','workstream_per_case, shared_workstream'), T('run_mode','enum','per_case, batch, sequential'), T('target_env','varchar','read_your_writes only, e.g. D365TEST_MSCRM'), T('probe_process_id','varchar','read_your_writes only: the read-only probe agent'), T('default_scorers','text[]','field_match, label_match, rubric, state_match, outcome_match, collateral, script:<name>'), T('owner_user_id','varchar','')] },
+  { name: 'bld_dataset_versions', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'One row per dataset version; comparisons only happen within one version.', key: 'dataset_version_key', by: 'Every dataset change', reads: 'Eval runner, release gate', cols: [T('dataset_version_key','varchar','unique, e.g. gpw-1120pc@4'), T('dataset_key','varchar',''), T('version','int',''), T('case_count','int',''), T('change_note','text','what changed and why'), T('manifest_path','text','manifests/v4.json'), T('created_by','varchar','')] },
+  { name: 'bld_dataset_cases', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'Every case of every dataset kind, and what it expects.', key: 'case_key', by: 'abcd dataset add-case | synth', reads: 'Eval runner', cols: [T('case_key','varchar','unique, dataset:case'), T('dataset_key','varchar',''), T('case_id','varchar',''), T('workstream_id','varchar','its own, or the shared dataset workstream'), T('inputs','jsonb','file paths or an inline payload (an instruction, an email)'), T('setup','jsonb','read_your_writes: snapshot query, fixture to ensure'), T('expected','jsonb','output paths, labels, or the state and outcome code to read back'), T('teardown','jsonb','read_your_writes: restore through the same write path'), T('scorers','text[]','overrides the dataset default'), T('source','enum','real, known, synthetic, production'), T('tags','text[]','e.g. edge-case, overwrite, unknown-client'), T('first_version','int',''), T('retired_in_version','int','null while active')] },
+  { name: 'bld_checks', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'Client checks an output must pass to count as accurate.', key: 'check_key', by: 'FDE; client checker proposes', reads: 'abcd eval runner, maker-checker step', cols: [T('check_key','varchar','unique'), T('client_workstream_id','varchar',''), T('agent_key','varchar',''), T('title','text','e.g. Headline values within $2'), T('kind','enum','deterministic, judged'), T('rule','jsonb','the rule or rubric'), T('severity','enum','blocking, warning'), T('source_decision','varchar',''), T('active_from','timestamptz','')] },
+  { name: 'bld_metrics', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'Metric definitions, versioned.', key: 'metric_key', by: 'FDE', reads: 'Everyone', cols: [T('metric_key','varchar','unique, e.g. gpw-1120pc:accuracy@2'), T('agent_key','varchar',''), T('name','text',''), T('category','enum','volume, time, quality, cost'), T('unit','varchar','%, hrs, $, #'), T('formula','text',''), T('source','enum','check_results, hitl_events, user_actions, run_timings, cost'), T('baseline','numeric',''), T('is_gate','boolean',''), T('decision_ref','varchar','client sign-off')] },
+  { name: 'bld_eval_runs', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'One row per eval run.', key: 'eval_run_id', by: 'Eval runner', reads: 'Release gate, everyone', cols: [T('eval_run_id','varchar','unique'), T('agent_key','varchar',''), T('version_id','varchar',''), T('dataset_version_key','varchar',''), T('tier','enum','local, platform, staged, production'), T('blind','boolean','true for every gated run'), T('status','enum','running, done, failed'), T('cost_usd','numeric',''), T('started_at','timestamptz',''), T('finished_at','timestamptz',''), T('report_path','text','')] },
+  { name: 'bld_eval_results', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'One row per case per eval run.', key: 'result_key', by: 'Eval runner', reads: 'Reports, scorecards', cols: [T('result_key','varchar','unique, run:case'), T('eval_run_id','varchar',''), T('case_key','varchar',''), T('observed','jsonb','output paths, labels produced, or rows read back'), T('harness_run_id','varchar','link to the trace'), T('passed','boolean','all blocking checks passed'), T('score','numeric',''), T('failed_checks','text[]',''), T('miss_cause','enum','rounding, missing_context, playbook_difference, real_error'), T('steps','int',''), T('tokens','bigint',''), T('duration_s','int',''), T('hitl_count','int','')] },
+  { name: 'bld_check_results', group: 'Quality', ws: 'Builder: operations, and each client workstream (write)', purpose: 'One row per check per subject, in evals and in production.', key: 'check_result_key', by: 'abcd eval runner, maker-checker step', reads: 'Metrics, reports', cols: [T('check_result_key','varchar','unique'), T('check_key','varchar',''), T('subject_kind','enum','eval_case, production_run'), T('subject_ref','varchar',''), T('eval_run_id','varchar','null in production'), T('passed','boolean',''), T('detail','jsonb','expected vs found')] },
+  { name: 'bld_metric_values', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'Computed metric values for runs, phases and weeks.', key: 'value_key', by: 'Eval runner, Status reporter', reads: 'Scorecards, Status reporter', cols: [T('value_key','varchar','unique'), T('metric_key','varchar',''), T('agent_key','varchar',''), T('version_id','varchar',''), T('scope','enum','eval_run, phase, week'), T('scope_ref','varchar','e.g. UAT 1, 2026-W43'), T('value','numeric',''), T('computed_at','timestamptz','')] },
+  { name: 'bld_kg_nodes', group: 'Context', ws: 'Builder: context (write)', purpose: 'Nodes of the knowledge graph.', key: 'node_key', by: 'FDEs (vetted), Context curator (proposed)', reads: 'Builder, every FDE', cols: [T('node_key','varchar','unique, type:slug'), T('type','enum','client, system, api, skill, agent, dataset, incident, person'), T('name','text',''), T('page_path','text','kg/... in Builder: context'), T('status','enum','proposed, vetted, retired'), T('owner_user_id','varchar','')] },
+  { name: 'bld_kg_edges', group: 'Context', ws: 'Builder: context (write)', purpose: 'Typed links between nodes.', key: 'edge_key', by: 'Same as nodes', reads: 'Impact analysis before a change', cols: [T('edge_key','varchar','unique'), T('from_node','varchar',''), T('to_node','varchar',''), T('relation','enum','uses, calls, owns, replaced_by, failed_on, tested_by'), T('source_ref','varchar','call, doc, run or release that showed it'), T('status','enum','proposed, vetted')] },
+  { name: 'bld_decisions', group: 'Context', ws: 'Builder: context (write)', purpose: 'Every answered question, so it is never asked twice.', key: 'decision_key', by: 'FDE, Context curator (proposed)', reads: 'Builder, Status reporter', cols: [T('decision_key','varchar','unique'), T('client_workstream_id','varchar',''), T('agent_key','varchar',''), T('question','text',''), T('answer','text',''), T('decided_by','varchar',''), T('source_kind','enum','call, email, fde, client'), T('source_path','text',''), T('status','enum','proposed, confirmed')] },
+  { name: 'bld_open_items', group: 'Context', ws: 'Builder: operations (write)', purpose: 'What is pending on an agent\'s design, and who it waits on.', key: 'item_key', by: 'Builder, FDEs', reads: 'Status reporter (copies client-facing items into status files)', cols: [T('item_key','varchar','unique'), T('agent_key','varchar',''), T('kind','enum','design_gap, question, waiting_on_client, blocked'), T('title','text',''), T('waiting_on','enum','fde, client, platform'), T('due','date',''), T('status','enum','open, resolved'), T('resolved_by_decision','varchar','')] },
+  { name: 'bld_context_gaps', group: 'Context', ws: 'Builder: operations and each Builder SME workstream (write)', purpose: 'Every case a blind eval could not reproduce because context was missing, until a blind eval reproduces it.', key: 'gap_key', by: 'abcd eval runner (opens), FDE, SME through the Context agent', reads: 'Builder, Status reporter, SME', cols: [T('gap_key','varchar','unique'), T('agent_key','varchar',''), T('case_key','varchar','the case that showed it'), T('eval_run_id','varchar','the blind run that opened it'), T('failed_checks','text[]',''), T('hypothesis','text','what the Builder thinks is missing'), T('question','text','what it asks, with evidence attached'), T('evidence_path','text','gaps/<gap_id>.md: input excerpt, output vs expected, the agent\'s reasoning'), T('assigned_to','enum','fde, sme'), T('answer','text',''), T('instruction_key','varchar','the instruction that encodes it'), T('status','enum','open, asked, answered, encoded, verified, waived'), T('verified_by_run','varchar','the blind run that reproduced the case'), T('waive_reason','text','')] },
+  { name: 'bld_case_notes', group: 'Context', ws: 'Builder: operations and each Builder SME workstream (write)', purpose: 'How the SME or FDE produced the golden output for one case. Never shown to a blind run.', key: 'note_key', by: 'SME, FDE', reads: 'Builder, when proposing instructions', cols: [T('note_key','varchar','unique'), T('case_key','varchar',''), T('author','varchar','SME or FDE'), T('note','text','e.g. why line 4c is $3 higher: we round per schedule, not per line'), T('source_path','text','call, email or upload it came from'), T('generalized_into','varchar','instruction_key, once generalised')] },
+  { name: 'bld_instructions', group: 'Context', ws: 'Builder: context (write)', purpose: 'Generic instructions: the rules, exceptions and judgment calls a person uses to produce the golden output.', key: 'instruction_key', by: 'Builder proposes; FDE or SME vets', reads: 'abcd instructions compile', cols: [T('instruction_key','varchar','unique, agent:topic@version'), T('agent_key','varchar',''), T('scope','enum','org, client, agent'), T('client_workstream_id','varchar','client scope only'), T('page_path','text','kg/instructions/<agent>/<topic>.md'), T('source_gaps','text[]','gaps it closes'), T('provenance','text','who said it, where'), T('leak_check','enum','pass, flagged'), T('status','enum','proposed, vetted, retired'), T('compiled_into_version','varchar','instruction skill version')] },
+  { name: 'bld_generic_prompts', group: 'Context', ws: 'Builder: operations (write)', purpose: 'The generic prompts a blind eval may use for an agent.', key: 'prompt_key', by: 'abcd prompts set', reads: 'Eval runner, training kit', cols: [T('prompt_key','varchar','unique'), T('agent_key','varchar',''), T('prompt','text','e.g. Prepare the 1120-PC for this client from the files in this workstream.'), T('applies_to','enum','per_case, batch'), T('status','enum','active, retired')] },
+  { name: 'bld_training_assets', group: 'Context', ws: 'Builder: operations (write)', purpose: 'The explainer and training kit generated for each live version.', key: 'asset_key', by: 'abcd explain | train', reads: 'Everyone', cols: [T('asset_key','varchar','unique'), T('agent_key','varchar',''), T('version_id','varchar',''), T('kind','enum','explainer, quickstart, prompts, scenarios, faq, whats_new'), T('path','text',''), T('generated_at','timestamptz','')] },
+  { name: 'bld_dev_sessions', group: 'FDE activity', ws: 'Builder: operations (write)', purpose: 'Coding-agent sessions per FDE.', key: 'session_id', by: 'abcd hooks', reads: 'Admins, daily report', cols: [T('session_id','varchar','unique'), T('user_id','varchar',''), T('agent_key','varchar',''), T('coding_agent','enum','claude_code, codex, cursor, other'), T('git_sha_start','varchar',''), T('git_sha_end','varchar',''), T('started_at','timestamptz',''), T('ended_at','timestamptz',''), T('platform_cost_usd','numeric',''), T('transcript_path','text','')] },
+  { name: 'bld_dev_events', group: 'FDE activity', ws: 'Builder: operations (write)', purpose: 'Every abcd command and loop step, with its result.', key: 'event_id', by: 'abcd', reads: 'Admins, daily report', cols: [T('event_id','varchar','unique; a 409 on retry means already written'), T('session_id','varchar',''), T('ts','timestamptz',''), T('step','int','loop step 1 to 10'), T('kind','varchar','review, push, run, eval, stage, release, ...'), T('result','enum','ok, warn, fail'), T('cost_usd','numeric',''), T('payload','jsonb',''), T('artifact_path','text','')] },
+];
+
+const DS_CRUD = [
+  { op: 'Create a dataset', cmd: 'abcd dataset create gpwa-crm-writes --kind read_your_writes --target-env D365TEST_MSCRM --probe gpwa-crm-probe', api: 'POST /v1/docstore/stores/resolve · POST /v1/org/workstreams (shared kinds) · POST /v1/org-db/tables/{id}/rows', under: 'Creates the ds-<dataset> store linked to Builder: operations only. For shared layouts, also creates the dataset workstream and assigns the staged agent (and the probe) to it. Inserts bld_datasets and bld_dataset_versions v1, writes kg/datasets/<dataset>.md.', ver: 'Starts at v1' },
+  { op: 'Add a case', cmd: 'abcd dataset add-case gpw-1120pc --inputs ./client-017/in --expected ./client-017/filed\nabcd dataset add-case gpwa-email-sorting --input ./mail/0412.eml --label workstream=40644 --label doc=engagement-letter\nabcd dataset add-case gpwa-crm-writes --input "Update 2026 tax return for 40644" --expect-state ./cases/40644.yaml', api: 'upload-urls + upload-confirm · POST /v1/org/workstreams (per-case layout) · rows', under: 'Uploads inputs to the case\'s workstream (or the shared one) and expected outputs, labels or state to the dataset store. Per-case layout creates the case workstream with custom_properties.kind = dataset and assigns the staged agent. Inserts bld_dataset_cases.', ver: 'New dataset version' },
+  { op: 'Generate synthetic cases', cmd: 'abcd dataset synth gpwa-email-sorting --from ./templates --clients ./known_clients.csv --count 200', api: 'upload-urls + upload-confirm · rows', under: 'Your coding agent generates inputs from templates and a known mapping, so every expected label is known up front. Cases are tagged source = synthetic, so criteria can hold known and synthetic cases to different targets.', ver: 'New dataset version' },
+  { op: 'List and search', cmd: 'abcd dataset show gpwa-email-sorting --source known --tag multi-attachment', api: 'GET /v1/org-db/tables/{id}/rows · POST /v1/org-db/sql', under: 'Reads the index tables (bld_dataset_cases filtered by version, source and tags). The Doc Store is never listed.', ver: 'Read only' },
+  { op: 'Correct an expectation', cmd: 'abcd dataset update-case gpw-1120pc pair-017 --expected ./fixed', api: 'upload-urls + upload-confirm · PATCH /v1/org-db/tables/{id}/rows/{row}', under: 'Writes new expected files or labels under a new path (never overwrites) and records a change note. abcd asks for a lead\'s approval if it loosens a gate.', ver: 'New dataset version' },
+  { op: 'Retire a case', cmd: 'abcd dataset retire-case gpw-1120pc pair-009 --reason "client left"', api: 'PATCH /v1/org-db/tables/{id}/rows/{row}', under: 'Sets retired_in_version. Files and workstreams are kept so old eval runs stay reproducible.', ver: 'New dataset version' },
+  { op: 'Archive a dataset', cmd: 'abcd dataset archive gpw-1120pc', api: 'POST /v1/org/workstreams/{id}/delete (soft) · PATCH rows', under: 'Refused while any agent\'s release criteria point at it. Otherwise marks the rows archived and soft-deletes the dataset workstreams.', ver: 'Frozen' },
+];
+
+const DS_KINDS = [
+  { key: 'work_product', name: 'Work-product pairs', agent: 'GPW return prep (1120-PC)', when: 'The agent produces a document or structured output that a person used to produce, and you have past examples of both sides.', caseShape: 'Input files plus the expected output files.', layout: 'One workstream per case, so the agent sees exactly what it would see for a real client.', run: 'One turn per case.', score: 'field_match on structured outputs (tolerances for money and dates), rubric for documents, plus every client check.', metrics: 'Accuracy, first-pass yield, human time per client.', source: 'Real past work.', isolate: 'Expected outputs live in the dataset store, which the agent under test cannot read.',
+    manifest: `{
+  "dataset": "gpw-1120pc", "kind": "work_product", "version": 4,
+  "layout": "workstream_per_case", "run_mode": "per_case",
+  "cases": [{
+    "id": "pair-017",
+    "inputs": ["inputs/trial_balance.xlsx", "inputs/prior_year_1120pc.pdf"],
+    "expected": { "files": ["expected/pair-017/1120pc_filed.json"] },
+    "scorers": ["field_match"], "source": "real", "tags": ["multi-entity"]
+  }]
+}` },
+  { key: 'labeled', name: 'Labelled cases, known or synthetic', agent: 'GPWA email sorting', when: 'The agent classifies or routes items, and the right answer for each item can be written down in advance.', caseShape: 'One input item (an email with attachments) plus its expected labels: target client workstream, document type, and where one document ends and the next begins.', layout: 'One shared dataset workstream holding every case in an inbox folder.', run: 'One batch turn over the inbox, or one turn per case.', score: 'label_match per label, a confusion matrix across clients, and boundary checks on attachment splits.', metrics: 'Routing accuracy, precision and recall per client, unnecessary HITL rate. Boundary-detection HITLs stay blocking; they are counted, not tuned away.', source: 'Known: historical emails whose routing a person confirmed. Synthetic: generated by abcd dataset synth from templates and the known client list, so every mapping is known up front.', isolate: 'Labels live in the dataset store. Synthetic and known cases are tagged, so criteria can require a target on known cases alone.',
+    manifest: `{
+  "dataset": "gpwa-email-sorting", "kind": "labeled", "version": 2,
+  "layout": "shared_workstream", "run_mode": "batch",
+  "cases": [{
+    "id": "mail-0412",
+    "inputs": ["inbox/mail-0412.eml"],
+    "expected": { "labels": {
+      "workstream": "40644",
+      "documents": [ {"pages": "1-3", "type": "engagement-letter"},
+                     {"pages": "4",   "type": "w9"} ] } },
+    "scorers": ["label_match", "boundary_match"],
+    "source": "synthetic", "tags": ["multi-attachment"]
+  }]
+}` },
+  { key: 'read_your_writes', name: 'Read your writes', agent: 'GPWA CRM updates (Dynamics 365)', when: 'The agent changes state in another system, so the output that matters is what the system holds afterwards, not a file.', caseShape: 'An instruction or input that should cause a write, a setup that snapshots the target record, the expected state and outcome code, and a teardown that restores the snapshot.', layout: 'One dataset workstream whose secrets point at the test system (D365TEST_MSCRM), with the staged agent and a read-only probe agent assigned.', run: 'Sequential, one case at a time, because cases share records. Each case: probe snapshot, agent turn, probe read-back, teardown.', score: 'state_match (each expected field equals the read-back value), outcome_match (0 updated, 1 updated with an overwrite warning, below 0 refused, such as -1 no tax return or -2 invalid year), and collateral (other rows in scope unchanged).', metrics: 'Write correctness, correct refusals, no collateral changes, failures detected and retried.', source: 'Known records in the test tenant, plus negative cases (unknown client, invalid year, overwrite).', isolate: 'The probe uses the read-only SQL login (CRMReaderRole), never the write path. Teardown goes through the same WinRM executables as the agent; there are no direct database writes, ever.',
+    manifest: `{
+  "dataset": "gpwa-crm-writes", "kind": "read_your_writes", "version": 1,
+  "layout": "shared_workstream", "run_mode": "sequential",
+  "target_env": "D365TEST_MSCRM", "probe": "gpwa-crm-probe",
+  "cases": [{
+    "id": "tax-40644-overwrite",
+    "inputs": { "message": "Update the 2026 tax return for client 40644: taxable income 2230.05, total tax -234.2, tax due -32, dep credit carryforward 7948" },
+    "setup":    { "snapshot": "tax_return(client=40644, year=2026)" },
+    "expected": { "outcome": 1,
+                  "state": { "taxable_income": 2230.05, "total_tax": -234.2,
+                             "tax_due": -32, "dep_credit_carryforward": 7948 } },
+    "teardown": { "restore": "snapshot" },
+    "scorers": ["outcome_match", "state_match", "collateral"],
+    "source": "known", "tags": ["overwrite"]
+  }]
+}` },
+  { key: 'custom', name: 'Custom scorer', agent: 'Anything else', when: 'None of the above fits: files dropped on an SMB share, an API side effect, or property checks with no expected output at all.', caseShape: 'Any inputs, any expectation, and a scorer script in the repo.', layout: 'Either layout.', run: 'Any run mode.', score: 'evals/scorers/<name>.py in the agents repo, with a fixed contract: it reads the case and what was observed, and prints {passed, score, detail} as JSON. abcd runs it locally.', metrics: 'Whatever the FDE defines over the scorer\'s results.', source: 'Any.', isolate: 'The same rules: expectations in the dataset store, probes read only, teardown through the agent\'s own write path.',
+    manifest: `{
+  "dataset": "gpwa-smb-drops", "kind": "custom", "version": 1,
+  "layout": "shared_workstream", "run_mode": "per_case",
+  "cases": [{
+    "id": "drop-0031",
+    "inputs": ["inbox/signed_8879.pdf"],
+    "expected": { "path": "\\\\\\\\gpwa-fs\\\\clients\\\\40644\\\\2026\\\\8879.pdf" },
+    "scorers": ["script:smb_file_landed"], "source": "known"
+  }]
+}` },
+];
+
+const META_SKILLS = [
+  ['builder-onboard', 'Follows ADOPT.md: token check, plugin install, repo check, smoke test.'],
+  ['builder-context', 'Assembles the context bundle for an agent and keeps it current during a session.'],
+  ['builder-plan', 'Proposes the build plan (skills, plugins, agents) from the five inputs.'],
+  ['builder-process-from-sop', 'Turns process docs into agent.yaml: steps, HITL gates, approvals.'],
+  ['builder-skill-author', 'Writes and refines skills to the Adopt authoring guidelines.'],
+  ['builder-checks', 'Turns client checks into scorers and a maker-checker step.'],
+  ['builder-dataset', 'Dataset CRUD for every kind, synthetic case generation, probe agents for read-your-writes.'],
+  ['builder-metrics', 'Metric definitions and release criteria.'],
+  ['builder-eval', 'Runs evals, reads results, explains misses by cause.'],
+  ['builder-review', 'Wraps adopt-skill-review.'],
+  ['builder-harness-run', 'Version-pinned harness runs, trace pull.'],
+  ['builder-perf', 'Trace analysis and optimisation.'],
+  ['builder-release', 'Stage, test staged, release, rollback.'],
+  ['builder-noui-scenario', 'NoUI and Tabby: record, extract, draft skill, wire agent.'],
+  ['builder-kg', 'Proposes knowledge graph pages and edges from what the session learned.'],
+  ['builder-gaps', 'Classifies blind-eval misses, opens context gaps with evidence, writes the question for the FDE or SME.'],
+  ['builder-instructions', 'Generalises answers and case notes into generic instruction pages, runs the leak check, compiles the instruction skill.'],
+  ['builder-explain', 'Regenerates the agent explainer HTML from live state.'],
+  ['builder-train', 'Generates the agent\'s training kit.'],
+];
+
+
+const META_AGENTS = [
+  { name: 'Context curator', kind: 'Platform process', ws: 'Builder: context', trigger: 'Nightly cron pipeline', does: 'Reads new files under context/ with the workstream file tools; extracts requirements, decisions and candidate checks; proposes knowledge graph pages and edges; opens items for anything unresolved.', writes: 'proposed/, bld_decisions (proposed), bld_open_items (db_insert_rows)', status: 'setup' },
+  { name: 'Status reporter', kind: 'Platform process', ws: 'Builder: operations, with write access to every Builder status workstream', trigger: 'Daily and Friday cron pipelines', does: 'Reads the tables with db_query, writes the scorecard and agent status pages into each client\'s status workstream, and sends the FDE daily report and Friday scorecard through the connected Slack or Gmail integration.', writes: 'builder-status-<client>/, reports/daily/', status: 'setup' },
+  { name: 'Status agent', kind: 'Platform process', ws: 'Builder status: <client>', trigger: 'A client stakeholder asks a question', does: 'Answers questions such as "what is pending on the 1120-PC agent?" from the status files. Read only.', writes: 'nothing', status: 'setup' },
+  { name: 'Context agent', kind: 'Platform process', ws: 'Builder SME: <client>', trigger: 'The SME opens a gap question or uploads something', does: 'Walks the SME through each open gap with its evidence, asks follow-ups until the answer is generic enough to reuse, and records the answer and any case notes. Never sees expected outputs beyond the evidence in the gap file.', writes: 'bld_context_gaps (answered), bld_case_notes (db_insert_rows)', status: 'setup' },
+  { name: 'Maker-checker step', kind: 'Step inside each live agent', ws: 'Client workstream', trigger: 'Every production run', does: 'Runs the client\'s checks on the output before a person sees it and records each result.', writes: 'bld_check_results (db_insert_rows)', status: 'abcd' },
+  { name: 'Eval runner', kind: 'abcd command', ws: 'Runs from your machine', trigger: 'abcd eval run, abcd test-staged', does: 'Runs every case the way its dataset kind says (per case, batch, or sequential with a probe), collects outputs, labels or read-back rows, scores deterministic checks in Python and judged checks with your coding agent, computes metrics.', writes: 'bld_eval_runs, bld_eval_results, bld_check_results, bld_metric_values, evals/', status: 'abcd' },
+  { name: 'Explainer and trainer', kind: 'abcd command', ws: 'Runs in your coding agent', trigger: 'abcd release', does: 'Regenerates explainer.html and the training kit for the new live version on your subscription, uploads them and commits them to git.', writes: 'agents/<agent>/, bld_training_assets', status: 'abcd' },
+];
+
+const HARNESS = [
+  ['Org skills', 'Upload and delete need Admin; names ^[a-z0-9][a-z0-9-]*$, so <name>--staged is valid; replace=true to overwrite', 'exists'],
+  ['Plugins', 'POST /plugins, DELETE /plugins/{name}', 'exists'],
+  ['Processes (agents)', 'Create, patch, delete, assign to workstreams, run (all Admin). components reference skills by catalog name', 'exists'],
+  ['Turns on a process', 'POST /v1/end-user/agent-harness/turns with workstream_id and process_id; status, stream, transcript and outputs download', 'exists'],
+  ['Workstreams and grants', 'Create, update custom_properties, soft delete; per-user read or write grants through console access (Admin)', 'exists'],
+  ['Custom property schema', 'workstream_property_schema via member-config (Admin), for the dataset kind tag', 'exists'],
+  ['Doc Store', 'Any file type, linked to workstreams, staged into the sandbox (200 MB per session)', 'exists'],
+  ['Data Store custom tables', 'POST /v1/org-db/tables, rows CRUD, workstream links (read or write), read-only SQL', 'exists'],
+  ['Harness file and data tools', 'ws_list, ws_read, ws_grep, ws_add, save_output; db_query, db_insert_rows (datastore_write frontmatter)', 'exists'],
+  ['Cross-workstream writes', 'Process write-workstreams with an audit log', 'exists'],
+  ['Scheduling', 'Cron pipelines that run a process across its workstreams (POST /v1/pipelines, schedule_type cron)', 'exists'],
+  ['Slack and Gmail from an agent', 'list_integrations and run_integration_tool with a connected integration', 'exists'],
+  ['End-user Agents surface', 'Operator role, read grant, cockpit file tree and chat; entitlement studio.agents_enduser set per org by Adopt in intranet', 'exists'],
+  ['Runs and traces', '/v1/runs, run detail, conversation trace (org-wide)', 'exists'],
+  ['API discovery', 'Postman and HAR import; NoUI skill bundle; Tabby; install_skill for NoUI-compiled skills', 'exists'],
+  ['Personal access tokens', 'Minted in the UI; exchanged for a JWT at POST /v1/users/api-token; carries tenantId and userId', 'exists'],
+  ['abcd toolkit', 'harness_skill, harness_process, harness_workstream, harness_run, harness_runs, harness_trace, adopt-skill-review', 'exists'],
+];
+
+const WORKAROUNDS = [
+  ['Version history for skills and agents', 'Org skills and processes are overwritten in place; no history', 'Git holds every version; bld_versions records content hashes and SHAs; rollback re-pushes a tag', 'None in practice'],
+  ['Staged versions', 'No staged pointer; turns take a process_id', 'Shadow objects: skill <name>--staged (frontmatter name rewritten) and process "<agent> (staged)"; promote by re-uploading under the live name and patching the live process', 'Promotion is a re-upload, not an atomic flip; abcd verifies after'],
+  ['Hiding staged agents', 'An assigned process is visible to users of that workstream', 'Assign staged processes only to staging and dataset workstreams, which no client user has a grant on', 'Admins can still see them'],
+  ['Per-agent skill pinning', 'Skills are org-wide by name', 'A shared skill change is released for every agent that uses it at once, and the gate runs every dependent agent\'s criteria', 'One release can hold up several agents'],
+  ['A hard release gate', 'The platform cannot refuse a write', 'abcd release is the only sanctioned path; abcd audit drift flags any live object that differs from its last release, on every abcd command and nightly', 'Detects within a day, does not prevent'],
+  ['Client view with per-user filtering', 'Data Store has no per-user row security', 'Clients get a read grant only on their Builder status workstream, which holds files; no table access', 'Scorecards are files, refreshed daily'],
+  ['PAT identity', 'Some routes record the token id (sub) instead of the user', 'abcd runs everything through POST /turns, which records the user; cron pipelines are created once from a browser session', 'Pipeline setup is one manual step'],
+  ['FDE permissions', 'Skill, process, workstream and grant writes need Admin', 'FDEs use Admin PATs in the client orgs they build for', 'FDEs can edit outside the Builder; drift audit covers it'],
+  ['Entitlements', 'Not writable through adoptwebui', 'Adopt turns on studio.agents_enduser for client orgs in intranet', 'One request per client org'],
+];
+
+const ROLES = ['FDE', 'FDE lead', 'Builder agents', 'Client stakeholder', 'Customer SME'];
+const RBAC = [
+  ['Run abcd against the org', ['y','y','n','n','n']],
+  ['Propose a build plan', ['y','y','y','n','n']],
+  ['Approve a build plan', ['y','y','n','n','n']],
+  ['Push staged versions and run on the harness', ['y','y','n','n','n']],
+  ['Set release criteria', ['y','y','n','p','n']],
+  ['Lower a target or edit an expected output', ['p','y','n','n','n']],
+  ['Release to live (gate passed)', ['y','y','n','n','n']],
+  ['Force a release, with a reason', ['n','y','n','n','n']],
+  ['Roll back', ['y','y','n','n','n']],
+  ['Add or change checks', ['y','y','p','n','p']],
+  ['Answer context gaps and add repro notes', ['y','y','n','n','y']],
+  ['Vet generic instructions', ['y','y','n','n','y']],
+  ['Waive a context gap', ['p','y','n','n','n']],
+  ['Write vetted knowledge graph pages', ['y','y','p','n','n']],
+  ['See the scorecard and agent status', ['y','y','y','p','p']],
+  ['See FDE activity and daily reports', ['p','y','n','n','n']],
+];
+const RBAC_KEY = { y: ['yes', 'Yes'], p: ['part', 'Limited'], n: ['no', 'No'] };
+const RBAC_NOTES = {
+  'FDE': 'An Admin user in the client org (skill, process, workstream and grant writes all require the Admin role today), using a PAT in workspaces/<env>/.env. abcd enforces the rest: an FDE\'s own abcd lowers a target only with a lead\'s recorded approval, and sees only their own activity in reports.',
+  'FDE lead': 'An Admin user who reviews forced releases and loosened criteria (recorded as decisions) and receives every FDE\'s daily report.',
+  'Builder agents': 'The Context curator, Status reporter and Status agent run as ordinary processes. They propose but never approve: knowledge graph pages land in proposed/, checks from runs land as candidates.',
+  'Client stakeholder': 'An Operator-role login (for example Nicklas) with a read grant on their Builder status workstream only. Sees the scorecard and agent status files in the end-user Agents cockpit and can ask the Status agent. Agrees release criteria through a recorded decision.',
+  'Customer SME': 'Appointed by the customer (for example Amanda) to explain how the golden outputs are produced. An Operator user with a write grant on their Builder SME workstream and a read grant on the status workstream. Answers context gaps with the Context agent, adds repro notes, sends checks, and vets the generic instructions drawn from their answers.',
+};
+
+const SCENARIOS = [
+  { name: 'Close a context gap with the SME', who: 'FDE and customer SME', trigger: 'A blind eval reproduces 41 of 48 returns. Six misses are classified as missing context.', steps: [
+    ['abcd', 'Opens six context gaps, each with the case input excerpt, the agent output against the golden output and the agent\'s reasoning.', 'bld_context_gaps (open); gaps/<gap_id>.md in builder-sme-gpw.'],
+    ['FDE', 'abcd gap list: answers two from the existing playbook, asks the SME about four.', 'Four gaps move to asked; the SME gets the questions in their workstream and by email.'],
+    ['Customer SME', 'Opens the Context agent: "Why is depreciation on pair-022 split across two lines?" Explains the rule they apply.', 'An answer plus a repro note on pair-022.'],
+    ['Builder', 'Generalises the answer into kg/instructions/gpw-1120pc-prep/depreciation-split.md.', 'A proposed instruction that names no client, case or expected value.'],
+    ['abcd', 'Leak check: refuses any instruction that quotes a case id or a value from an expected output.', 'Passes; the SME vets it.'],
+    ['abcd', 'abcd instructions compile, then a blind re-run of the affected cases and the full set.', 'pair-022 now reproduces; no regressions. The gap moves to verified.'],
+    ['FDE', 'Repeats until the blind reproduction rate meets its target and no gaps are open.', 'The build phase can exit; abcd release accepts the agent.'],
+  ]},
+  { name: 'Eval the CRM agent (read your writes)', who: 'FDE', trigger: 'The GPWA CRM agent writes tax-return fields into Dynamics 365. There is no document to compare against; what matters is what the CRM holds afterwards.', steps: [
+    ['FDE', 'abcd dataset create gpwa-crm-writes --kind read_your_writes --target-env D365TEST_MSCRM --probe gpwa-crm-probe.', 'A shared dataset workstream whose secrets point at the test CRM; the staged agent and the probe are assigned to it.'],
+    ['Builder', 'Drafts the probe agent: one read-only SQL skill using the CRMReaderRole login, returning rows as JSON.', 'A small agent that can read but never write.'],
+    ['FDE', 'abcd dataset add-case for an update, an overwrite, an unknown client and an invalid year.', 'Four cases with expected outcomes 0, 1, -1 and -2 and the expected field values.'],
+    ['abcd', 'Checks the probe is connected to D365TEST_MSCRM before anything runs.', 'Refuses if the probe reports any other database.'],
+    ['abcd', 'For each case, in order: probe snapshot, agent turn, probe read-back, teardown through the same WinRM write path.', 'bld_eval_results with the rows read back; the record ends as it started.'],
+    ['abcd', 'Scores outcome_match, state_match and collateral.', 'Write correctness and correct refusals on the scorecard; any collateral change fails the case.'],
+  ]},
+  { name: 'Eval email sorting (labelled cases)', who: 'FDE', trigger: 'The email sorter routes incoming mail to client workstreams and splits attachments into documents. The right answer for each email can be written down in advance.', steps: [
+    ['FDE', 'abcd dataset create gpwa-email-sorting --kind labeled --layout shared --run-mode batch.', 'One dataset workstream with an inbox folder; labels go to the dataset store.'],
+    ['FDE', 'abcd dataset add-case for 60 historical emails whose routing a person already confirmed.', 'Known cases with their workstream, document types and page splits.'],
+    ['Builder', 'abcd dataset synth --count 200 from templates and the known client list.', 'Synthetic cases whose labels are known up front, tagged source = synthetic.'],
+    ['FDE', 'abcd criteria set: routing accuracy of at least 98% on known cases and 95% on synthetic, no regressions.', 'Known and synthetic cases held to their own targets.'],
+    ['abcd', 'Runs one batch turn over the inbox and scores label_match and boundary_match.', 'A confusion matrix per client and the unnecessary HITL rate. Boundary-detection HITLs stay blocking and are counted, not tuned away.'],
+  ]},
+  { name: 'New agent from an SOP', who: 'FDE', trigger: 'A new client process is signed. You have the SOP, a call transcript and 30 past filed returns.', steps: [
+    ['FDE', 'Uploads the SOP and transcript to Builder: context (context/process-docs/, context/calls/).', 'Context curator extracts requirements, decisions and candidate checks.'],
+    ['FDE', 'abcd dataset create, then add-pair for each of the 30 returns.', '30 pair workstreams, one dataset store, dataset v1.'],
+    ['FDE', 'abcd metric define for accuracy, first-pass yield and human time; abcd criteria set.', 'bld_metrics and bld_release_criteria rows; client sign-off recorded as a decision.'],
+    ['Builder', 'abcd plan propose: one agent, four skills, one maker-checker step.', 'bld_build_plan rows, status proposed.'],
+    ['FDE', 'abcd plan approve.', 'Items move to approved; the Builder starts step 1 of the loop.'],
+    ['Builder', 'Runs loop steps 1 to 7 until the gate metrics pass, asking two questions on the way.', 'Two decisions recorded; draft versions pushed and run on gpw-staging.'],
+    ['FDE', 'abcd stage, abcd test-staged, abcd release.', 'Gate passes, v1 goes live with its eval report; explainer and training kit generated.'],
+  ]},
+  { name: 'Client adds new checks', who: 'FDE', trigger: 'Amanda sends five more checks a return must pass before GPW calls it accurate.', steps: [
+    ['Customer SME', 'Submits the checks in the Builder SME workstream (or the FDE uploads the email to context/emails/).', 'Checks land as proposed.'],
+    ['FDE', 'abcd check add for each, confirming the rule.', 'bld_checks rows; source decision linked to Amanda\'s email.'],
+    ['Builder', 'Re-scores past eval runs and recent production runs against the expanded list.', 'Accuracy and first-pass yield recomputed; the trend stays comparable.'],
+    ['Builder', 'Opens items for the checks the live version fails, with the failing pairs.', 'bld_open_items; the scorecard shows the new numbers on Friday.'],
+    ['FDE', 'Approves a plan item to fix the failing checks; the loop runs.', 'Next release must pass the new checks to go live.'],
+  ]},
+  { name: 'Fix a production problem', who: 'FDE', trigger: 'The Status reporter\'s daily metrics show the HITL rate on one step doubled this week.', steps: [
+    ['FDE', 'abcd status gpw-1120pc-prep, then abcd runs list --step 4 --since 7d.', 'The item, the runs and their traces.'],
+    ['Builder', 'Finds the cause in the traces and proposes a skill change plus a new pair for the case.', 'Plan item proposed; pair added; dataset v5.'],
+    ['FDE', 'Approves; the loop runs.', 'Draft passes on dataset v5 including the new pair.'],
+    ['FDE', 'Stage, test staged, release.', 'v13 live; the incident page kg/incidents/... links the release.'],
+  ]},
+  { name: 'A website with no API', who: 'FDE', trigger: 'The client\'s tax portal has no API and needs MFA.', steps: [
+    ['FDE', 'abcd scenario noui tax-portal --client gpw.', 'A Tabby browser session on the shared Tabby instance.'],
+    ['FDE', 'Walks through the jobs in the browser session.', 'NoUI captures the traffic.'],
+    ['Builder', 'Extracts APIs into callable functions.', 'kg/apis/tax-portal/*.md pages; a draft skill version.'],
+    ['Builder', 'Wires the skill into the agent with Tabby for auth at run time.', 'Agent draft pinned to the new skill.'],
+    ['Builder', 'Normal loop from step 2.', 'MFA prompts route to a person over Slack or Teams during runs.'],
+  ]},
+  { name: 'The gate blocks a release', who: 'FDE', trigger: 'The staged version scores 96% accuracy, but two pairs that passed on live now fail.', steps: [
+    ['abcd release', 'Refuses: no_regression criterion failed on pair-022 and pair-031.', 'bld_releases row with gate_result = fail; nothing is uploaded under the live names.'],
+    ['FDE', 'Opens the eval report: both misses are "playbook difference".', 'The report links each failing check and trace.'],
+    ['FDE', 'Either fixes and re-stages, or asks the lead to force with a reason.', 'A forced release is flagged on the scorecard until a passing run catches up.'],
+  ]},
+  { name: 'Roll back a bad release', who: 'FDE', trigger: 'v13 went live and an upstream file format changed the same day.', steps: [
+    ['FDE', 'abcd rollback gpw-1120pc-prep.', 'abcd re-uploads v12 from its git tag under the live names, patches the live agent and verifies it.'],
+    ['Builder', 'Records the rollback and opens an item.', 'bld_releases row; scorecard notes the rollback.'],
+  ]},
+  { name: 'A shared skill changes', who: 'FDE', trigger: 'You change the PDF intake skill used by three agents.', steps: [
+    ['Builder', 'Reads kg edges: the skill is used by three agents.', 'Impact list shown before the push.'],
+    ['Builder', 'Skills are org-wide by name, so the release ships to all three agents at once.', 'The gate runs all three agents\' release criteria, each on its own dataset.'],
+    ['FDE', 'Releases once, after all three pass.', 'Three eval reports attached to one release.'],
+  ]},
+  { name: 'Nicklas asks where we are', who: 'Client stakeholder', trigger: 'Friday, before the go/no-go.', steps: [
+    ['Client stakeholder', 'Logs in and opens the Builder status workstream in the Agents cockpit.', 'scorecard.md: same numbers as the release eval reports, in the agreed format.'],
+    ['Client stakeholder', 'Asks the Status agent "what is pending on the return prep agent?"', 'Sees "Remaining checks from GPW" waiting on GPW, with its date.'],
+    ['Client stakeholder', 'Opens the last release\'s eval report.', 'Misses broken down by cause.'],
+  ]},
+  { name: 'A new FDE joins', who: 'FDE', trigger: 'You inherit an agent you have never seen.', steps: [
+    ['FDE', 'Mints a PAT in Adopt, clones the agents repo and tells the coding agent "follow ADOPT.md".', 'abcd init: plugin installed, context pulled, smoke test passed.'],
+    ['FDE', 'Opens agents/<agent>/explainer.html.', 'The current implementation, step by step, generated from live state.'],
+    ['FDE', 'Reads training/scenarios.md and runs two prompts from training/prompts.md on gpw-staging.', 'Hands-on in under an hour.'],
+    ['FDE', 'abcd status <agent>.', 'Open items, last eval, criteria for the next release.'],
+  ]},
+];
+
+const GPW_METRICS = [
+  { m: 'Clients completed', cat: 'Volume', unit: '#', base: '', uat1: '8', target: '150', gate: false, def: 'Clients with all 7 steps signed off, cumulative (SOW scope 150; GPW selected 170).' },
+  { m: 'Automation rate', cat: 'Time', unit: '%', base: '0%', uat1: '82%', target: '40%', gate: true, def: 'Time saved against the manual baseline, counting all human interaction with the agent.' },
+  { m: 'Human time per client', cat: 'Time', unit: 'hrs', base: '15.3', uat1: '2.7', target: '9.2', gate: true, def: 'Human interaction hours, intake to signed-off 1120-PC, divided by clients completed.' },
+  { m: 'Onshore time per client', cat: 'Time', unit: 'hrs', base: 'To agree', uat1: 'To agree', target: 'To agree', gate: false, def: 'GPW onshore hours only, from platform logs of user actions by role.' },
+  { m: 'Lead time per client', cat: 'Time', unit: 'days', base: '15.3', uat1: '5.5', target: '', gate: false, def: 'Agent processing plus human time, divided by clients completed.' },
+  { m: 'Accuracy', cat: 'Quality', unit: '%', base: 'n/a', uat1: '93.8%', target: 'To agree', gate: true, def: 'Passes all of GPW\'s checks. UAT 1: headline values within $2, 225 of 240.' },
+  { m: 'First-pass yield', cat: 'Quality', unit: '%', base: 'n/a', uat1: 'To compute', target: 'To agree', gate: true, def: 'Share of clients passing all checks on the first run with no human correction.' },
+  { m: 'AI cost per client per year', cat: 'Cost', unit: '$', base: '', uat1: '$86', target: '', gate: false, def: 'Platform, build, service and token cost divided by clients processed.' },
+];
+
+const OPEN_Q = [
+  ['Blind reproduction target', 'Is 100% of active cases required before go-live, or a target such as 95% with every remaining miss waived and explained?'],
+  ['Simulated HITL in blind runs', 'When a blind run asks a question, count it as a context gap (current plan), or let a scripted SME answer and count it as a HITL?'],
+  ['SME time', 'How many gap questions a week can an SME answer? Batch them, or ask as they open?'],
+  ['One workstream per case', 'Work-product pairs get a workstream each; labelled and read-your-writes datasets share one. Is the custom_properties.kind = dataset tag enough at hundreds of workstreams?'],
+  ['Test systems for read-your-writes', 'Which agents have a test tenant to write to (the GPWA CRM does: D365TEST_MSCRM)? Agents without one can only be evaluated on refusals and dry runs.'],
+  ['Synthetic realism', 'How many synthetic cases is a release allowed to rely on, and should known cases have their own target?'],
+  ['FDEs as org admins', 'Every write route needs Admin, so FDEs are admins in the orgs they build for. Acceptable, given the drift audit?'],
+  ['Loosening release criteria', 'Should lowering a target or editing an expected output always need a lead\'s recorded approval?'],
+  ['Drift response', 'When abcd audit drift finds an edit made outside the Builder: revert it automatically, or open an item for the owner?'],
+  ['Client logins', 'Operator role plus studio.agents_enduser per client org. Or send the Friday scorecard by email only and skip logins at first?'],
+  ['Call context source', 'Import from the meeting recorder, upload transcripts, or both?'],
+  ['Onshore and offshore role', 'Human time split by role needs a role on every client user. Where is it recorded: a custom property or a table?'],
+  ['Eval cost', 'Every gated release runs every pair on platform tokens. Should wording-only changes run a sample?'],
+  ['Shared skills', 'A shared skill change ships to every agent using it at once. Is that acceptable, or should shared skills be copied per agent?'],
+  ['Unauthenticated Doc Store routes', '/v1/end-user/docstore/* takes org_id from the request with no auth. A security fix, not a feature: raise with the platform team before Builder data lives in the Doc Store.'],
+];
+
+/* ------------------------------------------------------------------
+   Rendering
+   ------------------------------------------------------------------ */
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const st = s => s === 'exists' ? EX : s === 'setup' ? SETUP : s === 'workaround' ? WORK : s === 'decide' ? DEC : ABCD;
+
+function tree(nodes) {
+  return nodes.map(n => {
+    const kids = n.k ? `<div class="kids">${tree(n.k)}</div>` : '';
+    return `<div><div class="row ${n.k ? 'dir' : ''}" ${n.k ? 'data-tree="1"' : ''}><span class="name"><span class="caret">${n.k ? '▾' : ''}</span>${esc(n.n)}</span><span class="desc">${esc(n.d)}</span></div>${kids}</div>`;
+  }).join('');
+}
+
+const state = { kind: 'work_product', step: 0, table: 'bld_agents', tfilter: 'All', scen: 0, sstep: 0, role: -1, agent: 0, ptab: 'Scorecard', crud: 0, train: 'prompts' };
+
+const PAGES = [
+  { id: 'overview', group: 'Start here', label: 'Overview', render: pOverview },
+  { id: 'loop', group: 'Start here', label: 'The builder loop', render: pLoop },
+  { id: 'abcd', group: 'Start here', label: 'abcd and your coding agent', render: pAbcd },
+  { id: 'scenarios', group: 'Start here', label: 'Scenarios', render: pScenarios },
+  { id: 'workstreams', group: 'Where things live', label: 'Workstreams and folders', render: pWorkstreams },
+  { id: 'tables', group: 'Where things live', label: 'Data tables', render: pTables },
+  { id: 'datasets', group: 'Where things live', label: 'Datasets', render: pDatasets },
+  { id: 'kg', group: 'Where things live', label: 'Knowledge graph and context', render: pKg },
+  { id: 'gaps-blind', group: 'Quality and release', label: 'Context gaps and blind evals', render: pBlind },
+  { id: 'metrics', group: 'Quality and release', label: 'Metrics, checks and criteria', render: pMetrics },
+  { id: 'versions', group: 'Quality and release', label: 'Versions, git and releases', render: pVersions },
+  { id: 'report', group: 'Quality and release', label: 'The eval report', render: pReport },
+  { id: 'meta', group: 'Platform', label: 'Meta skills, agents, plugins', render: pMeta },
+  { id: 'rbac', group: 'Platform', label: 'Roles and access', render: pRbac },
+  { id: 'gaps', group: 'Platform', label: 'What exists, what to build', render: pGaps },
+  { id: 'status', group: 'For everyone', label: 'Status for clients and leads', render: pStatus },
+  { id: 'training', group: 'For everyone', label: 'Explainers and training', render: pTraining },
+  { id: 'questions', group: 'For everyone', label: 'Open questions', render: pQuestions },
+];
+
+function nav() {
+  const cur = (location.hash || '#overview').slice(1);
+  let html = `<div class="brand" data-go="overview"><div class="brand-tile">${LOGO}</div><div><div class="brand-name">Adopt Builder</div><div class="brand-sub">Spec and explainer</div></div></div>`;
+  let g = '';
+  PAGES.forEach(p => {
+    if (p.group !== g) { g = p.group; html += `<div class="nav-group">${g}</div>`; }
+    html += `<button class="nav-item ${p.id === cur ? 'on' : ''}" data-go="${p.id}">${p.label}</button>`;
+  });
+  const dark = document.documentElement.dataset.theme === 'dark';
+  html += `<div class="side-foot"><span class="who">Draft for review · Oct 2026</span><button class="icon-btn" id="theme" aria-label="${dark ? 'Switch to light mode' : 'Switch to dark mode'}">${dark ? sunIcon() : moonIcon()}</button></div>`;
+  document.getElementById('side').innerHTML = html;
+}
+const moonIcon = () => `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>`;
+const sunIcon = () => `<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>`;
+
+function render() {
+  nav();
+  const id = (location.hash || '#overview').slice(1);
+  const p = PAGES.find(x => x.id === id) || PAGES[0];
+  document.getElementById('page').innerHTML = p.render();
+}
+
+/* Pages */
+function pOverview() {
+  return `<h1>Adopt Builder</h1>
+  <p class="lead">Every Adopt agent is built through one headless Builder. FDEs drive it from their own coding agent, on their own subscription. Every skill and agent change becomes a versioned, staged release that must pass its dataset gate, and each release carries its eval report.</p>
+  <p class="sub"><b>Goal number one: no new platform features.</b> The Builder is abcd (this repo), a one-time setup of existing platform objects (workstreams, Doc Stores, tables, processes, pipelines, grants) and a private git repo. Where the platform cannot do something, this page says so and shows the workaround. Nothing waits on a platform release.</p>
+  <p class="sub"><b>Done means reproducible blind.</b> During the build phase the FDE and a customer-appointed SME keep adding missing context until a generic prompt, the knowledge graph's instructions and the skills reproduce the golden dataset on their own. Blind evals prove it, and gate every release.</p>
+  <p class="sub">The FDE defines five inputs and approves the plan. The Builder does the rest and asks only when the inputs do not settle something. This page is written by hand for review; once built, abcd regenerates a page like it for every agent from live state.</p>
+
+  <h2>The five inputs an FDE defines</h2>
+  <div class="grid g5">${INPUTS.map((x, i) => `<div class="card"><div class="k">Input ${i + 1}</div><h3>${x.name}</h3><p>${x.what}</p><div class="meta">GPW: ${x.ex}</div><div class="meta">Lives in <span class="tag">${x.where}</span></div></div>`).join('')}</div>
+
+  <h2>What the FDE still does</h2>
+  <div class="grid g2">${FDE_DOES.map((x, i) => `<div class="card"><div class="k">${i + 1}</div><h3>${x[0]}</h3><p>${x[1]}</p></div>`).join('')}</div>
+
+  <h2>How the pieces fit</h2>
+  <table class="t"><tr><th>Piece</th><th>What it is</th><th>Where</th><th>Status</th></tr>
+  <tr><td>abcd</td><td>The CLI your coding agent uses for every loop step. Today's harness_* tools plus new commands</td><td>Your machine</td><td>${ABCD}</td></tr>
+  <tr><td>adopt-builder plugin</td><td>19 meta skills that teach your coding agent the loop</td><td>This repo, installed into your coding agent by abcd init</td><td>${ABCD}</td></tr>
+  <tr><td>Platform APIs</td><td>Skills, processes, turns, runs, workstreams, grants, Doc Store, Data Store, pipelines</td><td>adoptwebui end-user and studio routes, with a PAT</td><td>${EX}</td></tr>
+  <tr><td>Builder workstreams</td><td>Builder: context, Builder: operations, one Builder status workstream per client</td><td>Workstreams + Doc Stores + tables, created by abcd builder setup</td><td>${SETUP}</td></tr>
+  <tr><td>Datasets</td><td>One workstream per work-product pair; expected outputs kept out of reach</td><td>Workstreams + Doc Stores + tables</td><td>${SETUP}</td></tr>
+  <tr><td>Platform meta agents</td><td>Context curator, Status reporter, Status agent</td><td>Ordinary processes on cron pipelines</td><td>${SETUP}</td></tr>
+  <tr><td>Your git repo</td><td>Private repo with every agent's source, criteria, reports and training. The version store</td><td>GitHub, driven by git and gh on your machine</td><td>${SETUP}</td></tr>
+  </table>
+  <div class="note">Legend: ${EX} on the platform today · ${SETUP} existing platform objects, configured once · ${ABCD} new code in this repo only · ${WORK} a platform limit and how we work around it · ${DEC} needs a decision. Checked against adoptai-workflows 29a3fe717 and adoptwebui 88416ad0c.</div>`;
+}
+
+function pLoop() {
+  const s = LOOP[state.step];
+  return `<h1>The builder loop</h1>
+  <p class="lead">Every agent goes through the same 10 steps. The Builder runs steps 1 to 7 itself until the gate metrics pass. Steps 8 to 10 move that exact version through staging to live.</p>
+  <div class="legend"><span><span class="sw" style="background:var(--surface)"></span>Runs on your subscription</span><span><span class="sw" style="background:var(--sunken)"></span>Runs on platform tokens</span></div>
+  <div class="loop">${LOOP.map((x, i) => `<button class="${x.where === 'platform' ? 'plat' : ''} ${i === state.step ? 'on' : ''}" data-step="${i}"><span class="n">${x.n}</span>${x.name}</button>`).join('')}</div>
+  <div class="card">
+    <h3>Step ${s.n} · ${s.name} <span class="who-chip">${s.who}</span> <span class="who-chip">${s.where === 'local' ? 'Your subscription' : 'Platform tokens'}</span></h3>
+    <p>${s.what}</p>
+    <div class="kv" style="margin-top:10px">
+      <div class="k">abcd</div><div><div class="term" style="margin:0">${esc(s.cmd)}</div></div>
+      <div class="k">Platform routes</div><div><span class="tag">${esc(s.api)}</span></div>
+      <div class="k">Writes</div><div>${esc(s.writes)}</div>
+      <div class="k">Meta skills</div><div>${esc(s.skills)}</div>
+    </div>
+    <div style="margin-top:12px; display:flex; gap:8px"><button class="btn" data-step="${Math.max(0, state.step - 1)}" ${state.step === 0 ? 'disabled' : ''}>Previous step</button><button class="btn" data-step="${Math.min(9, state.step + 1)}" ${state.step === 9 ? 'disabled' : ''}>Next step</button></div>
+  </div>
+  <h2>The two gates</h2>
+  <div class="grid g2">
+    <div class="card"><h3>Step 7: do the evals pass?</h3><p>Every gate metric on the draft, on the linked dataset version, must meet its target. Until then the Builder keeps iterating.</p></div>
+    <div class="card"><h3>Step 10: the release gate</h3><p>Deterministic code in abcd release, and it refuses on any error. It only accepts a staged run on the exact staged hashes. A lead can force a release with a recorded reason; forced releases stay flagged until a passing run catches up. The platform cannot refuse an edit made outside abcd, so abcd audit drift flags any live object that does not match its last release.</p></div>
+  </div>`;
+}
+
+function pAbcd() {
+  return `<h1>abcd and your coding agent</h1>
+  <p class="lead">You download one file, tell your coding agent to follow it, and from then on you talk to your agent in plain words. abcd is what your agent calls underneath.</p>
+  <h2>Getting started</h2>
+  <ol class="steps">
+    <li>In Adopt, mint a Personal Access Token (Settings, as today). Put its client id and secret in <code>workspaces/&lt;env&gt;/.env</code>, which is git-ignored. Writes need an Admin user.</li>
+    <li>Clone the org's private agents repo. Its <code>ADOPT.md</code> names the org, environment, agents and workstreams, and links back to this repo's skills.</li>
+    <li>Tell Claude Code, Codex or Cursor: <i>follow ADOPT.md</i>. It runs <code>abcd init</code>: checks the token, installs the adopt-builder plugin, pulls the agent's context and runs a smoke test.</li>
+    <li>From here you say things like "add a step that checks the trial balance", "run the evals", "why did pair 17 fail", "ship it". The meta skills turn each into the right abcd commands.</li>
+  </ol>
+  <h2>What a session looks like</h2>
+  <div class="term"><span class="c"># you: the reconciliation step keeps asking for help on multi-entity clients. fix it.</span>
+<span class="o">$ abcd context pull gpw-1120pc-prep</span>
+  pulled 14 kg pages, 9 decisions, 2 open items, 31 checks -> ./context
+<span class="o">$ abcd eval run gpw-1120pc-prep --tier local --tag multi-entity</span>
+  dataset gpw-1120pc@4 · 6 pairs · 4 passed · 2 failed (missing_context)
+<span class="c"># builder edits skills/tb-reconcile/SKILL.md and scripts/entity_split.py</span>
+<span class="o">$ abcd review skills/tb-reconcile</span>
+  0 critical · 1 medium: batch the per-entity reads
+<span class="o">$ abcd push gpw-1120pc-prep --staged</span>
+  tb-reconcile--staged uploaded · "gpw-1120pc-prep (staged)" patched · git 4f1c2e9 · verified
+<span class="o">$ abcd eval run gpw-1120pc-prep --tier platform</span>
+  48 pairs · accuracy 97.9% (target 95%) · first-pass yield 81% (target 75%) · no regressions
+<span class="l">  report: builder-ops/evals/ev_7f2a/summary.json</span>
+<span class="c"># you: ship it</span>
+<span class="o">$ abcd stage gpw-1120pc-prep && abcd test-staged gpw-1120pc-prep</span>
+<span class="o">$ abcd release gpw-1120pc-prep</span>
+  gate: pass · tb-reconcile uploaded · live agent patched · verified
+  v13 live · eval report attached · git tag gpw-1120pc-prep@v13</div>
+  <div class="note">Illustrative session. Names and numbers are examples.</div>
+  <h2>Command reference</h2>
+  <table class="t"><tr><th>Command</th><th>What it does</th><th>Today</th><th>Status</th></tr>
+  ${ABCDCMDS.map(a => `<tr><td class="mono" style="white-space:nowrap">${esc(a.cmd)}</td><td>${esc(a.what)}</td><td class="mono">${esc(a.replaces)}</td><td>${st(a.status)}</td></tr>`).join('')}
+  </table>
+  <h2>Every command is logged</h2>
+  <p>abcd writes one <span class="tag">bld_dev_events</span> row per command, with its loop step, result and platform cost. Claude Code hooks add the session transcript. The rows go to the Data Store tables through the existing org-db API. That is what the FDE daily report and the lead's activity view are built from. Other coding agents get command-level logging without transcripts.</p>`;
+}
+
+function pScenarios() {
+  const sc = SCENARIOS[state.scen];
+  return `<h1>Scenarios</h1>
+  <p class="lead">Walk through the situations FDEs meet most. Each step names who acts, what they run and what changes on the platform.</p>
+  <div class="split">
+    <div class="list">${SCENARIOS.map((x, i) => `<button class="${i === state.scen ? 'on' : ''}" data-scen="${i}">${x.name}<span class="small">${x.who}</span></button>`).join('')}</div>
+    <div>
+      <div class="card"><div class="k">Situation</div><p>${esc(sc.trigger)}</p></div>
+      <ol class="steps">${sc.steps.map((s, i) => `<li class="${i === state.sstep ? 'cur' : i > state.sstep ? 'future' : ''}"><b>${s[0]}</b> · ${esc(s[1])}<div class="meta" style="color:var(--muted);font-size:12.5px;margin-top:4px">${esc(s[2])}</div></li>`).join('')}</ol>
+      <div style="display:flex; gap:8px"><button class="btn" data-sstep="${state.sstep - 1}" ${state.sstep === 0 ? 'disabled' : ''}>Previous</button><button class="btn primary" data-sstep="${state.sstep + 1}" ${state.sstep >= sc.steps.length - 1 ? 'disabled' : ''}>Next step</button><span style="align-self:center;color:var(--muted);font-size:12.5px;margin-left:6px">Step ${state.sstep + 1} of ${sc.steps.length}</span></div>
+    </div>
+  </div>`;
+}
+
+function pWorkstreams() {
+  return `<h1>Workstreams and folders</h1>
+  <p class="lead"><code>abcd builder setup</code> creates two standard workstreams per org and one status workstream per client, using the existing workstream routes. Datasets add a workstream per work-product pair, or one per labelled or read-your-writes dataset, and each client with a Builder agent gets a staging workstream. Client workstreams stay as they are.</p>
+  <table class="t"><tr><th>Workstream</th><th>How many</th><th>Holds</th><th>Tables linked</th><th>Who writes and reads</th><th>Status</th></tr>
+  ${WORKSTREAMS.map(w => `<tr><td><b>${w.name}</b><br><span class="tag">${w.key}</span><div style="color:var(--muted);font-size:12.5px">${w.created}</div></td><td>${w.count}</td><td>${w.holds}<div style="color:var(--muted);font-size:12.5px">Store: ${w.store}</div></td><td>${w.tables}</td><td>${w.who}</td><td>${st(w.status)}</td></tr>`).join('')}</table>
+  <div class="note">Pair workstreams carry <code>custom_properties.kind = dataset</code> (an existing JSON field on workstreams, with its schema set once through member-config) so they can be kept out of client lists, Spaces and the email router.</div>
+  <h2>Builder: context Doc Store</h2><p class="sub">Click a folder to fold it.</p><div class="tree">${tree(META_TREE)}</div>
+  <h2>Builder: operations Doc Store</h2><div class="tree">${tree(OPS_TREE)}</div>
+  <h2>Builder status: &lt;client&gt; Doc Store</h2><p class="sub">The only Builder files a client can see.</p><div class="tree">${tree(STATUS_TREE)}</div>
+  <h2>Rules for every Builder folder</h2>
+  <ul><li><b>Never overwrite.</b> The Doc Store has no version history (an override mints a new document id), so every versioned file gets a new path.</li>
+  <li><b>Tables are the index.</b> Paths are stored in table rows, so nothing ever needs to list a Doc Store folder.</li>
+  <li><b>Markdown for anything an agent reads,</b> HTML only for explainers and reports people open.</li>
+  <li><b>Non-PDF uploads skip extraction,</b> so .md, .json and .jsonl cost nothing to store.</li></ul>`;
+}
+
+function pTables() {
+  const groups = ['All', ...new Set(TABLES.map(t => t.group))];
+  const list = TABLES.filter(t => state.tfilter === 'All' || t.group === state.tfilter);
+  const t = TABLES.find(x => x.name === state.table) || TABLES[0];
+  return `<h1>Data tables</h1>
+  <p class="lead">${TABLES.length} Data Store custom tables hold the Builder's index. They are created once by <code>abcd builder setup</code> through the existing org-db API, and linked to the Builder workstreams.</p>
+  <div class="seg">${groups.map(g => `<button class="${g === state.tfilter ? 'on' : ''}" data-tfilter="${g}">${g}</button>`).join('')}</div>
+  <div class="split">
+    <div class="list">${list.map(x => `<button class="${x.name === t.name ? 'on' : ''}" data-table="${x.name}"><span class="mono">${x.name}</span><span class="small">${x.purpose}</span></button>`).join('')}</div>
+    <div class="card">
+      <h3 class="mono">${t.name}</h3><p>${t.purpose}</p>
+      <div class="kv" style="margin:8px 0 12px"><div class="k">Linked to</div><div>${t.ws}</div><div class="k">Unique key</div><div class="mono">${t.key}</div><div class="k">Written by</div><div>${t.by}</div><div class="k">Read by</div><div>${t.reads}</div></div>
+      <table class="t"><tr><th>Column</th><th>Type</th><th>Note</th></tr>${t.cols.map(c => `<tr><td class="mono">${c.name}</td><td class="mono">${c.type}</td><td>${esc(c.note)}</td></tr>`).join('')}</table>
+      <div class="meta">Every table also gets the platform's implicit columns: id, created_at, updated_at, is_deleted, metadata.</div>
+    </div>
+  </div>
+  <h2>How the tables are set up, and why</h2>
+  <table class="t"><tr><th>Setting</th><th>Why</th></tr>
+  <tr><td><code>workstream_scoped = false</code></td><td>Rows written through the external API get workstream_id = null, which makes them invisible to agents on scoped tables. Unscoped tables linked to the Builder workstreams are visible to the meta agents.</td></tr>
+  <tr><td>A unique key on every table</td><td>Inserts are not atomic and there is no upsert. abcd retries with the same key; a 409 means already written.</td></tr>
+  <tr><td>Batches of at most 500 rows</td><td>The insert API limit.</td></tr>
+  <tr><td>Status changes through abcd</td><td>Harness agents can insert and soft-delete rows but not update them. Version, release and status changes are made by abcd through the rows PATCH route.</td></tr>
+  <tr><td>No client access to tables</td><td>Data Store has workstream-level, not user-level, row security, and read-only SQL is org-wide. Clients see files in their Builder status workstream instead.</td></tr>
+  <tr><td>Enums are checked by abcd</td><td>The Data Store stores enum as plain text and does not enforce values.</td></tr>
+  </table>`;
+}
+
+function pDatasets() {
+  const c = DS_CRUD[state.crud];
+  const k = DS_KINDS.find(x => x.key === state.kind) || DS_KINDS[0];
+  return `<h1>Datasets</h1>
+  <p class="lead">A dataset is how an FDE says what "correct" means for an agent. Not every agent produces a document to compare against, so a dataset has a kind. Each kind says what a case holds, how the agent runs on it, and how the result is scored. An agent linked to a dataset cannot go live until it meets its release criteria on it.</p>
+  <h2>Pick the kind that fits the agent</h2>
+  <div class="seg">${DS_KINDS.map(x => `<button class="${x.key === k.key ? 'on' : ''}" data-kind="${x.key}">${x.name}</button>`).join('')}</div>
+  <div class="card">
+    <h3>${k.name} <span class="who-chip">Example: ${k.agent}</span></h3>
+    <div class="kv" style="margin-top:8px">
+      <div class="k">Use it when</div><div>${esc(k.when)}</div>
+      <div class="k">A case holds</div><div>${esc(k.caseShape)}</div>
+      <div class="k">Workstreams</div><div>${esc(k.layout)}</div>
+      <div class="k">How it runs</div><div>${esc(k.run)}</div>
+      <div class="k">How it is scored</div><div>${esc(k.score)}</div>
+      <div class="k">Typical metrics</div><div>${esc(k.metrics)}</div>
+      <div class="k">Where cases come from</div><div>${esc(k.source)}</div>
+      <div class="k">Keeping it honest</div><div>${esc(k.isolate)}</div>
+    </div>
+    <div class="term" style="margin-top:12px">${esc(k.manifest)}</div>
+  </div>
+  <div class="note">Every kind shares one case shape: inputs, optional setup, expected, optional teardown, scorers, source and tags. A new kind is a new runner and scorer in abcd, not a new table or a platform change.</div>
+  <h2>Scorers</h2>
+  <table class="t"><tr><th>Scorer</th><th>Compares</th><th>Kinds</th></tr>
+  <tr><td class="mono">field_match</td><td>Structured output fields, with tolerances for money and dates</td><td>work_product</td></tr>
+  <tr><td class="mono">rubric</td><td>A document against a written rubric, judged by your coding agent</td><td>work_product, custom</td></tr>
+  <tr><td class="mono">label_match</td><td>Each produced label with the expected one; feeds a confusion matrix</td><td>labeled</td></tr>
+  <tr><td class="mono">boundary_match</td><td>Where documents were split against the expected page ranges</td><td>labeled</td></tr>
+  <tr><td class="mono">state_match</td><td>Rows read back by the probe with the expected state</td><td>read_your_writes</td></tr>
+  <tr><td class="mono">outcome_match</td><td>The write's result code class: updated, updated with a warning, refused</td><td>read_your_writes</td></tr>
+  <tr><td class="mono">collateral</td><td>Rows in scope other than the target, before and after</td><td>read_your_writes</td></tr>
+  <tr><td class="mono">script:&lt;name&gt;</td><td>Anything, through evals/scorers/&lt;name&gt;.py</td><td>custom</td></tr>
+  <tr><td class="mono">check:&lt;check_key&gt;</td><td>Any client check from bld_checks</td><td>all</td></tr></table>
+  <h2>How a dataset is stored</h2>
+  <div class="tree">${tree(DS_TREE)}</div>
+  <div class="note rv"><b>Why expectations live apart.</b> The harness copies every Doc Store linked to a workstream into the agent's sandbox. If expected outputs or labels sat in the dataset workstream, the agent under test could read the answers. They live in the dataset store, which is linked to Builder: operations only.</div>
+  <h2>How it is indexed</h2>
+  <ul><li><span class="tag">bld_datasets</span> one row per dataset: kind, layout, run mode, test environment and probe, default scorers, current version.</li>
+  <li><span class="tag">bld_dataset_versions</span> one row per version, with a change note and the immutable manifest path.</li>
+  <li><span class="tag">bld_dataset_cases</span> one row per case: inputs, setup, expected, teardown, scorers, source, tags, and the versions it was active in.</li>
+  <li>A <span class="tag">kg/datasets/&lt;dataset&gt;.md</span> page explains what the dataset covers, and a <span class="tag">tested_by</span> edge links each agent to it.</li></ul>
+  <h2>Create, read, update, delete</h2>
+  <div class="seg">${DS_CRUD.map((x, i) => `<button class="${i === state.crud ? 'on' : ''}" data-crud="${i}">${x.op}</button>`).join('')}</div>
+  <div class="card"><h3>${c.op}</h3>
+    <div class="kv"><div class="k">abcd</div><div><div class="term" style="margin:0">${esc(c.cmd)}</div></div>
+    <div class="k">Platform routes</div><div><span class="tag">${esc(c.api)}</span></div>
+    <div class="k">Underneath</div><div>${esc(c.under)}</div>
+    <div class="k">Dataset version</div><div>${c.ver}</div></div></div>
+  <h2>Rules</h2>
+  <ul><li>Any change to cases or expectations creates a new dataset version. Two releases are only compared on the same version.</li>
+  <li>Retired cases keep their files, so any past eval run can be reproduced.</li>
+  <li>The staged agent is assigned to every dataset workstream when it is created, and never to a client workstream.</li>
+  <li>Read-your-writes datasets run only against the declared test environment. Before the first case, abcd asks the probe which server and database it is connected to and refuses if it is not the declared one.</li>
+  <li>Expectations and targets are owned by the FDE; abcd asks for a lead's recorded approval before loosening either.</li></ul>`;
+}
+
+function pKg() {
+  return `<h1>Knowledge graph and context</h1>
+  <p class="lead">The knowledge graph is the context a builder needs before touching an agent. It lives in the Builder: context workstream: pages in its Doc Store, which is backed by S3, and nodes and edges in two Data Store tables. No new storage system and no new platform feature.</p>
+  <div class="grid g3">
+    <div class="card"><div class="k">Pages</div><h3>Doc Store, markdown</h3><p>One page per entity, plus index.md, schema.md and an append-only log.md. Readable by people and agents.</p></div>
+    <div class="card"><div class="k">Graph</div><h3>bld_kg_nodes, bld_kg_edges</h3><p>Typed links such as uses, calls, replaced_by, failed_on, tested_by. Answers "what does this change affect?"</p></div>
+    <div class="card"><div class="k">Trust</div><h3>Proposed, then vetted</h3><p>Agents propose; FDEs vet. Follows the agent-memory spec's proposed and vetted tiers.</p></div>
+  </div>
+  <h2>Folder layout</h2><div class="tree">${tree(META_TREE)}</div>
+  <h2>How context flows in</h2>
+  <table class="t"><tr><th>Source</th><th>Lands in</th><th>What the Context curator does</th></tr>
+  <tr><td>Call transcript</td><td><code>context/calls/&lt;client&gt;/&lt;date&gt;-&lt;slug&gt;.md</code></td><td>Extracts requirements, decisions and candidate checks, each linked to the call</td></tr>
+  <tr><td>Email thread</td><td><code>context/emails/...</code></td><td>Same as calls</td></tr>
+  <tr><td>SOP or playbook</td><td><code>context/process-docs/...</code></td><td>Proposes steps, sign-offs and HITL gates for the agent</td></tr>
+  <tr><td>NoUI extraction</td><td><code>kg/apis/&lt;system&gt;/...</code></td><td>One page per API, with auth and parameters</td></tr>
+  <tr><td>Runs and HITL answers</td><td><code>proposed/</code></td><td>abcd metric compute exports run summaries to proposed/; the Context curator turns recurring questions into candidate decisions or checks</td></tr>
+  <tr><td>Releases</td><td><code>kg/agents/&lt;agent&gt;.md</code></td><td>Updates the agent page with the live version and its skills</td></tr></table>
+  <h2>How the coding agent reads it</h2>
+  <p><code>abcd context pull &lt;agent&gt;</code> fetches a bundle: the agent page and every page one or two edges away, its decisions, open items, checks, metrics and criteria. It lands in <code>./context</code> in your repo (git-ignored), so your coding agent reads it as local files.</p>
+  <div class="note">Constraints: Data Store has no per-user row security, so the graph is readable org-wide. The harness copies at most 200 MB of a workstream's files per session; larger graphs rely on index pages and fetching on demand.</div>`;
+}
+
+function pBlind() {
+  return `<h1>Context gaps and blind evals</h1>
+  <p class="lead">An agent is ready when it can reproduce the golden dataset blind: given only a generic prompt, the knowledge graph's instructions and its skills. During the build phase, the FDE and a customer-appointed SME keep adding the missing context and explanation until that is true. This is a requirement for every agent linked to a dataset.</p>
+  <h2>What a blind eval gives the agent, and what it withholds</h2>
+  <div class="grid g2">
+    <div class="card"><div class="k">Given</div><ul><li>A generic prompt from <span class="tag">bld_generic_prompts</span>, such as "Prepare the 1120-PC for this client from the files in this workstream"</li><li>The case inputs, exactly as a client would provide them</li><li>The compiled instruction skill (<span class="tag">&lt;agent&gt;-instructions</span>) and the agent's other skills</li><li>Client-scope instructions synced into the case workstream</li></ul></div>
+    <div class="card"><div class="k">Withheld</div><ul><li>Expected outputs, labels and states</li><li>Case notes (<span class="tag">bld_case_notes</span>)</li><li>Gap files and their evidence</li><li>Any FDE message, hint or follow-up turn</li><li>Answers to questions the agent asks: a question in a blind run is itself a context gap</li></ul></div>
+  </div>
+  <h2>The gap loop</h2>
+  <ol class="steps">
+    <li><b>Blind run.</b> abcd eval run --blind scores every case against the golden dataset.</li>
+    <li><b>Classify misses.</b> builder-gaps sorts each miss: missing context, skill bug, rounding, playbook difference, or real error. Only missing context opens a gap; the rest become build plan items.</li>
+    <li><b>Open a gap.</b> One row in <span class="tag">bld_context_gaps</span> and one evidence file <span class="tag">gaps/&lt;gap_id&gt;.md</span>: the case input excerpt, the agent output against the golden output, the agent's reasoning, and the Builder's hypothesis of what is missing.</li>
+    <li><b>Route it.</b> The FDE answers from what they know, or sends it to the SME (abcd gap ask). The SME sees it in their Builder SME workstream and by email.</li>
+    <li><b>Answer.</b> The SME works through it with the Context agent, which asks follow-ups until the answer is a rule, not a one-off. Case-specific explanations are saved as repro notes.</li>
+    <li><b>Encode.</b> builder-instructions turns the answer into a generic instruction page under <span class="tag">kg/instructions/&lt;agent&gt;/</span>, with its provenance. The FDE or SME vets it.</li>
+    <li><b>Leak check.</b> abcd refuses an instruction that names a case id, quotes a value from any expected output, or only makes sense for one case.</li>
+    <li><b>Compile and re-run.</b> abcd instructions compile builds the instruction skill; the affected cases and then the full set re-run blind.</li>
+    <li><b>Verify.</b> The gap closes only when a blind run reproduces its case without regressing any other. Otherwise it goes back to open with the new evidence.</li>
+  </ol>
+  <h2>Gap states</h2>
+  <div class="grid g5">
+    <div class="card"><span class="pill p-dr">Open</span><p style="margin-top:8px">Found by a blind run. With the Builder.</p></div>
+    <div class="card"><span class="pill p-rv">Asked</span><p style="margin-top:8px">Waiting on the SME or FDE.</p></div>
+    <div class="card"><span class="pill p-dr">Answered, encoded</span><p style="margin-top:8px">Turned into an instruction; waiting for a blind re-run.</p></div>
+    <div class="card"><span class="pill p-ok">Verified</span><p style="margin-top:8px">A blind run reproduced the case.</p></div>
+    <div class="card"><span class="pill p-dr">Waived</span><p style="margin-top:8px">A lead accepted the miss, with a recorded reason. Counted on the scorecard.</p></div>
+  </div>
+  <h2>How instructions reach the agent, with no platform change</h2>
+  <table class="t"><tr><th>Scope</th><th>Where it lives</th><th>How the agent gets it</th></tr>
+  <tr><td>Org or agent</td><td><code>kg/instructions/&lt;agent&gt;/&lt;topic&gt;.md</code> in Builder: context</td><td>Compiled into the <code>&lt;agent&gt;-instructions</code> skill (references/ files plus an index in SKILL.md). Versioned, staged and released like any skill.</td></tr>
+  <tr><td>Client</td><td>The same folder, with scope = client</td><td>abcd syncs them into <code>_builder/instructions/</code> in that client's workstream and its dataset workstreams, so the harness stages them with the client's files.</td></tr></table>
+  <h2>Build phase exit criteria</h2>
+  <ul><li>Every active case reproduces blind, or its gap is waived with a reason a lead approved.</li>
+  <li>No open, asked or encoded gaps.</li>
+  <li>No instruction with a flagged leak check.</li>
+  <li>The blind reproduction rate meets its release criterion, which is mandatory for every agent linked to a dataset.</li></ul>
+  <h2>Metrics this adds</h2>
+  <table class="t"><tr><th>Metric</th><th>Definition</th></tr>
+  <tr><td>Blind reproduction rate</td><td>Share of active cases a blind run reproduces. A gate metric for every linked agent.</td></tr>
+  <tr><td>Open gaps, by owner</td><td>Gaps open, asked or encoded, split by FDE and SME. Shown on the scorecard.</td></tr>
+  <tr><td>Time to close a gap</td><td>Opened to verified, in days.</td></tr>
+  <tr><td>Instructions per agent</td><td>Vetted instructions in the compiled skill, and how many gaps each closed.</td></tr></table>`;
+}
+
+function pMetrics() {
+  return `<h1>Metrics, checks and release criteria</h1>
+  <p class="lead">Metrics are defined before the first build, versioned, and computed by the platform from the same data every time. The GPW pilot is why: different dashboards and emails gave different numbers, and the client did not trust the accuracy definition.</p>
+  <h2>Rules the Builder enforces</h2>
+  <div class="grid g2">
+    <div class="card"><h3>Gated evals are blind</h3><p>Every gated eval gives the agent only a generic prompt, the compiled instructions and its skills. The blind reproduction rate is a mandatory release criterion for any agent linked to a dataset.</p></div>
+    <div class="card"><h3>Accuracy is defined by checks</h3><p>An output is accurate when it passes all of the client's checks. When a check is added, past runs are re-scored so trends stay comparable.</p></div>
+    <div class="card"><h3>Every metric must be able to fail</h3><p>First-pass yield is the share of clients passing all checks on the first run with no human correction. A definition that is 100% by construction is refused.</p></div>
+    <div class="card"><h3>Human time comes from logs</h3><p>From platform logs of user actions, split by onshore and offshore role. Nobody sits and watches screens.</p></div>
+    <div class="card"><h3>One scorecard</h3><p>The release eval report and the client scorecard come from the same definitions and the same numbers. Misses are broken down by cause automatically.</p></div>
+  </div>
+  <h2>Example: the GPW 1120-PC agent</h2>
+  <p class="sub">Definitions and UAT 1 values from the pilot scorecard Nicklas shared. "To agree" marks values the scorecard still left open.</p>
+  <table class="t"><tr><th>Metric</th><th>Category</th><th>Gate</th><th>Definition</th><th class="num">Baseline</th><th class="num">UAT 1</th><th class="num">Pilot target</th></tr>
+  ${GPW_METRICS.map(m => `<tr><td><b>${m.m}</b> <span style="color:var(--muted)">(${m.unit})</span></td><td>${m.cat}</td><td>${m.gate ? '<span class="pill p-dr">Gate</span>' : ''}</td><td>${esc(m.def)}</td><td class="num">${m.base}</td><td class="num">${m.uat1}</td><td class="num">${m.target}</td></tr>`).join('')}</table>
+  <h2>A metric definition</h2>
+  <div class="term">metric: gpw-1120pc:first_pass_yield
+version: 1
+category: quality
+unit: "%"
+formula: clients passing all blocking checks on run 1 with zero human corrections / clients completed
+source: [check_results, hitl_events, user_actions]
+baseline: null
+gate: true
+signed_off: decision gpw-d-042 (10/20 call)</div>
+  <h2>Release criteria for the next release</h2>
+  <div class="term">agent: gpw-1120pc-prep
+dataset: gpw-1120pc@4
+criteria:
+  - metric: accuracy          comparator: ">="           target: 95
+  - metric: first_pass_yield  comparator: ">="           target: 75
+  - metric: human_time        comparator: "<="           target: 9.2
+  - metric: blind_repro_rate  comparator: ">="           target: 95   (mandatory)
+  - metric: open_gaps         comparator: "<="           target: 0
+  - metric: all_cases         comparator: no_regression</div>
+  <div class="note">Illustrative targets. The real targets are set by the FDE and agreed with the client as a recorded decision.</div>
+  <h2>Checks</h2>
+  <p>A check is either <b>deterministic</b> (a rule over the output, such as "every headline value within $2 of the filed return") or <b>judged</b> (a rubric scored by a model, used only where a rule cannot express it). Every check runs twice: in evals, against expected outputs, and in production, as a maker-checker step before a person sees the output.</p>`;
+}
+
+function pVersions() {
+  return `<h1>Versions, git and releases</h1>
+  <p class="lead">Git is the version store. On the platform, every skill and agent has a live object and a shadow staged object. Staging pushes to the shadow; releasing copies the staged bundle onto the live names. No platform change is needed.</p>
+  <h2>Version states</h2>
+  <div class="grid g5">
+    <div class="card"><span class="pill p-dr">Draft</span><p style="margin-top:8px">A commit on your branch, pushed to the shadow staged objects while you iterate.</p></div>
+    <div class="card"><span class="pill p-dr">Staged</span><p style="margin-top:8px">Passed evals. Hashes recorded in bld_versions; commit tagged &lt;agent&gt;@v&lt;n&gt;-rc.</p></div>
+    <div class="card"><span class="pill p-ok">Live</span><p style="margin-top:8px">Passed the gate. Uploaded under the live names; commit tagged &lt;agent&gt;@v&lt;n&gt;.</p></div>
+    <div class="card"><span class="pill p-dr">Superseded</span><p style="margin-top:8px">A previous live version. Its git tag is the rollback target.</p></div>
+    <div class="card"><span class="pill p-ex">Gate failed</span><p style="margin-top:8px">The release was refused. Nothing changed under the live names.</p></div>
+  </div>
+  <h2>Live and staged objects on the platform</h2>
+  <table class="t"><tr><th>Object</th><th>Live</th><th>Staged shadow</th><th>Assigned to</th></tr>
+  <tr><td>Skill</td><td><code>tb-reconcile</code></td><td><code>tb-reconcile--staged</code>, with the frontmatter name rewritten, because the catalog keys skills by frontmatter name</td><td>n/a</td></tr>
+  <tr><td>Agent (process)</td><td><code>gpw-1120pc-prep</code></td><td><code>gpw-1120pc-prep-staged</code>, display name "Return prep (staged)", components and compiled flow pointing at the --staged skills</td><td>Live: client workstream. Staged: staging and dataset workstreams only, so no client user sees it</td></tr>
+  </table>
+  <h2>Platform limits and how abcd works around them</h2>
+  <table class="t"><tr><th>Need</th><th>Platform today</th><th>How abcd covers it</th><th>What remains</th></tr>${WORKAROUNDS.map(w => `<tr><td><b>${w[0]}</b></td><td>${w[1]}</td><td>${w[2]}</td><td>${w[3]}</td></tr>`).join('')}</table>
+  <h2>Your private git repo</h2>
+  <p>One private repo per org (or per client), on GitHub. abcd uses git and the gh CLI on your machine; the platform never talks to GitHub.</p>
+  <div class="tree">${tree(REPO_TREE)}</div>
+  <h2>What abcd release does, in order</h2>
+  <ol class="steps">
+    <li>Re-checks that the staged shadows still match the staged hashes, and runs abcd audit drift on the live objects.</li>
+    <li>Checks every release criterion against the blind staged run on that exact version, for this agent and every agent sharing a changed skill. Refuses on any failure or any error.</li>
+    <li>Asks the FDE to approve.</li>
+    <li>Uploads each staged bundle under its live name (replace = true), patches the live process with the staged definition (skill names rewritten back), and verifies what landed.</li>
+    <li>Writes the eval report to <code>releases/&lt;agent&gt;/&lt;version&gt;/</code> in Builder: operations and copies it to the client's status workstream.</li>
+    <li>Records the release in <span class="tag">bld_releases</span> with the previous version's tag as the rollback target.</li>
+    <li>Tags the repo (<code>gpw-1120pc-prep@v13</code>) and attaches the eval report to the GitHub release with gh.</li>
+    <li>Regenerates the agent's explainer and training kit and commits them.</li>
+  </ol>`;
+}
+
+function pReport() {
+  return `<h1>The eval report</h1>
+  <p class="lead">Every release carries one. It is stored in Builder: operations, attached to the git release, linked from the scorecard, and produced by the platform, never uploaded by the FDE.</p>
+  <div class="report">
+    <div class="rh"><div><b>gpw-1120pc-prep · v13</b><div class="muted">Release eval report · blind staged run ev_7f2a · dataset gpw-1120pc@4 (48 pairs) · against live v12</div></div><div class="muted" style="text-align:right">Gate: pass<br>Approved by the FDE</div></div>
+    <h4>Release criteria</h4>
+    <table><tr><th>Metric</th><th class="num">Target</th><th class="num">v12 live</th><th class="num">v13 staged</th><th>Result</th></tr>
+    <tr><td>Accuracy</td><td class="num">≥ 95%</td><td class="num">93.8%</td><td class="num">97.9%</td><td>Pass</td></tr>
+    <tr><td>First-pass yield</td><td class="num">≥ 75%</td><td class="num">69%</td><td class="num">81%</td><td>Pass</td></tr>
+    <tr><td>Human time per client</td><td class="num">≤ 9.2 hrs</td><td class="num">2.7</td><td class="num">2.4</td><td>Pass</td></tr>
+    <tr><td>Blind reproduction rate</td><td class="num">≥ 95%</td><td class="num">85%</td><td class="num">97.9%</td><td>Pass</td></tr>
+    <tr><td>Open context gaps</td><td class="num">0</td><td class="num">6</td><td class="num">0</td><td>Pass</td></tr>
+    <tr><td>No regressions</td><td class="num">0 cases</td><td class="num"></td><td class="num">0</td><td>Pass</td></tr></table>
+    <h4>Misses by cause</h4>
+    <table><tr><th>Cause</th><th class="num">Pairs</th><th>Example</th></tr>
+    <tr><td>Rounding</td><td class="num">1</td><td>pair-031: line 4c off by $3</td></tr>
+    <tr><td>Missing context</td><td class="num">0</td><td></td></tr>
+    <tr><td>Playbook difference</td><td class="num">0</td><td></td></tr>
+    <tr><td>Real error</td><td class="num">0</td><td></td></tr></table>
+    <h4>Cost and performance</h4>
+    <table><tr><th></th><th class="num">v12</th><th class="num">v13</th></tr>
+    <tr><td>Steps per client</td><td class="num">61</td><td class="num">44</td></tr>
+    <tr><td>Tokens per client</td><td class="num">412k</td><td class="num">298k</td></tr>
+    <tr><td>Duration per client</td><td class="num">9m 40s</td><td class="num">7m 05s</td></tr></table>
+    <h4>What changed and why</h4>
+    <p class="muted">Reason: decision gpw-d-051, multi-entity clients escalated at reconciliation. Changes: tb-reconcile skill v7 (entity split script, batched reads). Diff and notes attached. Checks covered: 31 of 31.</p>
+  </div>
+  <div class="note">Illustrative report. Layout and sections are the spec; the numbers are examples.</div>
+  <h2>Sections, always in this order</h2>
+  <ol><li>Header: agent, version, run, dataset version, compared-with version, gate result, approver.</li>
+  <li>Release criteria: each target against live and staged.</li>
+  <li>Regressions: pairs that passed on live and fail on staged, with links to traces.</li>
+  <li>Misses by cause.</li>
+  <li>Cost and performance.</li>
+  <li>What changed and why: reason, notes, platform-computed diff, checks covered.</li></ol>`;
+}
+
+function pMeta() {
+  return `<h1>Meta skills, agents and plugins</h1>
+  <p class="lead">The Builder is built from parts that already exist. Meta skills teach your coding agent the loop. A few meta agents run as ordinary processes on cron pipelines, using the existing file, data and integration tools. Work an agent cannot do on the platform (starting other runs, uploading skills, patching processes) is done by abcd.</p>
+  <h2>The adopt-builder plugin</h2>
+  <p class="sub">Lives in this repo and is installed into your coding agent by abcd init. The platform meta agents use org skills uploaded from the same folder.</p>
+  <table class="t"><tr><th>Meta skill</th><th>What it does</th></tr>${META_SKILLS.map(s => `<tr><td class="mono">${s[0]}</td><td>${s[1]}</td></tr>`).join('')}</table>
+  <h2>Meta agents</h2>
+  <table class="t"><tr><th>Agent</th><th>Runs as</th><th>Where</th><th>Runs when</th><th>Does</th><th>Writes</th><th>Status</th></tr>
+  ${META_AGENTS.map(a => `<tr><td><b>${a.name}</b></td><td>${a.kind}</td><td>${a.ws}</td><td>${a.trigger}</td><td>${a.does}</td><td class="mono" style="font-size:12px">${esc(a.writes)}</td><td>${st(a.status)}</td></tr>`).join('')}</table>
+  <div class="note">The release gate is not an agent. It is deterministic code in abcd release, so it cannot be talked past and it refuses on any error. Cron pipelines are created once from a browser session, because pipelines created with a PAT record the token id as their owner.</div>
+  <h2>Harness capabilities the Builder uses</h2>
+  <table class="t"><tr><th>Capability</th><th>Detail</th><th>Status</th></tr>${HARNESS.map(h => `<tr><td><b>${h[0]}</b></td><td>${h[1]}</td><td>${st(h[2])}</td></tr>`).join('')}</table>`;
+}
+
+function pRbac() {
+  const r = state.role;
+  return `<h1>Roles and access</h1>
+  <p class="lead">Five roles cover everyone who touches the Builder. They map onto mechanisms that exist today: the Admin role in the login token, per-user read or write grants on workstreams (console access), read or write links between tables and workstreams, and the Operator role with the end-user Agents surface for clients.</p>
+  <div class="seg"><button class="${r === -1 ? 'on' : ''}" data-role="-1">All roles</button>${ROLES.map((x, i) => `<button class="${r === i ? 'on' : ''}" data-role="${i}">${x}</button>`).join('')}</div>
+  ${r >= 0 ? `<div class="note">${RBAC_NOTES[ROLES[r]]}</div>` : ''}
+  <table class="t matrix"><tr><th>Action</th>${ROLES.map((x, i) => `<th class="num" style="text-align:center${r === i ? ';color:var(--text)' : ''}">${x}</th>`).join('')}</tr>
+  ${RBAC.map(row => `<tr>${'<td>' + row[0] + '</td>'}${row[1].map((v, i) => `<td class="c ${RBAC_KEY[v][0]}" style="${r === i ? 'background:var(--accent-soft)' : ''}">${RBAC_KEY[v][1]}</td>`).join('')}</tr>`).join('')}</table>
+  <h2>How each role is set up, with no platform change</h2>
+  <ul><li><b>FDEs and leads</b> are Admin users, because every write route needs Admin. abcd adds the finer rules on top and the drift audit catches edits made around it.</li>
+  <li><b>Client stakeholders and checkers</b> are Operator users with a read grant on their Builder status workstream only. Adopt turns on the end-user Agents surface for the client org in intranet.</li>
+  <li><b>Second approvals</b> (forced releases, loosened criteria) are recorded decisions in bld_decisions, checked by abcd.</li></ul>`;
+}
+
+function pGaps() {
+  return `<h1>What exists, what to build</h1>
+  <p class="lead">No new platform features. Everything new is code in this repo, plus a one-time setup of existing platform objects. The platform limits that matter are covered by workarounds, listed below with what each leaves behind.</p>
+  <h2>Platform capabilities the Builder uses</h2>
+  <table class="t"><tr><th>Capability</th><th>Detail</th><th>Status</th></tr>${HARNESS.map(h => `<tr><td><b>${h[0]}</b></td><td>${h[1]}</td><td>${st(h[2])}</td></tr>`).join('')}</table>
+  <h2>Platform limits and workarounds</h2>
+  <table class="t"><tr><th>Need</th><th>Platform today</th><th>Workaround</th><th>What remains</th></tr>${WORKAROUNDS.map(w => `<tr><td><b>${w[0]}</b></td><td>${w[1]}</td><td>${w[2]}</td><td>${w[3]}</td></tr>`).join('')}</table>
+  <h2>Build order, all in abcd</h2>
+  <ol class="steps">
+    <li><b>Setup and versions.</b> abcd builder setup, the tables, shadow staged objects, abcd push --staged, stage, release, rollback, audit drift. Done when a skill change goes draft, staged, live and back with git tags and version rows.</li>
+    <li><b>Headless loop.</b> ADOPT.md template, abcd init, the adopt-builder plugin, dev-event logging. Done when a new FDE goes from a PAT and ADOPT.md to a live skill without opening the Adopt UI.</li>
+    <li><b>Datasets, metrics and the gate.</b> Dataset CRUD, checks, metrics, criteria, the eval runner, the gate and the eval report. Done when abcd refuses to release a linked agent without a passing report.</li>
+    <li><b>Context, status and training.</b> Context curator, Status reporter and Status agent on cron pipelines, client status workstreams, explain and train, the NoUI and Tabby scenario.</li>
+  </ol>`;
+}
+
+function pStatus() {
+  const agents = [
+    { name: 'Return prep (1120-PC)', key: 'gpw-1120pc-prep', phase: 'Live', live: 'v12', staged: 'v13 (testing)', last: 'UAT 1 scorecard', items: [
+      ['Remaining checks from GPW', 'Waiting on GPW', 'rv', 'Proposed Fri 10/23'],
+      ['4 context gaps for the GPW SME', 'Waiting on GPW', 'rv', 'Fri 10/23'],
+      ['Onshore time measurement method', 'Waiting on GPW sign-off', 'rv', 'Wed 10/21'],
+      ['Accuracy and first-pass yield targets', 'To agree on the call', 'rv', 'Wed 10/21'],
+      ['First-pass yield on UAT 1', 'Adopt computing', 'dr', 'Before the call'],
+    ]},
+    { name: 'Document intake (example)', key: 'gpw-doc-intake', phase: 'Designing', live: 'None', staged: 'None', last: 'No release yet', items: [
+      ['Build plan: 3 skills, 1 agent', 'Waiting on FDE approval', 'dr', ''],
+      ['Which folders count as client uploads', 'Question for GPW', 'rv', ''],
+      ['Dataset: 0 of 20 pairs added', 'Adopt building', 'dr', ''],
+    ]},
+  ];
+  const a = agents[state.agent];
+  const tabs = ['Scorecard', 'Agent', 'Releases'];
+  let body = '';
+  if (state.ptab === 'Scorecard') {
+    body = `<div class="grid g5" style="margin-bottom:12px">
+      <div class="stat"><div class="k">Clients completed</div><div class="v">8</div><div class="d">UAT 1 · pilot target 150</div><div class="bar"><span style="width:5.3%"></span></div></div>
+      <div class="stat"><div class="k">Automation rate</div><div class="v">82%</div><div class="d">Target 40% · prod 80%</div></div>
+      <div class="stat"><div class="k">Human time per client</div><div class="v">2.7 hrs</div><div class="d">Baseline 15.3 · target 9.2</div></div>
+      <div class="stat"><div class="k">Accuracy</div><div class="v">93.8%</div><div class="d">225 of 240 values · target to agree</div></div>
+      <div class="stat"><div class="k">AI cost per client</div><div class="v">$86</div><div class="d">Per year</div></div></div>
+      <table class="t"><tr><th>Metric</th><th class="num">Baseline</th><th class="num">UAT 1</th><th class="num">UAT 2</th><th class="num">Scale</th><th class="num">Pilot target</th></tr>
+      ${GPW_METRICS.map(m => `<tr><td>${m.m}</td><td class="num">${m.base}</td><td class="num">${m.uat1}</td><td class="num"></td><td class="num"></td><td class="num">${m.target}</td></tr>`).join('')}</table>
+      <div class="note">UAT 1 values from the GPW pilot scorecard. UAT 2 and Scale fill in as abcd metric compute and the Status reporter produce them; nothing is shown before it is final.</div>`;
+  } else if (state.ptab === 'Agent') {
+    body = `<div class="grid g3" style="margin-bottom:12px"><div class="stat"><div class="k">Phase</div><div class="v" style="font-size:18px">${a.phase}</div></div><div class="stat"><div class="k">Live version</div><div class="v" style="font-size:18px">${a.live}</div></div><div class="stat"><div class="k">Staged version</div><div class="v" style="font-size:18px">${a.staged}</div></div></div>
+      <h3>Pending on this agent's design</h3>
+      <table class="t"><tr><th>Item</th><th>Status</th><th>Due</th></tr>${a.items.map(i => `<tr><td>${i[0]}</td><td><span class="pill p-${i[2]}">${i[1]}</span></td><td>${i[3]}</td></tr>`).join('')}</table>
+      <div class="note">Amber means it needs someone at GPW; grey means it is with Adopt. Copied from bld_open_items into agents/&lt;agent&gt;/status.md; clients see only their own workstream.</div>`;
+  } else {
+    body = state.agent === 0 ? `<table class="t"><tr><th>Version</th><th>Released</th><th>Gate</th><th>Eval report</th></tr>
+      <tr><td>v13</td><td>Staged, testing</td><td><span class="pill p-dr">Not yet run</span></td><td></td></tr>
+      <tr><td>v12</td><td>UAT 1</td><td><span class="pill p-ok">Passed</span></td><td><a href="#report">Open report</a></td></tr></table>
+      <div class="note">Illustrative release history.</div>` : `<p class="sub">No releases yet.</p>`;
+  }
+  return `<h1>Status for clients and leads</h1>
+  <p class="lead">Someone like Nicklas logs in and sees the full status: the scorecard in the agreed format, each agent's live and staged versions, its release history with eval reports, and what is pending on its design, including what is waiting on GPW.</p>
+  <div class="portal">
+    <div class="portal-bar"><div class="brand-tile" style="width:24px;height:24px">${LOGO}</div><b>GPW</b><span style="color:var(--muted)">Builder status: GPW · signed in as a client stakeholder · read only</span></div>
+    <div class="portal-body">
+      <div class="seg">${agents.map((x, i) => `<button class="${i === state.agent ? 'on' : ''}" data-agent="${i}">${x.name}</button>`).join('')}</div>
+      <div class="seg">${tabs.map(t => `<button class="${t === state.ptab ? 'on' : ''}" data-ptab="${t}">${t}</button>`).join('')}</div>
+      ${body}
+    </div>
+  </div>
+  <h2>How it works</h2>
+  <ul><li>The client logs in as an Operator user with a read grant on their Builder status workstream, and opens it in the end-user Agents cockpit, which shows the workstream's files.</li>
+  <li>The Status reporter writes <code>scorecard.md</code>, each agent's <code>status.md</code> and the release eval reports into that workstream every day, and freezes a scorecard every Friday.</li>
+  <li>The Status agent, assigned to that workstream, answers questions from those files. It can read nothing else.</li>
+  <li>The Friday scorecard also goes out by email or Slack through the connected integration, so a client can follow along without logging in.</li>
+  <li>Leads get the same files for every client, plus the FDE daily reports.</li></ul>`;
+}
+
+function pTraining() {
+  const kit = {
+    prompts: `<table class="t"><tr><th>Prompt</th><th>What it does</th></tr>
+      <tr><td>"Prepare the 1120-PC for Acme Holdings from the files in this workstream."</td><td>Runs all 7 steps; stops for review at the sign-off gates.</td></tr>
+      <tr><td>"Which checks did Acme's return fail, and why?"</td><td>Lists failed checks with expected and found values.</td></tr>
+      <tr><td>"I uploaded a corrected trial balance. Redo reconciliation."</td><td>Resumes at the reconciliation step, not step 1.</td></tr>
+      <tr><td>"Show what changed between your draft and the filed values."</td><td>A side-by-side of headline values.</td></tr>
+      <tr><td>"Summarise what still needs a person on this client."</td><td>Open HITL items, in order.</td></tr></table>`,
+    quickstart: `<ol class="steps"><li>Open the client's workstream and check the year's files are in place.</li><li>Ask the agent to prepare the return.</li><li>Answer the questions it raises; each answer is remembered for this client.</li><li>Review the flagged lines, then sign off.</li><li>Ask "what changed?" any time to see your edits against the agent's draft.</li></ol>`,
+    scenarios: `<div class="grid g2"><div class="card"><h3>A multi-entity client</h3><p>How the agent splits entities, what it asks, and how to correct an allocation.</p></div><div class="card"><h3>A missing prior-year return</h3><p>What the agent does without it and how to supply it later.</p></div><div class="card"><h3>A check fails</h3><p>Reading the failure and fixing the input or the line.</p></div><div class="card"><h3>Handing over mid-way</h3><p>Picking up a client someone else started.</p></div></div>`,
+    'whats-new': `<div class="card"><div class="k">v13</div><p>Multi-entity clients no longer stop at reconciliation. The agent now splits the trial balance by entity before matching, and asks only when an account can't be assigned.</p></div>`,
+  };
+  const keys = ['prompts', 'quickstart', 'scenarios', 'whats-new'];
+  const labels = { prompts: 'Simple prompts', quickstart: 'Quickstart', scenarios: 'Scenarios', 'whats-new': 'What changed' };
+  return `<h1>Explainers and training</h1>
+  <p class="lead">Understanding is a feature of the Builder. Every agent always has an explainer of its current implementation and a training kit for its users, regenerated on every release by abcd explain and abcd train, using the FDE's coding agent.</p>
+  <div class="grid g2">
+    <div class="card"><div class="k">For FDEs</div><h3>explainer.html</h3><p>An interactive page like this one, for one agent: its steps, skills and versions, datasets and criteria, checks, last eval, open items, and scenarios to walk through. Generated from live state, so it never drifts from what runs.</p><div class="meta"><span class="tag">agents/&lt;agent&gt;/explainer.html</span> in Builder: context and the git repo</div></div>
+    <div class="card"><div class="k">For the agent's users</div><h3>The training kit</h3><p>Quickstart, simple prompts, worked scenarios, FAQ drawn from real questions in runs and HITL, and a plain-words note on what changed. Shipped with every release.</p><div class="meta"><span class="tag">agents/&lt;agent&gt;/training/</span></div></div>
+  </div>
+  <h2>Example training kit: Return prep (1120-PC)</h2>
+  <div class="seg">${keys.map(k => `<button class="${k === state.train ? 'on' : ''}" data-train="${k}">${labels[k]}</button>`).join('')}</div>
+  ${kit[state.train]}
+  <div class="note">Illustrative content for an example agent.</div>
+  <h2>Rules</h2>
+  <ul><li>abcd release regenerates the explainer and the kit. A release whose kit fails to generate is flagged, not blocked.</li>
+  <li>Prompts in the kit are tested: each runs on a dataset case during the staged test, and only prompts that work ship.</li>
+  <li>The FAQ comes from real questions users asked in runs and HITL, not invented ones.</li></ul>`;
+}
+
+function pQuestions() {
+  return `<h1>Open questions</h1>
+  <p class="lead">These need a decision before the requirements freeze. Each becomes a recorded decision once settled.</p>
+  <table class="t"><tr><th>Question</th><th>Detail</th><th>Status</th></tr>${OPEN_Q.map(q => `<tr><td><b>${q[0]}</b></td><td>${q[1]}</td><td>${DEC}</td></tr>`).join('')}</table>`;
+}
+
+/* Events */
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-go],[data-step],[data-scen],[data-sstep],[data-table],[data-tfilter],[data-role],[data-agent],[data-ptab],[data-crud],[data-train],[data-kind],[data-tree],#theme');
+  if (!el) return;
+  const d = el.dataset;
+  if (el.id === 'theme') {
+    const root = document.documentElement;
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    if (root.dataset.theme === 'light') delete root.dataset.theme;
+    nav(); return;
+  }
+  if (d.tree) { const k = el.nextElementSibling; if (k) { k.classList.toggle('closed'); el.querySelector('.caret').textContent = k.classList.contains('closed') ? '▸' : '▾'; } return; }
+  if (d.go) { location.hash = d.go; document.getElementById('panel').scrollTop = 0; return; }
+  if (d.step !== undefined) state.step = +d.step;
+  if (d.scen !== undefined) { state.scen = +d.scen; state.sstep = 0; }
+  if (d.sstep !== undefined) state.sstep = +d.sstep;
+  if (d.table) state.table = d.table;
+  if (d.tfilter) { state.tfilter = d.tfilter; const f = TABLES.filter(t => d.tfilter === 'All' || t.group === d.tfilter); if (f.length && !f.find(t => t.name === state.table)) state.table = f[0].name; }
+  if (d.role !== undefined) state.role = +d.role;
+  if (d.agent !== undefined) state.agent = +d.agent;
+  if (d.ptab) state.ptab = d.ptab;
+  if (d.crud !== undefined) state.crud = +d.crud;
+  if (d.train) state.train = d.train;
+  if (d.kind) state.kind = d.kind;
+  render();
+});
+window.addEventListener('hashchange', render);
+render();
+</script>
+</body>
+</html>
