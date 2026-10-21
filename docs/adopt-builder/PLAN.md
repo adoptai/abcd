@@ -37,15 +37,16 @@ Each requirement maps to how it's met. Status values:
 | R9 | An eval report on every release | Written to Builder: operations, copied to the client status workstream, attached to the GitHub release | abcd |
 | R10 | The FDE defines metrics, ground truth, targets and release criteria per agent | `bld_metrics`, `bld_checks`, `bld_release_criteria` tables, plus `abcd metric`, `check` and `criteria` commands | abcd |
 | R11 | The FDE defines and approves the skills, plugins and agents to build | `bld_build_plan` with `abcd plan propose` and `approve`. Nothing is built until it's approved | abcd |
-| R12 | A knowledge graph in S3, powered by a meta workstream, its Doc Store and its Data Store | The Builder: context workstream. Pages go in its Doc Store (S3); nodes and edges go in two tables (section 9) | setup |
+| R12 | A knowledge graph in S3, powered by a meta workstream, its Doc Store and its Data Store | The Builder: context workstream. Pages go in its Doc Store (S3); nodes and edges go in two tables (section 10) | setup |
 | R13 | Call context and process documentation as inputs | `context/calls`, `context/emails`, `context/process-docs` in Builder: context. The Context curator extracts decisions and checks from them | setup |
 | R14 | The loop: build, evals, abcd review, harness run and logs, perf review, evals again, iterate, staged, test staged, publish | Ten loop steps, each an abcd command (section 6) | abcd |
 | R15 | NoUI and Tabby scenarios handled by the loop | `abcd scenario noui <app>`: Tabby session, recording, NoUI extraction, draft skill, wiring the agent | abcd |
 | R16 | Admins see everything each FDE does every day | Every abcd command logs to `bld_dev_events`; Claude Code hooks add transcripts; a daily report goes out by Slack or email | abcd |
-| R17 | Someone like Nicklas logs in and sees full metric status and what's pending on an agent's design | A Builder status workstream per client, with a read grant, in the end-user Agents cockpit, plus a Status agent and a Friday email (section 11) | setup |
+| R17 | Someone like Nicklas logs in and sees full metric status and what's pending on an agent's design | A Builder status workstream per client, with a read grant, in the end-user Agents cockpit, plus a Status agent and a Friday email (section 13) | setup |
 | R18 | FDEs can always understand the current implementation | `abcd explain` generates an explainer HTML per agent on every release; this repo's spec HTML covers the Builder itself | abcd |
 | R19 | Each agent ships training material: simple prompts and scenarios | `abcd train` generates quickstart, prompts, scenarios, FAQ and what's new on every release | abcd |
 | R20 | The Builder works with minimal FDE guidance | The five inputs plus approval gates. The Builder asks only what the inputs don't settle, and every answer is saved as a decision | abcd |
+| R21 | **During the build phase, the FDE and a customer-appointed SME keep adding missing context and repro explanations until blind evals show that generic prompts, the knowledge graph's instructions and the skills reproduce the golden dataset on their own.** Every agent linked to a dataset must meet this before going live | Context gaps opened automatically from blind-eval misses; an SME workstream and Context agent for answering; generic instruction pages with a leak check, compiled into an instruction skill; blind reproduction rate as a mandatory release criterion (section 9) | abcd |
 
 ## 2. What the FDE does
 
@@ -59,7 +60,7 @@ The FDE defines **five inputs**:
 The FDE also owns four approvals:
 1. **The build plan:** which skills, plugins and agents to build or change.
 2. **Release criteria for each agent:** the dataset, the gate metrics and their targets for the next release.
-3. **Answers** to questions the inputs don't settle. Each answer becomes a decision.
+3. **Context gaps, closed with the customer SME.** Every case a blind eval can't reproduce becomes a gap. The FDE answers it or routes it to the SME. The answer becomes a generic instruction, and the gap closes only when a blind eval reproduces the case.
 4. **Staged to live,** once the release criteria pass.
 
 Everything else in the loop, the Builder runs itself.
@@ -181,10 +182,10 @@ evals/reports/<agent>/<version>.html
 | 3 | Review with abcd | `abcd review` (adopt-skill-review) | none | Subscription |
 | 4 | Run on the harness, get logs | `abcd push --staged`, `abcd run --staged` | skills upload, process patch, `POST /turns`, trace | Platform |
 | 5 | Performance review and optimise | `abcd trace review` | `/v1/runs` trace | Subscription |
-| 6 | Run evals again on the platform | `abcd eval run --tier platform` | `POST /turns` per case or batch, outputs download, probe turns | Platform |
-| 7 | Iterate until they pass | `abcd status`, `abcd decide` | org-db rows | Subscription |
+| 6 | Run blind evals on the platform (generic prompt, compiled instructions and skills only) | `abcd eval run --blind` | `POST /turns` per case or batch, outputs download, probe turns | Platform |
+| 7 | Close context gaps with the FDE and SME until blind evals pass | `abcd gap list, ask, answer, encode, waive`, `abcd instructions compile` | Doc Store (SME workstream), org-db rows | Subscription |
 | 8 | Freeze as staged | `abcd stage` | org-db rows | n/a |
-| 9 | Test the staged agent | `abcd test-staged` | skills read, `POST /turns` | Platform |
+| 9 | Test the staged agent, blind | `abcd test-staged` | skills read, `POST /turns` | Platform |
 | 10 | Publish the new version | `abcd release` | skills upload, process patch, Doc Store upload | Platform |
 
 **What a step reuses from today:**
@@ -204,6 +205,7 @@ evals/reports/<agent>/<version>.html
 |---|---|---|---|
 | `builder-context` | One per org | Knowledge graph, call context, process docs, decisions, agent design pages, explainers, training | FDEs (write) |
 | `builder-ops` | One per org | Versions, releases, eval runs and reports, metrics, FDE activity, dataset expected-output stores | FDEs (write); the Status reporter process |
+| `builder-sme-<client>` | One per client with an appointed SME | Gap questions with evidence (`gaps/<gap_id>.md`), answers, repro notes, uploads | Customer SME (write); FDEs; the Context agent |
 | `builder-status-<client>` | One per client | Scorecard, agent status pages, eval reports, training kit, as files | Status reporter (write); client stakeholders (read) |
 | `<client>-staging` | One per client | A copy of selected client files; staged agents run here | FDEs only |
 | `ds:<dataset>[:<case>]` | One per case (work-product pairs) or one per dataset (labelled, read-your-writes) | Case inputs only; `custom_properties.kind = dataset`. For read-your-writes, its secrets point at the test system | FDEs only |
@@ -262,7 +264,7 @@ builder-status-<client>/
 | Datasets | `bld_dataset_cases` | case_key | Case of any kind: workstream, inputs, setup, expected (files, labels or state), teardown, scorers, source (real, known, synthetic, production), tags, active versions |
 | Quality | `bld_checks` | check_key | Client checks: deterministic rule or judged rubric, severity, source decision |
 | Quality | `bld_metrics` | metric_key | Metric definitions: category, unit, formula, source, baseline, gate flag |
-| Quality | `bld_eval_runs` | eval_run_id | One row per eval run: version, dataset version, tier, cost, report path |
+| Quality | `bld_eval_runs` | eval_run_id | One row per eval run: version, dataset version, tier, blind flag, cost, report path |
 | Quality | `bld_eval_results` | result_key | Per case per run: observed (outputs, labels or rows read back), passed, score, failed checks, miss cause, steps, tokens, duration, HITL count |
 | Quality | `bld_check_results` | check_result_key | Per check per subject, in evals and in production (written by the maker-checker step) |
 | Quality | `bld_metric_values` | value_key | Computed values per run, phase and week |
@@ -270,6 +272,10 @@ builder-status-<client>/
 | Context | `bld_kg_edges` | edge_key | Typed edges: uses, calls, owns, replaced_by, failed_on, tested_by |
 | Context | `bld_decisions` | decision_key | Every answered question: answer, who, source, status |
 | Context | `bld_open_items` | item_key | What's pending on an agent's design and who it waits on |
+| Context | `bld_context_gaps` | gap_key | A case a blind eval couldn't reproduce because context was missing: hypothesis, question, evidence path, owner (FDE or SME), answer, instruction, status (open, asked, answered, encoded, verified, waived), the verifying run |
+| Context | `bld_case_notes` | note_key | How the SME or FDE produced the golden output for one case. Never shown to a blind run |
+| Context | `bld_instructions` | instruction_key | Generic instructions: scope (org, client, agent), page path, the gaps each closes, provenance, leak check, status, the instruction-skill version it was compiled into |
+| Context | `bld_generic_prompts` | prompt_key | The generic prompts blind evals use, per agent |
 | Context | `bld_training_assets` | asset_key | Explainer and training files per live version |
 | Activity | `bld_dev_sessions` | session_id | Coding-agent sessions per FDE |
 | Activity | `bld_dev_events` | event_id | Every abcd command and loop step, with result and cost |
@@ -361,7 +367,52 @@ Two releases are only ever compared on the same dataset version.
 5. Cost and performance
 6. What changed and why
 
-## 9. Knowledge graph and context
+## 9. Context gaps and blind evals
+
+**Requirement (R21):** an agent is ready when it reproduces the golden dataset **blind**. The FDE and a customer-appointed SME keep adding missing context during the build phase until that's true. It's mandatory for every agent linked to a dataset.
+
+**What a blind run gets, and what it doesn't**
+
+| Given | Withheld |
+|---|---|
+| A generic prompt from `bld_generic_prompts` (e.g. "Prepare the 1120-PC for this client from the files in this workstream") | Expected outputs, labels and states |
+| The case inputs, exactly as a client would provide them | Case notes (`bld_case_notes`) |
+| The compiled `<agent>-instructions` skill and the agent's other skills | Gap files and their evidence |
+| Client-scope instructions synced into the case workstream | Any FDE message, hint or follow-up turn |
+| | Answers to questions the agent asks: a question in a blind run is itself a context gap |
+
+**The gap loop**
+1. **Blind run:** `abcd eval run --blind` scores every case against the golden dataset.
+2. **Classify misses:** `builder-gaps` sorts each miss into missing context, skill bug, rounding, playbook difference or real error. Only missing context opens a gap; the rest become build plan items.
+3. **Open a gap:** a `bld_context_gaps` row, plus `gaps/<gap_id>.md` in `builder-sme-<client>`. The file holds the input excerpt, the agent's output against the golden output, the agent's reasoning, and the Builder's hypothesis of what's missing.
+4. **Route it:** the FDE answers it, or runs `abcd gap ask` to send it to the SME. The SME sees it in their workstream and by email.
+5. **Answer:** the SME works through the gap with the Context agent, which asks follow-ups until the answer is a reusable rule. Explanations specific to one case are saved as repro notes.
+6. **Encode:** `builder-instructions` turns the answer into a generic page under `kg/instructions/<agent>/`, with its provenance. The FDE or SME vets it.
+7. **Leak check:** abcd refuses any instruction that names a case id, quotes a value from any expected output, or only makes sense for one case.
+8. **Compile and re-run:** `abcd instructions compile` builds the instruction skill. Then the affected cases re-run blind, followed by the full set.
+9. **Verify:** a gap closes only when a blind run reproduces its case without regressing any other case. Otherwise it reopens with the new evidence.
+
+**Gap states:** open, asked, answered, encoded, verified, waived. A waived gap needs a lead's recorded reason and is counted on the scorecard.
+
+**How instructions reach the agent, with no platform change**
+- **Org and agent scope:** compiled into the `<agent>-instructions` skill (reference files plus an index in SKILL.md). It's versioned, staged and released like any other skill.
+- **Client scope:** synced by abcd into `_builder/instructions/` in the client workstream and its dataset workstreams, so the harness stages them alongside the client's files.
+
+**Build phase exit criteria**
+- Every active case reproduces blind, or its gap is waived with a lead's approval.
+- No gaps are open, asked or encoded.
+- No instruction has a flagged leak check.
+- The blind reproduction rate meets its release criterion.
+
+**Metrics this adds**
+- blind reproduction rate (a gate metric)
+- open gaps by owner (FDE or SME), shown on the client scorecard
+- time to close a gap
+- instructions per agent, and the gaps each one closed
+
+**The gate:** every gated eval (`abcd test-staged`, and the run `abcd release` checks) is blind. Release criteria for a linked agent always include `blind_repro_rate` and `open_gaps <= 0`.
+
+## 10. Knowledge graph and context
 
 - **Pages** are markdown in `builder-context/kg/`, with `index.md`, `schema.md` and an append-only `log.md`.
 - **The graph** is `bld_kg_nodes` and `bld_kg_edges`. It answers "what does this change affect?" before a push.
@@ -370,10 +421,10 @@ Two releases are only ever compared on the same dataset version.
 - **Context curator:** a process on `builder-context`, run by a nightly cron pipeline. It uses `ws_*` tools and `db_insert_rows`.
 - **Going out:** `abcd context pull <agent>` downloads the agent's page, its neighbours one or two edges away, its decisions, open items, checks, metrics and criteria into `./context`, which is git-ignored.
 
-## 10. Meta skills and meta agents
+## 11. Meta skills and meta agents
 
-**The adopt-builder plugin (this repo)** has 17 meta skills, installed into the FDE's coding agent by `abcd init`:
-`builder-onboard`, `builder-context`, `builder-plan`, `builder-process-from-sop`, `builder-skill-author`, `builder-checks`, `builder-dataset`, `builder-metrics`, `builder-eval`, `builder-review`, `builder-harness-run`, `builder-perf`, `builder-release`, `builder-noui-scenario`, `builder-kg`, `builder-explain`, `builder-train`.
+**The adopt-builder plugin (this repo)** has 19 meta skills, installed into the FDE's coding agent by `abcd init`:
+`builder-onboard`, `builder-context`, `builder-plan`, `builder-process-from-sop`, `builder-skill-author`, `builder-checks`, `builder-dataset`, `builder-metrics`, `builder-eval`, `builder-review`, `builder-harness-run`, `builder-perf`, `builder-release`, `builder-noui-scenario`, `builder-kg`, `builder-gaps`, `builder-instructions`, `builder-explain`, `builder-train`.
 
 **Meta agents:**
 
@@ -382,13 +433,14 @@ Two releases are only ever compared on the same dataset version.
 | Context curator | Process on `builder-context` | Nightly cron pipeline | `proposed/`, `bld_decisions`, `bld_open_items` |
 | Status reporter | Process on `builder-ops`, with write access to every `builder-status-<client>` | Daily and Friday cron pipelines | Status files; sends the daily FDE report and Friday scorecard by Slack or Gmail |
 | Status agent | Process on `builder-status-<client>` | A client asks | Nothing (read only) |
+| Context agent | Process on `builder-sme-<client>` | The SME opens a gap or uploads something | `bld_context_gaps` (answered), `bld_case_notes` |
 | Maker-checker step | A step inside each live agent | Every production run | `bld_check_results` |
 | Eval runner | `abcd eval run` | On demand | Eval tables and `evals/` |
 | Explainer and trainer | `abcd explain`, `abcd train` | `abcd release` | `agents/<agent>/`, `bld_training_assets` |
 
 Cron pipelines are created once from a browser session, because a pipeline created with a PAT records the token id as its owner.
 
-## 11. Roles and access
+## 12. Roles and access
 
 | Role | Platform setup | Can do |
 |---|---|---|
@@ -396,9 +448,9 @@ Cron pipelines are created once from a browser session, because a pipeline creat
 | FDE lead | Admin user | Forces a release with a reason, approves loosened criteria, gets every daily report |
 | Builder agents | Processes | Propose only: pages to `proposed/`, candidate checks and decisions |
 | Client stakeholder (e.g. Nicklas) | Operator user, read grant on `builder-status-<client>` only, `studio.agents_enduser` on for the org | Sees the scorecard, agent status, releases, eval reports and pending items; asks the Status agent; gets the Friday email |
-| Client checker (e.g. Amanda) | Same as a stakeholder | Sends checks by email or upload. They land as proposed until an FDE turns them into scorers |
+| Customer SME (e.g. Amanda), appointed by the customer | Operator user, write grant on `builder-sme-<client>`, read grant on `builder-status-<client>` | Answers context gaps with the Context agent, adds repro notes, sends checks, vets the generic instructions drawn from their answers |
 
-## 12. Status for clients and leads
+## 13. Status for clients and leads
 
 **What Nicklas sees in `builder-status-gpw`, in the end-user Agents cockpit:**
 - `scorecard.md`, in the format the client agreed. It's rewritten daily and frozen every Friday as `scorecards/<date>.html`.
@@ -411,7 +463,7 @@ He can also ask the Status agent questions such as "what is pending on the retur
 - The same files for every client.
 - Every FDE's daily report: agents touched, time per loop step, releases and their scores, platform spend, and where they got stuck.
 
-## 13. Explainers and training
+## 14. Explainers and training
 
 On every release:
 - `abcd explain` regenerates `agents/<agent>/explainer.html`: an interactive page for the agent, covering steps, skills, versions, dataset, criteria, checks, last eval, open items and scenarios.
@@ -419,7 +471,7 @@ On every release:
 
 Both run in the FDE's coding agent. Prompts in the kit are run on a dataset case during `abcd test-staged`, and only the ones that work ship. A kit that fails to generate is flagged on the release; the release itself isn't blocked.
 
-## 14. Build order (all in abcd)
+## 15. Build order (all in abcd)
 
 1. **Setup and versions.**
    - Scope: `abcd builder setup`, the tables, shadow staged objects, `push --staged`, `stage`, `release`, `rollback`, `audit drift`.
@@ -427,13 +479,13 @@ Both run in the FDE's coding agent. Prompts in the kit are run on a dataset case
 2. **Headless loop.**
    - Scope: the ADOPT.md template, `abcd init`, the adopt-builder plugin, dev-event logging.
    - Done when a new FDE goes from a PAT and ADOPT.md to a live skill without opening the Adopt UI.
-3. **Datasets, metrics and the gate.**
-   - Scope: dataset CRUD, checks, metrics, criteria, the eval runner, the gate and the eval report.
+3. **Datasets, metrics, blind evals and the gate.**
+   - Scope: dataset CRUD, checks, metrics, criteria, the eval runner with blind mode, context gaps, the SME workstream and Context agent, instructions with the leak check, the gate and the eval report.
    - Done when abcd refuses to release a linked agent without a passing report.
 4. **Context, status and training.**
    - Scope: the Context curator, Status reporter and Status agent on cron pipelines, client status workstreams, `explain` and `train`, and the NoUI and Tabby scenario.
 
-## 15. Open questions
+## 16. Open questions
 
 1. **One workstream per case:** work-product pairs get a workstream each, while labelled and read-your-writes datasets share one. Is the `kind = dataset` tag enough at hundreds of workstreams?
 1. **Test systems for read-your-writes:** which agents have a test tenant to write to? The GPWA CRM does (`D365TEST_MSCRM`). Agents without one can only be evaluated on refusals and dry runs.
@@ -446,4 +498,7 @@ Both run in the FDE's coding agent. Prompts in the kit are run on a dataset case
 7. **Onshore and offshore role:** where is it recorded per client user, a custom property or a table?
 8. **Eval cost:** should wording-only changes run a sample of cases?
 9. **Shared skills:** ship to every dependent agent at once, or copy shared skills per agent?
-10. **Verify at runtime:** decode a real PAT JWT to confirm it carries `roles` (Admin) and `email`.
+10. **Blind reproduction target:** is 100% of active cases required before go-live, or a target such as 95% with each remaining miss waived and explained?
+11. **Questions in blind runs:** count a question from the agent as a context gap (current plan), or let a scripted SME answer it and count it as a HITL?
+12. **SME time:** how many gap questions a week can an SME answer? Should they be batched?
+13. **Verify at runtime:** decode a real PAT JWT to confirm it carries `roles` (Admin) and `email`.
