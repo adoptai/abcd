@@ -225,7 +225,7 @@ const INPUTS = [
 const FDE_DOES = [
   ['Defines and approves the build plan', 'Which skills, plugins and agents to build or change. The Builder can propose them from the inputs; nothing is built until the FDE approves.'],
   ['Sets each agent\'s release criteria', 'The dataset it is tested against, its gate metrics, and the target each metric must hit for the next release to go live.'],
-  ['Answers what the Builder cannot', 'Questions the inputs do not settle. Each answer is saved as a decision so it is never asked again.'],
+  ['Closes context gaps with the customer SME', 'Every case a blind eval cannot reproduce becomes a context gap. The FDE answers it or routes it to the customer-appointed SME; the answer becomes a generic instruction, and the gap closes only when a blind eval reproduces the case.'],
   ['Approves staged to live', 'Once the staged version meets its release criteria on the harness.'],
 ];
 
@@ -235,10 +235,10 @@ const LOOP = [
   { n: 3, name: 'Review with abcd', where: 'local', who: 'Builder, in your coding agent', what: 'Runs adopt-skill-review over every changed skill and plugin: batching gaps, missing script contracts, frontmatter traps, HITL and process shape. Critical findings block the push.', cmd: 'abcd review <path>', api: 'none (local, free)', writes: 'bld_dev_events (review findings)', skills: 'builder-review (wraps adopt-skill-review)' },
   { n: 4, name: 'Run on the harness', where: 'platform', who: 'Builder', what: 'Pushes the draft as the shadow staged objects (skill <name>--staged, agent "<agent> (staged)") and runs real harness turns with that process on the client staging workstream. Pulls the transcript, trace and Temporal history back.', cmd: 'abcd push <agent> --staged\nabcd run <agent> --staged --workstream <client>-staging', api: 'POST /v1/end-user/agent-harness/skills · PATCH /v1/org/processes/{id} · POST /v1/end-user/agent-harness/turns', writes: 'bld_versions (draft), harness run + trace', skills: 'builder-harness-run' },
   { n: 5, name: 'Performance review', where: 'local', who: 'Builder, in your coding agent', what: 'Analyses where the run spent its steps, tokens and time (analyze_run_trace) and fixes the waste: batching, scripts instead of model passes, files instead of context.', cmd: 'abcd trace review <run_id>', api: 'GET /v1/runs/conversation-trace', writes: 'bld_dev_events (perf findings)', skills: 'builder-perf' },
-  { n: 6, name: 'Run evals again', where: 'platform', who: 'abcd eval runner', what: 'Runs the staged process on every case of the linked dataset, the way the dataset\'s kind says (one turn per case, one batch turn, or sequential writes with a read-back probe), and scores what it observes against the expected outputs, labels or system state and the client\'s checks. Judged checks are scored by your coding agent, on your subscription.', cmd: 'abcd eval run <agent> --tier platform', api: 'POST /turns · GET /turns/{id}/status · GET /conversations/{id}/outputs/download', writes: 'bld_eval_runs, bld_eval_results, bld_check_results, bld_metric_values', skills: 'builder-eval' },
-  { n: 7, name: 'Iterate until they pass', where: 'local', who: 'Builder, FDE only on questions', what: 'Repeats 1 to 6 until every gate metric meets its target. If the Builder needs something the inputs do not settle, it asks the FDE and records the answer as a decision.', cmd: 'abcd status <agent>\nabcd decide', api: 'POST /v1/org-db/tables/{id}/rows', writes: 'bld_decisions, bld_open_items', skills: 'all of the above' },
+  { n: 6, name: 'Run blind evals', where: 'platform', who: 'abcd eval runner', what: 'Runs the staged agent on every case with nothing but a generic prompt (the kind of thing a real user types), the compiled knowledge graph instructions and the skills. No case notes, no expected output, no FDE steering, no follow-up turns. Scores the result against the golden dataset and the client\'s checks, and turns every miss caused by missing context into a context gap.', cmd: 'abcd eval run <agent> --blind', api: 'POST /turns per case or batch · outputs download · probe turns', writes: 'bld_eval_runs (tier = blind), bld_eval_results, bld_context_gaps', skills: 'builder-eval, builder-gaps' },
+  { n: 7, name: 'Close gaps until they pass', where: 'local', who: 'Builder, FDE and customer SME', what: 'For each open gap the Builder proposes the question with its evidence. The FDE answers it or routes it to the SME. The Builder turns the answer into a generic instruction page, abcd checks it does not leak the answer, and the affected cases re-run blind. Repeats 1 to 6 until every gate metric, including the blind reproduction rate, meets its target.', cmd: 'abcd gap list | ask | answer | encode | waive\nabcd eval run <agent> --blind --cases <gap cases>', api: 'Doc Store upload (builder-sme-<client>) · org-db rows', writes: 'bld_context_gaps, bld_case_notes, bld_instructions, kg/instructions/', skills: 'builder-gaps, builder-kg, builder-instructions' },
   { n: 8, name: 'Freeze as staged', where: 'platform', who: 'Builder', what: 'Records the passing content hashes as the staged version and tags the git commit. The shadow objects already hold it; nothing changes on the platform except the version row.', cmd: 'abcd stage <agent>', api: 'POST /v1/org-db/tables/{id}/rows', writes: 'bld_versions (state = staged), git tag <agent>@v<n>-rc', skills: 'builder-release' },
-  { n: 9, name: 'Test the staged agent', where: 'platform', who: 'abcd eval runner + FDE', what: 'Re-verifies the shadow objects still match the staged hashes, then runs the full dataset and a few real client files on the staging workstream. This run is the gate\'s evidence.', cmd: 'abcd test-staged <agent>', api: 'GET /v1/end-user/agent-harness/skills/{name} · POST /turns', writes: 'bld_eval_runs (tier = staged), eval report', skills: 'builder-eval, builder-release' },
+  { n: 9, name: 'Test the staged agent', where: 'platform', who: 'abcd eval runner + FDE', what: 'Re-verifies the shadow objects still match the staged hashes, then runs the full dataset blind and a few real client files on the staging workstream. This blind run is the gate\'s evidence.', cmd: 'abcd test-staged <agent>', api: 'GET /v1/end-user/agent-harness/skills/{name} · POST /turns', writes: 'bld_eval_runs (tier = staged), eval report', skills: 'builder-eval, builder-release' },
   { n: 10, name: 'Publish new version', where: 'platform', who: 'FDE approves, abcd gate decides', what: 'The gate checks every criterion against the staged run. If all pass and the FDE approves, abcd uploads the staged bundles under the live names, patches the live agent, verifies what landed, attaches the eval report, tags git and regenerates the explainer and training kit.', cmd: 'abcd release <agent>', api: 'POST /skills (replace) · PATCH /v1/org/processes/{id} · Doc Store upload', writes: 'bld_releases, bld_versions (live), bld_training_assets, git tag <agent>@v<n>', skills: 'builder-release, builder-explain, builder-train' },
 ];
 
@@ -258,7 +258,10 @@ const ABCDCMDS = [
   { cmd: 'abcd check add | list', what: 'Adds a client check (deterministic rule or judged rubric) and re-scores past runs.', status: 'abcd', replaces: '' },
   { cmd: 'abcd metric define | compute', what: 'Defines a metric; computes metric values from eval results, check results and /v1/runs.', status: 'abcd', replaces: '' },
   { cmd: 'abcd criteria set <agent>', what: 'Sets the dataset, gate metrics and targets for the next release.', status: 'abcd', replaces: '' },
-  { cmd: 'abcd eval run <agent> --tier local | platform | staged', what: 'Runs an eval, scores it, writes results and the report.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd eval run <agent> --tier local | platform | staged [--blind]', what: 'Runs an eval, scores it, writes results and the report. --blind gives the agent only a generic prompt, the compiled instructions and the skills. Gated evals are always blind.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd prompts set <agent>', what: 'The generic prompts blind evals use, from agents/<agent>/prompts.yaml. The same prompts ship in the training kit.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd gap list | ask | answer | encode | waive', what: 'Context gaps: see what is open and who it waits on, send a question to the SME, record an answer, turn it into a generic instruction, or waive a gap with a reason.', status: 'abcd', replaces: '' },
+  { cmd: 'abcd instructions compile <agent>', what: 'Builds the instruction skill (<agent>-instructions) from vetted knowledge graph instruction pages, after the leak check. Shipped and versioned like any skill.', status: 'abcd', replaces: '' },
   { cmd: 'abcd stage | test-staged | release | rollback <agent>', what: 'The release flow. Release is the gate.', status: 'abcd', replaces: '' },
   { cmd: 'abcd audit drift', what: 'Compares every live skill and agent with its last recorded release and flags anything changed outside the Builder.', status: 'abcd', replaces: '' },
   { cmd: 'abcd scenario noui <app>', what: 'NoUI and Tabby scenario: session, record, extract, draft skill, wire agent.', status: 'abcd', replaces: '' },
@@ -271,6 +274,7 @@ const WORKSTREAMS = [
   { name: 'Builder: context', key: 'builder-context', count: 'One per org', created: 'abcd builder setup', holds: 'The knowledge graph, call context, process docs, decisions, each agent\'s design page, explainer and training kit.', store: 'builder-context (Doc Store)', tables: 'bld_kg_nodes, bld_kg_edges, bld_decisions (write)', who: 'FDEs write; Context curator writes proposed pages; FDEs read', status: 'setup' },
   { name: 'Builder: operations', key: 'builder-ops', count: 'One per org', created: 'abcd builder setup', holds: 'Versions, releases, eval runs and reports, metrics, FDE activity, dataset expected outputs.', store: 'builder-ops (Doc Store), ds-<dataset> stores', tables: 'All other bld_ tables (write)', who: 'abcd and the Status reporter write; FDEs and leads read', status: 'setup' },
   { name: 'Builder status: <client>', key: 'builder-status-gpw', count: 'One per client', created: 'abcd builder setup --client gpw', holds: 'The scorecard, each agent\'s status page, release history and eval reports, as files. The only Builder workstream a client can see.', store: 'builder-status-gpw (Doc Store)', tables: 'none', who: 'Status reporter writes; client stakeholders get a read grant', status: 'setup' },
+  { name: 'Builder SME: <client>', key: 'builder-sme-gpw', count: 'One per client with an appointed SME', created: 'abcd builder setup --client gpw --sme <user>', holds: 'Context gap questions (gaps/<gap_id>.md, with evidence), the SME\'s answers and repro notes, and uploads such as playbooks and worked examples.', store: 'builder-sme-gpw (Doc Store)', tables: 'bld_context_gaps, bld_case_notes (write, through the Context agent)', who: 'Customer SME (write grant); FDEs; the Context agent', status: 'setup' },
   { name: 'Client workstream', key: 'gpw (example)', count: 'One per client, as today', created: 'Already exists', holds: 'The client\'s real files and runs. Live agents run here.', store: 'Client Doc Store', tables: 'bld_check_results (write, from the maker-checker step)', who: 'As today', status: 'exists' },
   { name: 'Client staging workstream', key: 'gpw-staging', count: 'One per client with a Builder agent', created: 'abcd workstream ensure', holds: 'A copy of selected client files. Staged agents are assigned only here and to dataset workstreams, so no client user ever sees them.', store: 'gpw-staging (Doc Store)', tables: 'none', who: 'FDEs only', status: 'setup' },
   { name: 'Dataset workstream', key: 'ds:gpw-1120pc:pair-017 or ds:gpwa-email-sorting', count: 'One per case (work-product pairs) or one per dataset (labelled, read-your-writes)', created: 'abcd dataset create | add-case', holds: 'Case inputs only, never expected outputs. For read-your-writes, the workstream whose secrets point at the test system. The agent under test runs here exactly as it would on a client.', store: 'Its own Doc Store, inputs/ only', tables: 'none', who: 'FDEs only', status: 'setup' },
@@ -374,7 +378,7 @@ const TABLES = [
   { name: 'bld_dataset_cases', group: 'Datasets', ws: 'Builder: operations (write)', purpose: 'Every case of every dataset kind, and what it expects.', key: 'case_key', by: 'abcd dataset add-case | synth', reads: 'Eval runner', cols: [T('case_key','varchar','unique, dataset:case'), T('dataset_key','varchar',''), T('case_id','varchar',''), T('workstream_id','varchar','its own, or the shared dataset workstream'), T('inputs','jsonb','file paths or an inline payload (an instruction, an email)'), T('setup','jsonb','read_your_writes: snapshot query, fixture to ensure'), T('expected','jsonb','output paths, labels, or the state and outcome code to read back'), T('teardown','jsonb','read_your_writes: restore through the same write path'), T('scorers','text[]','overrides the dataset default'), T('source','enum','real, known, synthetic, production'), T('tags','text[]','e.g. edge-case, overwrite, unknown-client'), T('first_version','int',''), T('retired_in_version','int','null while active')] },
   { name: 'bld_checks', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'Client checks an output must pass to count as accurate.', key: 'check_key', by: 'FDE; client checker proposes', reads: 'abcd eval runner, maker-checker step', cols: [T('check_key','varchar','unique'), T('client_workstream_id','varchar',''), T('agent_key','varchar',''), T('title','text','e.g. Headline values within $2'), T('kind','enum','deterministic, judged'), T('rule','jsonb','the rule or rubric'), T('severity','enum','blocking, warning'), T('source_decision','varchar',''), T('active_from','timestamptz','')] },
   { name: 'bld_metrics', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'Metric definitions, versioned.', key: 'metric_key', by: 'FDE', reads: 'Everyone', cols: [T('metric_key','varchar','unique, e.g. gpw-1120pc:accuracy@2'), T('agent_key','varchar',''), T('name','text',''), T('category','enum','volume, time, quality, cost'), T('unit','varchar','%, hrs, $, #'), T('formula','text',''), T('source','enum','check_results, hitl_events, user_actions, run_timings, cost'), T('baseline','numeric',''), T('is_gate','boolean',''), T('decision_ref','varchar','client sign-off')] },
-  { name: 'bld_eval_runs', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'One row per eval run.', key: 'eval_run_id', by: 'Eval runner', reads: 'Release gate, everyone', cols: [T('eval_run_id','varchar','unique'), T('agent_key','varchar',''), T('version_id','varchar',''), T('dataset_version_key','varchar',''), T('tier','enum','local, platform, staged, production'), T('status','enum','running, done, failed'), T('cost_usd','numeric',''), T('started_at','timestamptz',''), T('finished_at','timestamptz',''), T('report_path','text','')] },
+  { name: 'bld_eval_runs', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'One row per eval run.', key: 'eval_run_id', by: 'Eval runner', reads: 'Release gate, everyone', cols: [T('eval_run_id','varchar','unique'), T('agent_key','varchar',''), T('version_id','varchar',''), T('dataset_version_key','varchar',''), T('tier','enum','local, platform, staged, production'), T('blind','boolean','true for every gated run'), T('status','enum','running, done, failed'), T('cost_usd','numeric',''), T('started_at','timestamptz',''), T('finished_at','timestamptz',''), T('report_path','text','')] },
   { name: 'bld_eval_results', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'One row per case per eval run.', key: 'result_key', by: 'Eval runner', reads: 'Reports, scorecards', cols: [T('result_key','varchar','unique, run:case'), T('eval_run_id','varchar',''), T('case_key','varchar',''), T('observed','jsonb','output paths, labels produced, or rows read back'), T('harness_run_id','varchar','link to the trace'), T('passed','boolean','all blocking checks passed'), T('score','numeric',''), T('failed_checks','text[]',''), T('miss_cause','enum','rounding, missing_context, playbook_difference, real_error'), T('steps','int',''), T('tokens','bigint',''), T('duration_s','int',''), T('hitl_count','int','')] },
   { name: 'bld_check_results', group: 'Quality', ws: 'Builder: operations, and each client workstream (write)', purpose: 'One row per check per subject, in evals and in production.', key: 'check_result_key', by: 'abcd eval runner, maker-checker step', reads: 'Metrics, reports', cols: [T('check_result_key','varchar','unique'), T('check_key','varchar',''), T('subject_kind','enum','eval_case, production_run'), T('subject_ref','varchar',''), T('eval_run_id','varchar','null in production'), T('passed','boolean',''), T('detail','jsonb','expected vs found')] },
   { name: 'bld_metric_values', group: 'Quality', ws: 'Builder: operations (write)', purpose: 'Computed metric values for runs, phases and weeks.', key: 'value_key', by: 'Eval runner, Status reporter', reads: 'Scorecards, Status reporter', cols: [T('value_key','varchar','unique'), T('metric_key','varchar',''), T('agent_key','varchar',''), T('version_id','varchar',''), T('scope','enum','eval_run, phase, week'), T('scope_ref','varchar','e.g. UAT 1, 2026-W43'), T('value','numeric',''), T('computed_at','timestamptz','')] },
@@ -382,6 +386,10 @@ const TABLES = [
   { name: 'bld_kg_edges', group: 'Context', ws: 'Builder: context (write)', purpose: 'Typed links between nodes.', key: 'edge_key', by: 'Same as nodes', reads: 'Impact analysis before a change', cols: [T('edge_key','varchar','unique'), T('from_node','varchar',''), T('to_node','varchar',''), T('relation','enum','uses, calls, owns, replaced_by, failed_on, tested_by'), T('source_ref','varchar','call, doc, run or release that showed it'), T('status','enum','proposed, vetted')] },
   { name: 'bld_decisions', group: 'Context', ws: 'Builder: context (write)', purpose: 'Every answered question, so it is never asked twice.', key: 'decision_key', by: 'FDE, Context curator (proposed)', reads: 'Builder, Status reporter', cols: [T('decision_key','varchar','unique'), T('client_workstream_id','varchar',''), T('agent_key','varchar',''), T('question','text',''), T('answer','text',''), T('decided_by','varchar',''), T('source_kind','enum','call, email, fde, client'), T('source_path','text',''), T('status','enum','proposed, confirmed')] },
   { name: 'bld_open_items', group: 'Context', ws: 'Builder: operations (write)', purpose: 'What is pending on an agent\'s design, and who it waits on.', key: 'item_key', by: 'Builder, FDEs', reads: 'Status reporter (copies client-facing items into status files)', cols: [T('item_key','varchar','unique'), T('agent_key','varchar',''), T('kind','enum','design_gap, question, waiting_on_client, blocked'), T('title','text',''), T('waiting_on','enum','fde, client, platform'), T('due','date',''), T('status','enum','open, resolved'), T('resolved_by_decision','varchar','')] },
+  { name: 'bld_context_gaps', group: 'Context', ws: 'Builder: operations and each Builder SME workstream (write)', purpose: 'Every case a blind eval could not reproduce because context was missing, until a blind eval reproduces it.', key: 'gap_key', by: 'abcd eval runner (opens), FDE, SME through the Context agent', reads: 'Builder, Status reporter, SME', cols: [T('gap_key','varchar','unique'), T('agent_key','varchar',''), T('case_key','varchar','the case that showed it'), T('eval_run_id','varchar','the blind run that opened it'), T('failed_checks','text[]',''), T('hypothesis','text','what the Builder thinks is missing'), T('question','text','what it asks, with evidence attached'), T('evidence_path','text','gaps/<gap_id>.md: input excerpt, output vs expected, the agent\'s reasoning'), T('assigned_to','enum','fde, sme'), T('answer','text',''), T('instruction_key','varchar','the instruction that encodes it'), T('status','enum','open, asked, answered, encoded, verified, waived'), T('verified_by_run','varchar','the blind run that reproduced the case'), T('waive_reason','text','')] },
+  { name: 'bld_case_notes', group: 'Context', ws: 'Builder: operations and each Builder SME workstream (write)', purpose: 'How the SME or FDE produced the golden output for one case. Never shown to a blind run.', key: 'note_key', by: 'SME, FDE', reads: 'Builder, when proposing instructions', cols: [T('note_key','varchar','unique'), T('case_key','varchar',''), T('author','varchar','SME or FDE'), T('note','text','e.g. why line 4c is $3 higher: we round per schedule, not per line'), T('source_path','text','call, email or upload it came from'), T('generalized_into','varchar','instruction_key, once generalised')] },
+  { name: 'bld_instructions', group: 'Context', ws: 'Builder: context (write)', purpose: 'Generic instructions: the rules, exceptions and judgment calls a person uses to produce the golden output.', key: 'instruction_key', by: 'Builder proposes; FDE or SME vets', reads: 'abcd instructions compile', cols: [T('instruction_key','varchar','unique, agent:topic@version'), T('agent_key','varchar',''), T('scope','enum','org, client, agent'), T('client_workstream_id','varchar','client scope only'), T('page_path','text','kg/instructions/<agent>/<topic>.md'), T('source_gaps','text[]','gaps it closes'), T('provenance','text','who said it, where'), T('leak_check','enum','pass, flagged'), T('status','enum','proposed, vetted, retired'), T('compiled_into_version','varchar','instruction skill version')] },
+  { name: 'bld_generic_prompts', group: 'Context', ws: 'Builder: operations (write)', purpose: 'The generic prompts a blind eval may use for an agent.', key: 'prompt_key', by: 'abcd prompts set', reads: 'Eval runner, training kit', cols: [T('prompt_key','varchar','unique'), T('agent_key','varchar',''), T('prompt','text','e.g. Prepare the 1120-PC for this client from the files in this workstream.'), T('applies_to','enum','per_case, batch'), T('status','enum','active, retired')] },
   { name: 'bld_training_assets', group: 'Context', ws: 'Builder: operations (write)', purpose: 'The explainer and training kit generated for each live version.', key: 'asset_key', by: 'abcd explain | train', reads: 'Everyone', cols: [T('asset_key','varchar','unique'), T('agent_key','varchar',''), T('version_id','varchar',''), T('kind','enum','explainer, quickstart, prompts, scenarios, faq, whats_new'), T('path','text',''), T('generated_at','timestamptz','')] },
   { name: 'bld_dev_sessions', group: 'FDE activity', ws: 'Builder: operations (write)', purpose: 'Coding-agent sessions per FDE.', key: 'session_id', by: 'abcd hooks', reads: 'Admins, daily report', cols: [T('session_id','varchar','unique'), T('user_id','varchar',''), T('agent_key','varchar',''), T('coding_agent','enum','claude_code, codex, cursor, other'), T('git_sha_start','varchar',''), T('git_sha_end','varchar',''), T('started_at','timestamptz',''), T('ended_at','timestamptz',''), T('platform_cost_usd','numeric',''), T('transcript_path','text','')] },
   { name: 'bld_dev_events', group: 'FDE activity', ws: 'Builder: operations (write)', purpose: 'Every abcd command and loop step, with its result.', key: 'event_id', by: 'abcd', reads: 'Admins, daily report', cols: [T('event_id','varchar','unique; a 409 on retry means already written'), T('session_id','varchar',''), T('ts','timestamptz',''), T('step','int','loop step 1 to 10'), T('kind','varchar','review, push, run, eval, stage, release, ...'), T('result','enum','ok, warn, fail'), T('cost_usd','numeric',''), T('payload','jsonb',''), T('artifact_path','text','')] },
@@ -470,6 +478,8 @@ const META_SKILLS = [
   ['builder-release', 'Stage, test staged, release, rollback.'],
   ['builder-noui-scenario', 'NoUI and Tabby: record, extract, draft skill, wire agent.'],
   ['builder-kg', 'Proposes knowledge graph pages and edges from what the session learned.'],
+  ['builder-gaps', 'Classifies blind-eval misses, opens context gaps with evidence, writes the question for the FDE or SME.'],
+  ['builder-instructions', 'Generalises answers and case notes into generic instruction pages, runs the leak check, compiles the instruction skill.'],
   ['builder-explain', 'Regenerates the agent explainer HTML from live state.'],
   ['builder-train', 'Generates the agent\'s training kit.'],
 ];
@@ -479,6 +489,7 @@ const META_AGENTS = [
   { name: 'Context curator', kind: 'Platform process', ws: 'Builder: context', trigger: 'Nightly cron pipeline', does: 'Reads new files under context/ with the workstream file tools; extracts requirements, decisions and candidate checks; proposes knowledge graph pages and edges; opens items for anything unresolved.', writes: 'proposed/, bld_decisions (proposed), bld_open_items (db_insert_rows)', status: 'setup' },
   { name: 'Status reporter', kind: 'Platform process', ws: 'Builder: operations, with write access to every Builder status workstream', trigger: 'Daily and Friday cron pipelines', does: 'Reads the tables with db_query, writes the scorecard and agent status pages into each client\'s status workstream, and sends the FDE daily report and Friday scorecard through the connected Slack or Gmail integration.', writes: 'builder-status-<client>/, reports/daily/', status: 'setup' },
   { name: 'Status agent', kind: 'Platform process', ws: 'Builder status: <client>', trigger: 'A client stakeholder asks a question', does: 'Answers questions such as "what is pending on the 1120-PC agent?" from the status files. Read only.', writes: 'nothing', status: 'setup' },
+  { name: 'Context agent', kind: 'Platform process', ws: 'Builder SME: <client>', trigger: 'The SME opens a gap question or uploads something', does: 'Walks the SME through each open gap with its evidence, asks follow-ups until the answer is generic enough to reuse, and records the answer and any case notes. Never sees expected outputs beyond the evidence in the gap file.', writes: 'bld_context_gaps (answered), bld_case_notes (db_insert_rows)', status: 'setup' },
   { name: 'Maker-checker step', kind: 'Step inside each live agent', ws: 'Client workstream', trigger: 'Every production run', does: 'Runs the client\'s checks on the output before a person sees it and records each result.', writes: 'bld_check_results (db_insert_rows)', status: 'abcd' },
   { name: 'Eval runner', kind: 'abcd command', ws: 'Runs from your machine', trigger: 'abcd eval run, abcd test-staged', does: 'Runs every case the way its dataset kind says (per case, batch, or sequential with a probe), collects outputs, labels or read-back rows, scores deterministic checks in Python and judged checks with your coding agent, computes metrics.', writes: 'bld_eval_runs, bld_eval_results, bld_check_results, bld_metric_values, evals/', status: 'abcd' },
   { name: 'Explainer and trainer', kind: 'abcd command', ws: 'Runs in your coding agent', trigger: 'abcd release', does: 'Regenerates explainer.html and the training kit for the new live version on your subscription, uploads them and commits them to git.', writes: 'agents/<agent>/, bld_training_assets', status: 'abcd' },
@@ -516,7 +527,7 @@ const WORKAROUNDS = [
   ['Entitlements', 'Not writable through adoptwebui', 'Adopt turns on studio.agents_enduser for client orgs in intranet', 'One request per client org'],
 ];
 
-const ROLES = ['FDE', 'FDE lead', 'Builder agents', 'Client stakeholder', 'Client checker'];
+const ROLES = ['FDE', 'FDE lead', 'Builder agents', 'Client stakeholder', 'Customer SME'];
 const RBAC = [
   ['Run abcd against the org', ['y','y','n','n','n']],
   ['Propose a build plan', ['y','y','y','n','n']],
@@ -528,6 +539,9 @@ const RBAC = [
   ['Force a release, with a reason', ['n','y','n','n','n']],
   ['Roll back', ['y','y','n','n','n']],
   ['Add or change checks', ['y','y','p','n','p']],
+  ['Answer context gaps and add repro notes', ['y','y','n','n','y']],
+  ['Vet generic instructions', ['y','y','n','n','y']],
+  ['Waive a context gap', ['p','y','n','n','n']],
   ['Write vetted knowledge graph pages', ['y','y','p','n','n']],
   ['See the scorecard and agent status', ['y','y','y','p','p']],
   ['See FDE activity and daily reports', ['p','y','n','n','n']],
@@ -538,10 +552,19 @@ const RBAC_NOTES = {
   'FDE lead': 'An Admin user who reviews forced releases and loosened criteria (recorded as decisions) and receives every FDE\'s daily report.',
   'Builder agents': 'The Context curator, Status reporter and Status agent run as ordinary processes. They propose but never approve: knowledge graph pages land in proposed/, checks from runs land as candidates.',
   'Client stakeholder': 'An Operator-role login (for example Nicklas) with a read grant on their Builder status workstream only. Sees the scorecard and agent status files in the end-user Agents cockpit and can ask the Status agent. Agrees release criteria through a recorded decision.',
-  'Client checker': 'A client reviewer (for example Amanda) with the same access, who sends checks by email or upload. Checks land as proposed until an FDE turns them into scorers.',
+  'Customer SME': 'Appointed by the customer (for example Amanda) to explain how the golden outputs are produced. An Operator user with a write grant on their Builder SME workstream and a read grant on the status workstream. Answers context gaps with the Context agent, adds repro notes, sends checks, and vets the generic instructions drawn from their answers.',
 };
 
 const SCENARIOS = [
+  { name: 'Close a context gap with the SME', who: 'FDE and customer SME', trigger: 'A blind eval reproduces 41 of 48 returns. Six misses are classified as missing context.', steps: [
+    ['abcd', 'Opens six context gaps, each with the case input excerpt, the agent output against the golden output and the agent\'s reasoning.', 'bld_context_gaps (open); gaps/<gap_id>.md in builder-sme-gpw.'],
+    ['FDE', 'abcd gap list: answers two from the existing playbook, asks the SME about four.', 'Four gaps move to asked; the SME gets the questions in their workstream and by email.'],
+    ['Customer SME', 'Opens the Context agent: "Why is depreciation on pair-022 split across two lines?" Explains the rule they apply.', 'An answer plus a repro note on pair-022.'],
+    ['Builder', 'Generalises the answer into kg/instructions/gpw-1120pc-prep/depreciation-split.md.', 'A proposed instruction that names no client, case or expected value.'],
+    ['abcd', 'Leak check: refuses any instruction that quotes a case id or a value from an expected output.', 'Passes; the SME vets it.'],
+    ['abcd', 'abcd instructions compile, then a blind re-run of the affected cases and the full set.', 'pair-022 now reproduces; no regressions. The gap moves to verified.'],
+    ['FDE', 'Repeats until the blind reproduction rate meets its target and no gaps are open.', 'The build phase can exit; abcd release accepts the agent.'],
+  ]},
   { name: 'Eval the CRM agent (read your writes)', who: 'FDE', trigger: 'The GPWA CRM agent writes tax-return fields into Dynamics 365. There is no document to compare against; what matters is what the CRM holds afterwards.', steps: [
     ['FDE', 'abcd dataset create gpwa-crm-writes --kind read_your_writes --target-env D365TEST_MSCRM --probe gpwa-crm-probe.', 'A shared dataset workstream whose secrets point at the test CRM; the staged agent and the probe are assigned to it.'],
     ['Builder', 'Drafts the probe agent: one read-only SQL skill using the CRMReaderRole login, returning rows as JSON.', 'A small agent that can read but never write.'],
@@ -567,7 +590,7 @@ const SCENARIOS = [
     ['FDE', 'abcd stage, abcd test-staged, abcd release.', 'Gate passes, v1 goes live with its eval report; explainer and training kit generated.'],
   ]},
   { name: 'Client adds new checks', who: 'FDE', trigger: 'Amanda sends five more checks a return must pass before GPW calls it accurate.', steps: [
-    ['Client checker', 'Submits the checks (or the FDE uploads her email to context/emails/).', 'Checks land as proposed.'],
+    ['Customer SME', 'Submits the checks in the Builder SME workstream (or the FDE uploads the email to context/emails/).', 'Checks land as proposed.'],
     ['FDE', 'abcd check add for each, confirming the rule.', 'bld_checks rows; source decision linked to Amanda\'s email.'],
     ['Builder', 'Re-scores past eval runs and recent production runs against the expanded list.', 'Accuracy and first-pass yield recomputed; the trend stays comparable.'],
     ['Builder', 'Opens items for the checks the live version fails, with the failing pairs.', 'bld_open_items; the scorecard shows the new numbers on Friday.'],
@@ -625,6 +648,9 @@ const GPW_METRICS = [
 ];
 
 const OPEN_Q = [
+  ['Blind reproduction target', 'Is 100% of active cases required before go-live, or a target such as 95% with every remaining miss waived and explained?'],
+  ['Simulated HITL in blind runs', 'When a blind run asks a question, count it as a context gap (current plan), or let a scripted SME answer and count it as a HITL?'],
+  ['SME time', 'How many gap questions a week can an SME answer? Batch them, or ask as they open?'],
   ['One workstream per case', 'Work-product pairs get a workstream each; labelled and read-your-writes datasets share one. Is the custom_properties.kind = dataset tag enough at hundreds of workstreams?'],
   ['Test systems for read-your-writes', 'Which agents have a test tenant to write to (the GPWA CRM does: D365TEST_MSCRM)? Agents without one can only be evaluated on refusals and dry runs.'],
   ['Synthetic realism', 'How many synthetic cases is a release allowed to rely on, and should known cases have their own target?'],
@@ -663,6 +689,7 @@ const PAGES = [
   { id: 'tables', group: 'Where things live', label: 'Data tables', render: pTables },
   { id: 'datasets', group: 'Where things live', label: 'Datasets', render: pDatasets },
   { id: 'kg', group: 'Where things live', label: 'Knowledge graph and context', render: pKg },
+  { id: 'gaps-blind', group: 'Quality and release', label: 'Context gaps and blind evals', render: pBlind },
   { id: 'metrics', group: 'Quality and release', label: 'Metrics, checks and criteria', render: pMetrics },
   { id: 'versions', group: 'Quality and release', label: 'Versions, git and releases', render: pVersions },
   { id: 'report', group: 'Quality and release', label: 'The eval report', render: pReport },
@@ -701,6 +728,7 @@ function pOverview() {
   return `<h1>Adopt Builder</h1>
   <p class="lead">Every Adopt agent is built through one headless Builder. FDEs drive it from their own coding agent, on their own subscription. Every skill and agent change becomes a versioned, staged release that must pass its dataset gate, and each release carries its eval report.</p>
   <p class="sub"><b>Goal number one: no new platform features.</b> The Builder is abcd (this repo), a one-time setup of existing platform objects (workstreams, Doc Stores, tables, processes, pipelines, grants) and a private git repo. Where the platform cannot do something, this page says so and shows the workaround. Nothing waits on a platform release.</p>
+  <p class="sub"><b>Done means reproducible blind.</b> During the build phase the FDE and a customer-appointed SME keep adding missing context until a generic prompt, the knowledge graph's instructions and the skills reproduce the golden dataset on their own. Blind evals prove it, and gate every release.</p>
   <p class="sub">The FDE defines five inputs and approves the plan. The Builder does the rest and asks only when the inputs do not settle something. This page is written by hand for review; once built, abcd regenerates a page like it for every agent from live state.</p>
 
   <h2>The five inputs an FDE defines</h2>
@@ -712,7 +740,7 @@ function pOverview() {
   <h2>How the pieces fit</h2>
   <table class="t"><tr><th>Piece</th><th>What it is</th><th>Where</th><th>Status</th></tr>
   <tr><td>abcd</td><td>The CLI your coding agent uses for every loop step. Today's harness_* tools plus new commands</td><td>Your machine</td><td>${ABCD}</td></tr>
-  <tr><td>adopt-builder plugin</td><td>17 meta skills that teach your coding agent the loop</td><td>This repo, installed into your coding agent by abcd init</td><td>${ABCD}</td></tr>
+  <tr><td>adopt-builder plugin</td><td>19 meta skills that teach your coding agent the loop</td><td>This repo, installed into your coding agent by abcd init</td><td>${ABCD}</td></tr>
   <tr><td>Platform APIs</td><td>Skills, processes, turns, runs, workstreams, grants, Doc Store, Data Store, pipelines</td><td>adoptwebui end-user and studio routes, with a PAT</td><td>${EX}</td></tr>
   <tr><td>Builder workstreams</td><td>Builder: context, Builder: operations, one Builder status workstream per client</td><td>Workstreams + Doc Stores + tables, created by abcd builder setup</td><td>${SETUP}</td></tr>
   <tr><td>Datasets</td><td>One workstream per work-product pair; expected outputs kept out of reach</td><td>Workstreams + Doc Stores + tables</td><td>${SETUP}</td></tr>
@@ -919,11 +947,57 @@ function pKg() {
   <div class="note">Constraints: Data Store has no per-user row security, so the graph is readable org-wide. The harness copies at most 200 MB of a workstream's files per session; larger graphs rely on index pages and fetching on demand.</div>`;
 }
 
+function pBlind() {
+  return `<h1>Context gaps and blind evals</h1>
+  <p class="lead">An agent is ready when it can reproduce the golden dataset blind: given only a generic prompt, the knowledge graph's instructions and its skills. During the build phase, the FDE and a customer-appointed SME keep adding the missing context and explanation until that is true. This is a requirement for every agent linked to a dataset.</p>
+  <h2>What a blind eval gives the agent, and what it withholds</h2>
+  <div class="grid g2">
+    <div class="card"><div class="k">Given</div><ul><li>A generic prompt from <span class="tag">bld_generic_prompts</span>, such as "Prepare the 1120-PC for this client from the files in this workstream"</li><li>The case inputs, exactly as a client would provide them</li><li>The compiled instruction skill (<span class="tag">&lt;agent&gt;-instructions</span>) and the agent's other skills</li><li>Client-scope instructions synced into the case workstream</li></ul></div>
+    <div class="card"><div class="k">Withheld</div><ul><li>Expected outputs, labels and states</li><li>Case notes (<span class="tag">bld_case_notes</span>)</li><li>Gap files and their evidence</li><li>Any FDE message, hint or follow-up turn</li><li>Answers to questions the agent asks: a question in a blind run is itself a context gap</li></ul></div>
+  </div>
+  <h2>The gap loop</h2>
+  <ol class="steps">
+    <li><b>Blind run.</b> abcd eval run --blind scores every case against the golden dataset.</li>
+    <li><b>Classify misses.</b> builder-gaps sorts each miss: missing context, skill bug, rounding, playbook difference, or real error. Only missing context opens a gap; the rest become build plan items.</li>
+    <li><b>Open a gap.</b> One row in <span class="tag">bld_context_gaps</span> and one evidence file <span class="tag">gaps/&lt;gap_id&gt;.md</span>: the case input excerpt, the agent output against the golden output, the agent's reasoning, and the Builder's hypothesis of what is missing.</li>
+    <li><b>Route it.</b> The FDE answers from what they know, or sends it to the SME (abcd gap ask). The SME sees it in their Builder SME workstream and by email.</li>
+    <li><b>Answer.</b> The SME works through it with the Context agent, which asks follow-ups until the answer is a rule, not a one-off. Case-specific explanations are saved as repro notes.</li>
+    <li><b>Encode.</b> builder-instructions turns the answer into a generic instruction page under <span class="tag">kg/instructions/&lt;agent&gt;/</span>, with its provenance. The FDE or SME vets it.</li>
+    <li><b>Leak check.</b> abcd refuses an instruction that names a case id, quotes a value from any expected output, or only makes sense for one case.</li>
+    <li><b>Compile and re-run.</b> abcd instructions compile builds the instruction skill; the affected cases and then the full set re-run blind.</li>
+    <li><b>Verify.</b> The gap closes only when a blind run reproduces its case without regressing any other. Otherwise it goes back to open with the new evidence.</li>
+  </ol>
+  <h2>Gap states</h2>
+  <div class="grid g5">
+    <div class="card"><span class="pill p-dr">Open</span><p style="margin-top:8px">Found by a blind run. With the Builder.</p></div>
+    <div class="card"><span class="pill p-rv">Asked</span><p style="margin-top:8px">Waiting on the SME or FDE.</p></div>
+    <div class="card"><span class="pill p-dr">Answered, encoded</span><p style="margin-top:8px">Turned into an instruction; waiting for a blind re-run.</p></div>
+    <div class="card"><span class="pill p-ok">Verified</span><p style="margin-top:8px">A blind run reproduced the case.</p></div>
+    <div class="card"><span class="pill p-dr">Waived</span><p style="margin-top:8px">A lead accepted the miss, with a recorded reason. Counted on the scorecard.</p></div>
+  </div>
+  <h2>How instructions reach the agent, with no platform change</h2>
+  <table class="t"><tr><th>Scope</th><th>Where it lives</th><th>How the agent gets it</th></tr>
+  <tr><td>Org or agent</td><td><code>kg/instructions/&lt;agent&gt;/&lt;topic&gt;.md</code> in Builder: context</td><td>Compiled into the <code>&lt;agent&gt;-instructions</code> skill (references/ files plus an index in SKILL.md). Versioned, staged and released like any skill.</td></tr>
+  <tr><td>Client</td><td>The same folder, with scope = client</td><td>abcd syncs them into <code>_builder/instructions/</code> in that client's workstream and its dataset workstreams, so the harness stages them with the client's files.</td></tr></table>
+  <h2>Build phase exit criteria</h2>
+  <ul><li>Every active case reproduces blind, or its gap is waived with a reason a lead approved.</li>
+  <li>No open, asked or encoded gaps.</li>
+  <li>No instruction with a flagged leak check.</li>
+  <li>The blind reproduction rate meets its release criterion, which is mandatory for every agent linked to a dataset.</li></ul>
+  <h2>Metrics this adds</h2>
+  <table class="t"><tr><th>Metric</th><th>Definition</th></tr>
+  <tr><td>Blind reproduction rate</td><td>Share of active cases a blind run reproduces. A gate metric for every linked agent.</td></tr>
+  <tr><td>Open gaps, by owner</td><td>Gaps open, asked or encoded, split by FDE and SME. Shown on the scorecard.</td></tr>
+  <tr><td>Time to close a gap</td><td>Opened to verified, in days.</td></tr>
+  <tr><td>Instructions per agent</td><td>Vetted instructions in the compiled skill, and how many gaps each closed.</td></tr></table>`;
+}
+
 function pMetrics() {
   return `<h1>Metrics, checks and release criteria</h1>
   <p class="lead">Metrics are defined before the first build, versioned, and computed by the platform from the same data every time. The GPW pilot is why: different dashboards and emails gave different numbers, and the client did not trust the accuracy definition.</p>
   <h2>Rules the Builder enforces</h2>
   <div class="grid g2">
+    <div class="card"><h3>Gated evals are blind</h3><p>Every gated eval gives the agent only a generic prompt, the compiled instructions and its skills. The blind reproduction rate is a mandatory release criterion for any agent linked to a dataset.</p></div>
     <div class="card"><h3>Accuracy is defined by checks</h3><p>An output is accurate when it passes all of the client's checks. When a check is added, past runs are re-scored so trends stay comparable.</p></div>
     <div class="card"><h3>Every metric must be able to fail</h3><p>First-pass yield is the share of clients passing all checks on the first run with no human correction. A definition that is 100% by construction is refused.</p></div>
     <div class="card"><h3>Human time comes from logs</h3><p>From platform logs of user actions, split by onshore and offshore role. Nobody sits and watches screens.</p></div>
@@ -950,7 +1024,9 @@ criteria:
   - metric: accuracy          comparator: ">="           target: 95
   - metric: first_pass_yield  comparator: ">="           target: 75
   - metric: human_time        comparator: "<="           target: 9.2
-  - metric: all_pairs         comparator: no_regression</div>
+  - metric: blind_repro_rate  comparator: ">="           target: 95   (mandatory)
+  - metric: open_gaps         comparator: "<="           target: 0
+  - metric: all_cases         comparator: no_regression</div>
   <div class="note">Illustrative targets. The real targets are set by the FDE and agreed with the client as a recorded decision.</div>
   <h2>Checks</h2>
   <p>A check is either <b>deterministic</b> (a rule over the output, such as "every headline value within $2 of the filed return") or <b>judged</b> (a rubric scored by a model, used only where a rule cannot express it). Every check runs twice: in evals, against expected outputs, and in production, as a maker-checker step before a person sees the output.</p>`;
@@ -980,7 +1056,7 @@ function pVersions() {
   <h2>What abcd release does, in order</h2>
   <ol class="steps">
     <li>Re-checks that the staged shadows still match the staged hashes, and runs abcd audit drift on the live objects.</li>
-    <li>Checks every release criterion against the staged run on that exact version, for this agent and every agent sharing a changed skill. Refuses on any failure or any error.</li>
+    <li>Checks every release criterion against the blind staged run on that exact version, for this agent and every agent sharing a changed skill. Refuses on any failure or any error.</li>
     <li>Asks the FDE to approve.</li>
     <li>Uploads each staged bundle under its live name (replace = true), patches the live process with the staged definition (skill names rewritten back), and verifies what landed.</li>
     <li>Writes the eval report to <code>releases/&lt;agent&gt;/&lt;version&gt;/</code> in Builder: operations and copies it to the client's status workstream.</li>
@@ -994,13 +1070,15 @@ function pReport() {
   return `<h1>The eval report</h1>
   <p class="lead">Every release carries one. It is stored in Builder: operations, attached to the git release, linked from the scorecard, and produced by the platform, never uploaded by the FDE.</p>
   <div class="report">
-    <div class="rh"><div><b>gpw-1120pc-prep · v13</b><div class="muted">Release eval report · staged run ev_7f2a · dataset gpw-1120pc@4 (48 pairs) · against live v12</div></div><div class="muted" style="text-align:right">Gate: pass<br>Approved by the FDE</div></div>
+    <div class="rh"><div><b>gpw-1120pc-prep · v13</b><div class="muted">Release eval report · blind staged run ev_7f2a · dataset gpw-1120pc@4 (48 pairs) · against live v12</div></div><div class="muted" style="text-align:right">Gate: pass<br>Approved by the FDE</div></div>
     <h4>Release criteria</h4>
     <table><tr><th>Metric</th><th class="num">Target</th><th class="num">v12 live</th><th class="num">v13 staged</th><th>Result</th></tr>
     <tr><td>Accuracy</td><td class="num">≥ 95%</td><td class="num">93.8%</td><td class="num">97.9%</td><td>Pass</td></tr>
     <tr><td>First-pass yield</td><td class="num">≥ 75%</td><td class="num">69%</td><td class="num">81%</td><td>Pass</td></tr>
     <tr><td>Human time per client</td><td class="num">≤ 9.2 hrs</td><td class="num">2.7</td><td class="num">2.4</td><td>Pass</td></tr>
-    <tr><td>No regressions</td><td class="num">0 pairs</td><td class="num"></td><td class="num">0</td><td>Pass</td></tr></table>
+    <tr><td>Blind reproduction rate</td><td class="num">≥ 95%</td><td class="num">85%</td><td class="num">97.9%</td><td>Pass</td></tr>
+    <tr><td>Open context gaps</td><td class="num">0</td><td class="num">6</td><td class="num">0</td><td>Pass</td></tr>
+    <tr><td>No regressions</td><td class="num">0 cases</td><td class="num"></td><td class="num">0</td><td>Pass</td></tr></table>
     <h4>Misses by cause</h4>
     <table><tr><th>Cause</th><th class="num">Pairs</th><th>Example</th></tr>
     <tr><td>Rounding</td><td class="num">1</td><td>pair-031: line 4c off by $3</td></tr>
@@ -1073,6 +1151,7 @@ function pStatus() {
   const agents = [
     { name: 'Return prep (1120-PC)', key: 'gpw-1120pc-prep', phase: 'Live', live: 'v12', staged: 'v13 (testing)', last: 'UAT 1 scorecard', items: [
       ['Remaining checks from GPW', 'Waiting on GPW', 'rv', 'Proposed Fri 10/23'],
+      ['4 context gaps for the GPW SME', 'Waiting on GPW', 'rv', 'Fri 10/23'],
       ['Onshore time measurement method', 'Waiting on GPW sign-off', 'rv', 'Wed 10/21'],
       ['Accuracy and first-pass yield targets', 'To agree on the call', 'rv', 'Wed 10/21'],
       ['First-pass yield on UAT 1', 'Adopt computing', 'dr', 'Before the call'],
