@@ -1,6 +1,6 @@
 # Adopt Builder: plan
 
-**Status:** draft for review, revised 2026-10-26 (first draft 2026-10-20)
+**Status:** draft for review, revised 2026-10-27 (first draft 2026-10-20)
 **Companion:** [`adopt_builder_spec.html`](adopt_builder_spec.html) is an interactive explainer of this plan for FDEs. Open it in a browser.
 **Base:** abcd `feat/noui-merge` (PR #25, `a25c228`): abcd and NoUI together. Everything this plan calls "today" or "exists" is on that branch.
 **Checked against:** adoptai-workflows `29a3fe717` (sandbox secrets and skill tiers re-checked at `4e39b4570`), adoptwebui `88416ad0c`, abcd `a25c228`.
@@ -55,6 +55,7 @@ Each requirement maps to how it's met. Status values:
 | R22 | **Switching between clients is switching workspaces** | Every Builder command takes `--env` and defaults to the active workspace, exactly like the existing `harness_*`, `noui_workspace` and WDL commands. Nothing about one client lives outside its workspace (section 5) | exists + abcd |
 | R23 | **abcd runs headless in the cloud, in the Agent Harness, as well as on an FDE's machine** | `harness-skills/abcd/` ships abcd as a skill bundle, the same way `harness-skills/noui/` ships NoUI. A harness turn clones the workspace repo into the sandbox and runs the same commands. Credentials come from `SANDBOX_*` vault secrets in an Adopt-owned Builder home org (section 6) | setup + abcd |
 | R24 | Skills, agents and the Builder's own plugin stay one system | The `abcd-builder` plugin that ships today is extended, not replaced. NoUI's replay approval and the default skill tier are folded into the release rules (sections 7 and 13) | abcd |
+| R25 | **One CLI.** Every Builder and harness command is reachable as `abcd <group> <command>`, with the same `--env`, `--json`, `--yes` and exit codes, installed with one `pip install` locally and in the cloud | Package mode with an `abcd` console script, a shared command layer, existing scripts moved behind it without breaking their old entry points, WDL passed through (section 17) | abcd |
 
 ## 2. What the FDE does
 
@@ -252,7 +253,7 @@ workspaces/<env>/                        one client org = one workspace = one pr
 - **Capture bundles never go in git.** Login recordings and non-browser workflow recordings keep the full HAR and the app's cookies, which no scan reliably strips.
   - `abcd ws push-bundles` uploads them, and every `recording_bundle.json`, to a `noui-bundles` Doc Store linked only to `builder-ops`. It records their paths and SHA-256 in `harness/bundles.lock.json`.
   - `abcd ws pull-bundles` restores them on another machine, or in the cloud, before a recompile or a release that needs them.
-  - Committing them later would need a scrubber for cookies, `Authorization`, `Set-Cookie` and session parameters, enforced by the hook below (section 19).
+  - Committing them later would need a scrubber for cookies, `Authorization`, `Set-Cookie` and session parameters, enforced by the hook below (section 20).
 - A workspace pre-commit hook refuses a commit when any of these fail:
   - abcd's content secret scan (`cli/harness_common/secret_scan.py`) over every staged file;
   - NoUI's `count_sensitive_unredacted` over anything bundle-shaped;
@@ -288,8 +289,8 @@ The same abcd code, the same workspace repo, and the same commands run in both p
 | | Local | Cloud |
 |---|---|---|
 | Where | The FDE's machine, in Claude Code, Codex or Cursor | An Agent Harness turn in the client's Builder home org |
-| abcd itself | A checkout of this repo | `abcd-bundle.zip`, unzipped into `/workspace/abcd` with Python's `zipfile` and run in place with `PYTHONPATH=/workspace/abcd` |
-| Dependencies | `poetry install` | `pip install requests python-dotenv PyYAML httpx pydantic` and `pip install -e cli/noui`. abcd's `pyproject.toml` has `package-mode = false`, so abcd itself can't be pip-installed, and the WDL discovery dependencies (faiss, sentence-transformers) aren't needed |
+| abcd itself | A checkout of this repo, installed with `poetry install` (the `abcd` command) | `abcd-bundle.zip`, unzipped into `/workspace/abcd` with Python's `zipfile` and installed with `pip install /workspace/abcd` |
+| Dependencies | `poetry install` (add `-E wdl` for WDL discovery) | The core install only. NoUI comes with it as a path dependency, and the WDL extras (faiss, sentence-transformers) aren't installed (section 17) |
 | The workspace | `workspaces/<env>/`, cloned once | Cloned fresh into `/workspace/abcd/workspaces/<env>/` on every run, at a pinned ref |
 | Platform credentials | The FDE's Admin PAT in `workspaces/<env>/.env` | `SANDBOX_ABCD_PAT_CLIENT_ID` and `SANDBOX_ABCD_PAT_SECRET` in the home org vault, written into the workspace `.env` at bootstrap |
 | Git credentials | The FDE's own `git` and `gh` login | `SANDBOX_GITHUB_TOKEN`: a fine-grained token limited to this client's workspace repo, passed to `git` through a credential helper and never put in a remote URL |
@@ -310,7 +311,7 @@ The same abcd code, the same workspace repo, and the same commands run in both p
 
 **The Builder home org, one per client**
 - **Why it exists:** sandbox secrets are org-wide, so an Admin PAT stored in a client org's vault would reach every sandbox there, including the client's own agents. The home org holds the credentials instead. It is Adopt-owned, its users are FDEs and leads, and it has no client users and no client-facing agents.
-- **Why one per client:** every sandbox in an org gets every `SANDBOX_*` secret, and cloud runs read untrusted content (transcripts, emails, SME uploads). A shared home org would put every client's Admin PAT in reach of a prompt injection in any one client's material. One home org per client limits that to the client's own PAT and repo. A shared home org is acceptable only if that risk is accepted in writing (section 19).
+- **Why one per client:** every sandbox in an org gets every `SANDBOX_*` secret, and cloud runs read untrusted content (transcripts, emails, SME uploads). A shared home org would put every client's Admin PAT in reach of a prompt injection in any one client's material. One home org per client limits that to the client's own PAT and repo. A shared home org is acceptable only if that risk is accepted in writing (section 20).
 - **Workstream:** one, `abcd-<env>`, with a Doc Store holding one file, `abcd-workspace.json` (`env`, `repo`, `ref`). The harness copies it into the sandbox, so a run knows its workspace without being told.
 - **Processes:**
   - `abcd-runner`: FDE-driven. It does what the chat asks. `abcd release` becomes a gated step, so the FDE's approval is a HITL answer in that chat.
@@ -402,7 +403,7 @@ Every step runs in the active workspace (`--env` to pick another), locally or in
 
 In the cloud, "Subscription" steps run on platform tokens instead, and step 1's NoUI capture and replay stay local (section 6).
 
-**`abcd <area> <command>` is `python cli/abcd.py <area> <command>`.** abcd's `pyproject.toml` has `package-mode = false`, so there's no console script; `ADOPT.md` suggests a shell alias. `cli/abcd.py` dispatches to the existing scripts and the new `builder_*` ones.
+**`abcd <group> <command>` is the installed `abcd` CLI** (section 17). The existing scripts keep working as `python cli/<script>.py`, and WDL is reachable as `abcd wdl <script>`.
 
 **What a step reuses from the combined branch:**
 
@@ -741,18 +742,71 @@ On every release:
 
 Both run in the FDE's coding agent, or in the cloud runner when the release ran there. Prompts in the kit are run on a dataset case during `abcd test-staged`, and only the ones that work ship. A kit that fails to generate is flagged on the release; the release itself isn't blocked.
 
-## 17. Where the new code goes in abcd
+## 17. One CLI: `abcd`
 
-Everything follows the conventions already on the branch:
-- one `cli/<area>.py` script per area, with shared code in a `cli/<area>_common/` package;
-- `--env` on every command, defaulting to the active workspace;
+**Today:** abcd's command surface is 46 separate scripts in `cli/`. Each has its own `argparse` and its own `sys.path.insert` so it can be run as `python cli/<script>.py`. Only 18 of them take `--env` and only 6 take `--json`. The `abcd-builder` skills call `python cli/...` 111 times, and the README and `agents.md` another 327 times. `pyproject.toml` has `package-mode = false`, so there's no `abcd` command and abcd can't be pip-installed. That's why cloud mode would otherwise have to run abcd in place with `PYTHONPATH` and a hand-picked dependency list.
+
+**The Builder first turns abcd into one installable CLI.** Every Builder command is born inside it, and the existing scripts move behind it without breaking.
+
+**Packaging**
+- `pyproject.toml` switches to package mode. The `cli` package is installed and `[tool.poetry.scripts] abcd = "cli.abcd:main"` gives an `abcd` command. `poetry install` locally, or `pip install -e .` in a checkout or a sandbox, both provide it.
+- NoUI stays its own package (`cli/noui`, `noui_core`) and becomes a path dependency of abcd, so one install brings both.
+- **Extras:**
+  - The core install covers the harness, NoUI and Builder commands: requests, httpx, python-dotenv, PyYAML, pydantic, colorama, plus NoUI.
+  - `abcd[wdl]` adds faiss-cpu, sentence-transformers and numpy, which only WDL discovery uses.
+  - `abcd[ce]` adds Playwright, replacing today's `ce` group.
+- **Cloud:** `abcd-bundle.zip` carries the source, and the `abcd` harness skill runs `pip install /workspace/abcd` (core only). `PYTHONPATH` and the hand-written dependency list go away (section 6).
+
+**The command tree:** `abcd <group> <command>`. One root parser builds it from a registry. Each module registers its own group.
+
+| Group | Commands | Comes from |
+|---|---|---|
+| `ws` | `list`, `use`, `show`, `create`, `delete`, `init`, `clone`, `status`, `pull`, `push-bundles`, `pull-bundles` | `workspace.py env ...` (moved) plus new Builder commands |
+| `skill` | `audit`, `push`, `verify`, `delete`, `deploy-default` | `harness_skill.py` (moved) |
+| `plugin` | `push` | `harness_skill.py push-plugin` (moved) |
+| `agent` | `list`, `get`, `create`, `update`, `delete`, `workstreams`, `run`, `push`, `pull` | `harness_process.py` (moved) plus bundle push and pull |
+| `run`, `runs`, `trace`, `conversations` | as today | `harness_run.py`, `harness_runs.py`, `harness_trace.py`, `harness_conversations.py` (moved) |
+| `workstream` | `ensure`, `seed` | `harness_workstream.py` (moved) |
+| `noui` | `env`, `paths`, `list`, `doctor`, `scripts`, `run`, and each NoUI script | `noui_workspace.py` (moved) |
+| `tabby` | `status`, `init`, `up`, `provision`, `down`, `full` | `tabby_bootstrap.py` (moved) |
+| `builder` | `setup` | new |
+| `plan`, `dataset`, `metric`, `check`, `criteria`, `eval`, `gap`, `instructions`, `context`, `status`, `report`, `explain`, `train`, `cloud` | as in sections 8 to 16 | new |
+| `stage`, `test-staged`, `release`, `rollback`, `audit` | as in section 7 | new |
+| `wdl` | `abcd wdl <script> [args]`, e.g. `abcd wdl save_wdl_draft ...` | Every WDL script, passed through unchanged (legacy) |
+
+**One command layer** (`cli/core/`):
+- **`context.py`:** resolves `--env` once for every command, with the active workspace as the default. It loads the workspace `.env` the way `harness_common/auth.py` does, and builds API clients lazily.
+- **`output.py`:**
+  - A command returns a result object. Without `--json` it's printed for people, the way the scripts print today. With `--json` it's printed as one JSON document on stdout, and logs and progress go to stderr.
+  - Exit codes are the same everywhere: 0 done; 1 refused, or a check or gate failed; 2 usage error; 3 platform or network error.
+- **`events.py`:** wraps every command once to write `bld_dev_events` (R16), instead of each script logging for itself.
+- **Global flags on every command:** `--env`, `--json`, `--yes` (never prompt; every approval that matters is a recorded decision or a HITL step, not a terminal prompt), `--verbose`. Every command that writes also takes `--dry-run`.
+
+**Migration, without breaking anything**
+1. **Builder commands are written natively** as `cli/builder_*.py` modules that only register commands. No standalone script is added.
+2. **The harness, NoUI and Tabby scripts move behind `abcd`.** Each keeps its file, splits into `register(subparsers)` plus handler functions, and keeps `if __name__ == "__main__": sys.exit(main())`. So `python cli/harness_skill.py push ...` and `abcd skill push ...` run the same code. The `sys.path.insert` hacks stay only in that `__main__` path, for a checkout without an install.
+3. **WDL scripts aren't touched.** `abcd wdl <script>` runs the script's `main()` with the remaining arguments. Their docs stay as they are, with one note pointing at `abcd wdl`.
+4. **Docs follow the code.** Each move updates the `abcd-builder` skills, the README and `agents.md` for that group in the same change. `skill-builder` and `discover-and-plan` switch to `abcd ...`; `action-builder` and `pipeline-builder` switch to `abcd wdl ...`.
+5. **Tests guard it** (`tests/cli/`):
+   - every registered command accepts `--env` and `--json`;
+   - `--json` output parses and keeps stdout clean;
+   - every `abcd ...` or `python cli/...` command written in a `SKILL.md`, the README or `agents.md` resolves to a real command (like the existing `tests/abcd/test_plugin_layout.py`);
+   - an old script and its `abcd` command give the same result on the offline fixtures.
+
+## 18. Where the new code goes in abcd
+
+Everything follows the conventions already on the branch, plus the CLI rules in section 17:
+- one `cli/<area>.py` module per command group, registered in the `abcd` CLI, with shared code in a `cli/<area>_common/` package;
+- `--env`, `--json`, `--yes` and `--verbose` on every command, with `--env` defaulting to the active workspace;
 - the workspace `.env` loaded the same way as `harness_common` loads it;
 - the frontmatter lint, `audit` and secret scan before anything is uploaded;
 - `ruff` over `cli/`, `tests/` and `harness-skills/`, and `mypy` over `cli/`, as CI runs them.
 
 | Path | What |
 |---|---|
-| `cli/abcd.py` | The `abcd <area> <command>` dispatcher over the existing scripts and the new `builder_*` ones |
+| `pyproject.toml` | Package mode, the `abcd` console script, NoUI as a path dependency, the `wdl` and `ce` extras |
+| `cli/abcd.py` | The `abcd` entry point: the root parser built from the command registry |
+| `cli/core/` | `registry.py`, `context.py` (`--env`, `.env`, clients), `output.py` (`--json`, exit codes), `events.py` (`bld_dev_events`), `passthrough.py` (`abcd wdl`) |
 | `cli/builder_common/workspace.py` | Builder paths on top of `harness_common/workspace.py`: `builder.json`, agent bundles, datasets, checks, reports; the workspace `.gitignore` and `ADOPT.md` templates |
 | `cli/builder_common/repo.py` | `git` for workspace repos (init, clone, status, tags, the default-branch check, the pre-commit hook), and pull requests and releases through `gh` locally or the GitHub REST API in the cloud |
 | `cli/builder_common/orgdb.py` | Data Store client (`/v1/org-db/*`), extending `HarnessAPIClient` |
@@ -763,7 +817,7 @@ Everything follows the conventions already on the branch:
 | `cli/builder_common/evals/` | One runner per dataset kind, the scorers, blind mode, resumable runs, the report |
 | `cli/builder_common/gaps.py`, `instructions.py` | Gap lifecycle, instruction compilation, the leak check |
 | `cli/builder_common/events.py` | `bld_dev_events` logging around every command, tagged local or cloud |
-| `cli/builder_ws.py` | `abcd ws init, clone, status, pull, push-bundles, pull-bundles` |
+| `cli/builder_ws.py` | `abcd ws init, clone, status, pull, push-bundles, pull-bundles` (the existing `env` commands move into `ws`) |
 | `cli/builder_setup.py` | `abcd builder setup` |
 | `cli/builder_plan.py` | `abcd plan propose, approve, show` |
 | `cli/builder_agent.py` | Agent bundle push and pull |
@@ -779,32 +833,41 @@ Everything follows the conventions already on the branch:
 | `abcd-builder/hooks/` | Claude Code hooks that upload session transcripts to `builder-ops/sessions/` and log `bld_dev_sessions` (R16) |
 | `abcd-builder/skills/<skill>/SKILL.md` | The nine new skills in section 13; `skill-builder` gains the staged flow |
 | `harness-skills/abcd/` | `SKILL.md`, `build_bundle.py`, `README.md` for the cloud runner (section 6) |
+| `tests/cli/` | The CLI guards in section 17 |
 | `tests/builder/` | Offline tests against a fake API client, following `tests/abcd/test_funnel_offline.py`. They cover: the staged rewrite round trip; that NoUI files survive staging byte for byte; the browser gate refusing a missing or forged token; the leak check; the drift diff; the workspace `.gitignore` and pre-commit hook (bundles, cookies, `security_params`); that no table row ever holds an expected value; and that no command reads or writes outside `workspaces/<env>/` |
 
-## 18. Build order
+## 19. Build order
 
-0. **Land the base.** Merge abcd PR #25 (NoUI into abcd) and noui PR #150, then retarget this plan onto `dev`.
-1. **Workspace repos and agent bundles.**
+0. **Land the base.** This plan is merged into `feat/noui-merge` (PR #29). Merge abcd PR #25 (NoUI into abcd) and noui PR #150 into `dev`. Implementation happens on `feat/adopt-builder`, branched from `feat/noui-merge`.
+1. **One CLI.**
    - Scope:
-     - `cli/abcd.py`;
+     - package mode, the `abcd` console script and the extras;
+     - `cli/core/` (registry, context, output, events, passthrough);
+     - the harness, NoUI and Tabby scripts moved behind `abcd` with their old entry points kept;
+     - `abcd wdl` passthrough;
+     - the `abcd-builder` skills, README and `agents.md` switched over;
+     - `tests/cli/`.
+   - Done when `pip install .` in a clean venv gives a working `abcd`, every non-WDL command takes `--env` and `--json`, every old `python cli/...` invocation still works, and the docs-command test passes.
+2. **Workspace repos and agent bundles.**
+   - Scope:
      - `abcd ws init`, `clone`, `status`, `pull`, `push-bundles` and `pull-bundles`, with the workspace `.gitignore`, pre-commit hook, `builder.json` and `ADOPT.md`;
      - agent bundles in `harness/agents/`, pushed and pulled through the process routes in `harness_common/api_client.py`;
      - the `workspace-setup` and `agent-builder` skills.
    - Done when a client workspace cloned on a second machine redeploys its skills and agents from the repo and a PAT alone, and `abcd ws pull` round-trips an existing client's live objects.
-2. **Versions and releases.**
+3. **Versions and releases.**
    - Scope:
      - `abcd builder setup` and the tables;
      - shadow staged objects, `push --staged` with the lock, `stage`, `release`, `rollback` and `audit drift`;
      - the browser-skill gate on every push, and the default-tier rules;
      - the `release-manager` skill.
    - Done when a skill change goes draft, staged, live and back, with tags on the workspace repo and version rows, and a browser skill with a stale approval or no approval token is refused.
-3. **The cloud runner.**
+4. **The cloud runner.**
    - Scope:
      - `harness-skills/abcd/` and `abcd cloud bootstrap`;
      - a Builder home org for the first client, with its vault secrets and `abcd-<env>` workstream;
      - the `abcd-runner` and `abcd-nightly` processes, and the nightly drift audit.
    - Done when an FDE runs steps 2 to 10 of the loop from a harness chat with no local machine, and the nightly run reports drift for a workspace with no FDE online.
-4. **Datasets, metrics, blind evals and the gate.**
+5. **Datasets, metrics, blind evals and the gate.**
    - Scope:
      - dataset CRUD, checks, metrics and criteria;
      - the eval runner with blind mode;
@@ -812,16 +875,16 @@ Everything follows the conventions already on the branch:
      - the gate and the eval report;
      - the `dataset-builder`, `eval-runner` and `context-gaps` skills.
    - Done when abcd refuses to release a linked agent without a passing report, locally and in the cloud.
-5. **Context, status and training.**
+6. **Context, status and training.**
    - Scope:
      - the Context curator and the Status agent;
      - `abcd status publish` and `abcd-weekly`, and the client status workstreams;
      - `explain` and `train`;
      - wiring NoUI output into the KG and draft `goal_reached` checks.
 
-The NoUI and Tabby scenario isn't a build step anymore. It ships with the base, and steps 1 and 2 wire it into agent bundles and the gate.
+The NoUI and Tabby scenario isn't a build step anymore. It ships with the base; step 1 puts it behind `abcd noui` and `abcd tabby`, and steps 2 and 3 wire it into agent bundles and the gate.
 
-## 19. Open questions
+## 20. Open questions
 
 1. **One workstream per case:** work-product pairs get a workstream each, while labelled and read-your-writes datasets share one. Is the `kind = dataset` tag enough at hundreds of workstreams?
 2. **Test systems for read-your-writes:** which agents have a test tenant to write to? The CRM agent in the first pilot does. Agents without one can only be evaluated on refusals and dry runs.
@@ -845,3 +908,4 @@ The NoUI and Tabby scenario isn't a build step anymore. It ships with the base, 
 20. **NoUI bundles:** the plan keeps capture bundles out of git, in a `noui-bundles` Doc Store, because login and non-browser recordings carry full HARs and cookies. Is a scrubber worth building so they can be committed, and do any client data terms forbid even the Doc Store copy?
 21. **Repo hosting:** one GitHub org for all client workspace repos, or the client's own GitHub when they ask for it? abcd only needs a remote URL and a token that can push.
 22. **Default-tier dependencies:** should an agent be allowed to use a default-tier skill at all? Today the nightly blind gate catches changes after the fact, and the alternative is copying the skill into the workspace as an org skill.
+23. **The installed package name:** abcd installs its code as a top-level `cli` package, which is a generic name that could clash with another package. Rename it (e.g. to `abcd_cli`) now, at the cost of touching every import, or later once the CLI has settled?
