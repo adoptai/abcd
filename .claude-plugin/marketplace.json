@@ -1,0 +1,21 @@
+{
+  "name": "abcd",
+  "owner": {
+    "name": "Adopt AI"
+  },
+  "metadata": {
+    "description": "The abcd toolkit's Claude Code plugins. Run them from an abcd checkout: the skills drive the CLI in cli/."
+  },
+  "plugins": [
+    {
+      "name": "abcd-builder",
+      "source": "./abcd-builder",
+      "description": "Record a website into a skill (NoUI + Tabby), verify/install/run it on the Agent Harness, and author WDL actions and pipelines."
+    },
+    {
+      "name": "adopt-skill-review",
+      "source": "./adopt-skill-review",
+      "description": "Review an Adopt agent-harness skill or plugin for step budget, batching, latency and reliability."
+    }
+  ]
+}

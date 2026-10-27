@@ -47,8 +47,14 @@ def list_runs(
 
     try:
         response = client.list_runs(
-            status=status, source=source, workstream_id=workstream_id, agent=agent,
-            search=search, time_range=time_range, page=page, page_size=page_size,
+            status=status,
+            source=source,
+            workstream_id=workstream_id,
+            agent=agent,
+            search=search,
+            time_range=time_range,
+            page=page,
+            page_size=page_size,
         )
     except HarnessAPIError as e:
         print(f"❌ Failed to list runs: {e}")
@@ -89,7 +95,9 @@ def run_detail(run_id: str, env: str | None, as_json: bool) -> int:
         return 0
 
     print(f"🔎 {detail.get('id')}  [{detail.get('status')}]  {detail.get('agent_name')}")
-    print(f"   initiated_by={detail.get('initiated_by')}  workstream={detail.get('workstream_name')}")
+    print(
+        f"   initiated_by={detail.get('initiated_by')}  workstream={detail.get('workstream_name')}"
+    )
     if detail.get("error_message"):
         print(f"   error: {detail['error_message']}")
     for turn in detail.get("conversation_turns", []):
@@ -122,7 +130,9 @@ def main() -> None:
 
     list_p = sub.add_parser("list", help="List runs across the whole org")
     list_p.add_argument("--range", dest="time_range", help="24h | 7d | 30d | all")
-    list_p.add_argument("--status", help="succeeded | active | waiting_on_hitl | failed | cancelled")
+    list_p.add_argument(
+        "--status", help="succeeded | active | waiting_on_hitl | failed | cancelled"
+    )
     list_p.add_argument("--source", help="pipeline | conversation")
     list_p.add_argument("--workstream-id")
     list_p.add_argument("--agent")
@@ -133,12 +143,16 @@ def main() -> None:
     list_p.add_argument("--json", action="store_true", help="Print raw JSON instead of a summary")
 
     detail_p = sub.add_parser("detail", help="Get one run's detail, by source-prefixed run id")
-    detail_p.add_argument("--run-id", required=True, help="e.g. cv:<conversation_id> or pr:<pipeline_run_id>")
+    detail_p.add_argument(
+        "--run-id", required=True, help="e.g. cv:<conversation_id> or pr:<pipeline_run_id>"
+    )
     detail_p.add_argument("--env")
     detail_p.add_argument("--json", action="store_true")
 
     trace_p = sub.add_parser("trace", help="Get every cached turn trace for a conversation")
-    trace_p.add_argument("--conversation-id", required=True, help="Bare conversation UUID, no cv: prefix")
+    trace_p.add_argument(
+        "--conversation-id", required=True, help="Bare conversation UUID, no cv: prefix"
+    )
     trace_p.add_argument("--env")
     trace_p.add_argument("--json", action="store_true")
 
@@ -147,8 +161,16 @@ def main() -> None:
     if args.command == "list":
         sys.exit(
             list_runs(
-                args.time_range, args.status, args.source, args.workstream_id, args.agent,
-                args.search, args.page, args.page_size, args.env, args.json,
+                args.time_range,
+                args.status,
+                args.source,
+                args.workstream_id,
+                args.agent,
+                args.search,
+                args.page,
+                args.page_size,
+                args.env,
+                args.json,
             )
         )
     elif args.command == "detail":
