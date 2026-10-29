@@ -26,23 +26,26 @@ over SKILL.md and every aux file -- zip members included -- BEFORE the PAT is
 exchanged; a finding blocks the upload unless --allow-secret-findings is passed.
 
 Usage:
-    python cli/harness_skill.py audit <skill_dir>
-    python cli/harness_skill.py push <skill_dir> [--name NAME] [--replace] [--force] [--skip-audit]
+    abcd skill audit <skill_dir>
+    abcd skill push <skill_dir> [--name NAME] [--replace] [--force] [--skip-audit]
                                      [--aux ARCNAME=PATH ...] [--allow-secret-findings] [--env ENV]
-    python cli/harness_skill.py verify <skill_name> [--env ENV]
-    python cli/harness_skill.py delete <skill_name> --yes [--env ENV]
-    python cli/harness_skill.py push-plugin <plugin_dir> [--replace] [--force] [--skip-audit]
+    abcd skill verify <skill_name> [--env ENV]
+    abcd skill delete <skill_name> --yes [--env ENV]
+    abcd plugin push <plugin_dir> [--replace] [--force] [--skip-audit]
                                      [--allow-secret-findings] [--env ENV]
-    python cli/harness_skill.py deploy-default <skill_dir> [--name NAME] [--bundle-version V]
+    abcd skill deploy-default <skill_dir> [--name NAME] [--bundle-version V]
                                      [--min-platform-contract N] [--aux ARCNAME=PATH ...]
                                      [--dry-run] [--env ENV]
+    (the old `python cli/harness_skill.py audit|push|verify|delete|push-plugin|deploy-default`
+    form still works; `push-plugin` is `abcd plugin push`)
 
 `deploy-default` publishes to the platform-wide default ("Built-in") tier -- every
 org sees it, and the endpoint is gated to @adopt.ai principals. It is how the NoUI
 harness skill ships (see harness-skills/noui/ and .github/workflows/deploy-skill.yml).
 """
 
-import argparse
+from __future__ import annotations
+
 import base64
 import io
 import json
@@ -51,13 +54,19 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import yaml
 
+from cli.builder_common.errors import UsageError
+from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import HarnessAPIError, get_harness_client_for_env
 from cli.harness_common.secret_scan import Finding, scan_bytes
+
+if TYPE_CHECKING:
+    from cli.core.context import Context
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n(.*)\Z", re.DOTALL)
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -165,6 +174,9 @@ _EXCLUDED_DIR_NAMES = {
 # excluded directory above.
 _EXCLUDED_FILE_SUFFIXES = (".pem", ".key", ".pyc", ".pyo")
 _EXCLUDED_FILENAME_SUBSTRINGS = (".env",)
+# NoUI capture data: recording_bundle.json keeps the full login HAR and the app's cookies
+# (PLAN section 3). It is read locally by the browser-skill gate and never uploaded.
+_EXCLUDED_FILE_NAMES = {"recording_bundle.json"}
 
 
 def _is_excluded(rel_parts: tuple[str, ...]) -> bool:
@@ -176,6 +188,8 @@ def _is_excluded(rel_parts: tuple[str, ...]) -> bool:
         # still checks it); every other dotfile and .env variant is not.
         return False
     if name.startswith("."):
+        return True
+    if name in _EXCLUDED_FILE_NAMES:
         return True
     if name.endswith(_EXCLUDED_FILE_SUFFIXES):
         return True
@@ -357,10 +371,22 @@ def verify(skill_name: str, expected_meta: dict | None, env: str | None) -> int:
         live_has_process = bool(live.get("has_process") or live.get("process"))
         if expected_has_process and not live_has_process:
             catalog = client.list_skills()
-            entries = catalog if isinstance(catalog, list) else next(
-                (catalog[k] for k in ("skills", "items", "data") if isinstance(catalog, dict) and k in catalog), [])
+            entries: list[Any] = (
+                catalog
+                if isinstance(catalog, list)
+                else next(
+                    (
+                        catalog[k]
+                        for k in ("skills", "items", "data")
+                        if isinstance(catalog, dict) and k in catalog
+                    ),
+                    [],
+                )
+            )
             live_has_process = any(
-                isinstance(s, dict) and s.get("name") == skill_name and s.get("has_process") for s in entries)
+                isinstance(s, dict) and s.get("name") == skill_name and s.get("has_process")
+                for s in entries
+            )
         if expected_has_process and not live_has_process:
             print(
                 "\n❌ MISMATCH: local SKILL.md has a 'process:' block, but the live skill does "
@@ -570,124 +596,157 @@ def deploy_default(
     return 0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
+def _cmd_audit(ctx: Context) -> int:
+    if not ctx.args.skill_dir.is_dir():
+        # The audit script answers a missing path with exit 2 ("critical findings") and a bare
+        # JSON error; a wrong path is a usage error, not a skill finding.
+        raise UsageError(f"not a directory: {ctx.args.skill_dir}")
+    return audit(ctx.args.skill_dir)
 
-    audit_p = sub.add_parser(
-        "audit", help="Run the local adopt-skill-review check (free, no harness spend)"
-    )
-    audit_p.add_argument(
-        "skill_dir", type=Path, help="Local directory containing SKILL.md (+ aux files)"
+
+def _cmd_push(ctx: Context) -> int:
+    a = ctx.args
+    if ctx.dry_run_notice(f"would audit and upload skill dir {a.skill_dir}"):
+        return 0
+    return push(
+        a.skill_dir,
+        a.name,
+        a.replace,
+        a.force,
+        a.skip_audit,
+        a.env,
+        a.allow_secret_findings,
+        a.aux,
     )
 
-    push_p = sub.add_parser("push", help="Upload a local skill directory to the org tier")
-    push_p.add_argument(
-        "skill_dir", type=Path, help="Local directory containing SKILL.md (+ aux files)"
+
+def _cmd_verify(ctx: Context) -> int:
+    return verify(ctx.args.skill_name, None, ctx.env_arg)
+
+
+def _cmd_delete(ctx: Context) -> int:
+    if ctx.dry_run_notice(f"would delete org skill '{ctx.args.skill_name}'"):
+        return 0
+    return delete(ctx.args.skill_name, ctx.env_arg, ctx.yes)
+
+
+def _cmd_push_plugin(ctx: Context) -> int:
+    a = ctx.args
+    if ctx.dry_run_notice(f"would audit, zip and upload plugin dir {a.plugin_dir}"):
+        return 0
+    return push_plugin(
+        a.plugin_dir, a.replace, a.force, a.skip_audit, a.env, a.allow_secret_findings
     )
-    push_p.add_argument("--name", help="Override skill name (defaults to frontmatter 'name')")
-    push_p.add_argument(
+
+
+def _cmd_deploy_default(ctx: Context) -> int:
+    a = ctx.args
+    return deploy_default(
+        a.skill_dir,
+        a.name,
+        a.bundle_version,
+        a.min_platform_contract,
+        a.aux,
+        a.dry_run,
+        a.env,
+        a.allow_secret_findings,
+    )
+
+
+def register(registry: Registry) -> None:
+    """Register ``abcd skill ...`` and ``abcd plugin push`` (and the flat ``harness_skill.py``)."""
+    skill = registry.group("skill", "Agent-harness skills")
+    plugin = registry.group("plugin", "Agent-harness plugins")
+
+    p = skill.command(
+        "audit",
+        _cmd_audit,
+        help="Run the local adopt-skill-review check (free, no harness spend)",
+        legacy_name="audit",
+    )
+    p.add_argument("skill_dir", type=Path, help="Local directory containing SKILL.md (+ aux files)")
+
+    p = skill.command(
+        "push",
+        _cmd_push,
+        help="Upload a local skill directory to the org tier",
+        writes=True,
+        legacy_name="push",
+    )
+    p.add_argument("skill_dir", type=Path, help="Local directory containing SKILL.md (+ aux files)")
+    p.add_argument("--name", help="Override skill name (defaults to frontmatter 'name')")
+    p.add_argument(
         "--replace", action="store_true", help="Overwrite an existing skill of the same name"
     )
-    push_p.add_argument(
+    p.add_argument(
         "--force", action="store_true", help="Push even if adopt-skill-review finds critical issues"
     )
-    push_p.add_argument(
+    p.add_argument(
         "--skip-audit", action="store_true", help="Skip the adopt-skill-review check entirely"
     )
-    push_p.add_argument(
+    p.add_argument(
         "--aux",
         action="append",
         help="Upload exactly these aux files (ARCNAME=PATH, repeatable) instead of the dir's",
     )
-    push_p.add_argument(
+    p.add_argument(
         "--allow-secret-findings",
         action="store_true",
         help="Upload even if the content secret scan reports findings (false positives only)",
     )
-    push_p.add_argument("--env", help="Environment to use (defaults to active env)")
 
-    verify_p = sub.add_parser("verify", help="Re-fetch a live skill and print it")
-    verify_p.add_argument("skill_name")
-    verify_p.add_argument("--env", help="Environment to use (defaults to active env)")
-
-    delete_p = sub.add_parser("delete", help="Delete an org-tier skill")
-    delete_p.add_argument("skill_name")
-    delete_p.add_argument("--yes", action="store_true", help="Confirm the delete")
-    delete_p.add_argument("--env", help="Environment to use (defaults to active env)")
-
-    plugin_p = sub.add_parser("push-plugin", help="Zip + upload a plugin dir to the org tier")
-    plugin_p.add_argument(
-        "plugin_dir", type=Path, help="Dir with .claude-plugin/plugin.json + skills/"
+    p = skill.command(
+        "verify",
+        _cmd_verify,
+        help="Re-fetch a live skill and print it",
+        legacy_name="verify",
     )
-    plugin_p.add_argument("--replace", action="store_true")
-    plugin_p.add_argument("--force", action="store_true")
-    plugin_p.add_argument("--skip-audit", action="store_true")
-    plugin_p.add_argument("--allow-secret-findings", action="store_true")
-    plugin_p.add_argument("--env", help="Environment to use (defaults to active env)")
+    p.add_argument("skill_name")
 
-    dd_p = sub.add_parser("deploy-default", help="Publish to the platform default (Built-in) tier")
-    dd_p.add_argument("skill_dir", type=Path)
-    dd_p.add_argument("--name", help="Catalog slug (defaults to frontmatter 'name')")
-    dd_p.add_argument("--bundle-version", default="dev")
-    dd_p.add_argument("--min-platform-contract", type=int, default=1)
-    dd_p.add_argument(
+    p = skill.command(
+        "delete",
+        _cmd_delete,
+        help="Delete an org-tier skill (needs --yes)",
+        writes=True,
+        legacy_name="delete",
+    )
+    p.add_argument("skill_name")
+
+    p = plugin.command(
+        "push",
+        _cmd_push_plugin,
+        help="Zip + upload a plugin dir to the org tier",
+        writes=True,
+        legacy_name="push-plugin",
+    )
+    p.add_argument("plugin_dir", type=Path, help="Dir with .claude-plugin/plugin.json + skills/")
+    p.add_argument("--replace", action="store_true")
+    p.add_argument("--force", action="store_true")
+    p.add_argument("--skip-audit", action="store_true")
+    p.add_argument("--allow-secret-findings", action="store_true")
+
+    p = skill.command(
+        "deploy-default",
+        _cmd_deploy_default,
+        help="Publish to the platform default (Built-in) tier",
+        writes=True,
+        legacy_name="deploy-default",
+    )
+    p.add_argument("skill_dir", type=Path)
+    p.add_argument("--name", help="Catalog slug (defaults to frontmatter 'name')")
+    p.add_argument("--bundle-version", default="dev")
+    p.add_argument("--min-platform-contract", type=int, default=1)
+    p.add_argument(
         "--aux",
         action="append",
         help="Aux file as ARCNAME=PATH (repeatable); default: the skill dir's aux files",
     )
-    dd_p.add_argument("--dry-run", action="store_true", help="Validate the payload only")
-    dd_p.add_argument("--allow-secret-findings", action="store_true")
-    dd_p.add_argument("--env", help="Environment to use (defaults to active env)")
+    p.add_argument("--allow-secret-findings", action="store_true")
 
-    args = parser.parse_args()
 
-    if args.command == "audit":
-        sys.exit(audit(args.skill_dir))
-    elif args.command == "push":
-        sys.exit(
-            push(
-                args.skill_dir,
-                args.name,
-                args.replace,
-                args.force,
-                args.skip_audit,
-                args.env,
-                args.allow_secret_findings,
-                args.aux,
-            )
-        )
-    elif args.command == "verify":
-        sys.exit(verify(args.skill_name, None, args.env))
-    elif args.command == "delete":
-        sys.exit(delete(args.skill_name, args.env, args.yes))
-    elif args.command == "push-plugin":
-        sys.exit(
-            push_plugin(
-                args.plugin_dir,
-                args.replace,
-                args.force,
-                args.skip_audit,
-                args.env,
-                args.allow_secret_findings,
-            )
-        )
-    elif args.command == "deploy-default":
-        sys.exit(
-            deploy_default(
-                args.skill_dir,
-                args.name,
-                args.bundle_version,
-                args.min_platform_contract,
-                args.aux,
-                args.dry_run,
-                args.env,
-                args.allow_secret_findings,
-            )
-        )
+def main(argv: list[str] | None = None) -> int:
+    return legacy_main("harness_skill.py", register, __doc__, argv)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

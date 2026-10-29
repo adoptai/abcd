@@ -14,32 +14,40 @@ A skill/plugin is attached by name, not by id: components is a list of
 {"type": "skill"|"plugin", "source": "org", "ref": <skill name or plugin
 slug>}, resolved against the org's skill/plugin catalog at read time (see
 adoptwebui/docs/agent-harness/processes.md). Push the skill first via
-cli/harness_skill.py push, then reference its frontmatter name here.
+abcd skill push, then reference its frontmatter name here.
 
 delete is soft-delete only -- there is no hard delete on this resource.
 
 Usage:
-    python cli/harness_process.py list [--env ENV]
-    python cli/harness_process.py get <process_id> [--env ENV]
-    python cli/harness_process.py create <name> <display_name> [--description TEXT]
+    abcd agent list [--env ENV]
+    abcd agent get <process_id> [--env ENV]
+    abcd agent create <name> <display_name> [--description TEXT]
         [--component TYPE:REF ...] [--instructions TEXT] [--enable] [--env ENV]
-    python cli/harness_process.py update <process_id> [--display-name TEXT]
+    abcd agent update <process_id> [--display-name TEXT]
         [--description TEXT] [--component TYPE:REF ...] [--instructions TEXT]
         [--enable] [--disable] [--env ENV]
-    python cli/harness_process.py delete <process_id> [--env ENV]
-    python cli/harness_process.py get-workstreams <process_id> [--env ENV]
-    python cli/harness_process.py set-workstreams <process_id> <workstream_id> [<workstream_id> ...] [--env ENV]
-    python cli/harness_process.py run <process_id> [--env ENV]
+    abcd agent delete <process_id> [--env ENV]
+    abcd agent workstreams <process_id> [--env ENV]
+    abcd agent set-workstreams <process_id> <workstream_id> [<workstream_id> ...] [--env ENV]
+    abcd agent run <process_id> [--env ENV]
+    (the old `python cli/harness_process.py <command> ...` form still works; get-workstreams
+    is `abcd agent workstreams`)
 """
 
-import argparse
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import HarnessAPIError, get_harness_client_for_env
+
+if TYPE_CHECKING:
+    from cli.core.context import Context
 
 
 def _parse_components(raw: list[str] | None) -> list[dict[str, str]]:
@@ -251,107 +259,142 @@ def cmd_run(process_id: str, env: str | None) -> int:
     return 0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+def _cmd_list(ctx: Context) -> int:
+    return cmd_list(ctx.env_arg)
+
+
+def _cmd_get(ctx: Context) -> int:
+    return cmd_get(ctx.args.process_id, ctx.env_arg)
+
+
+def _cmd_create(ctx: Context) -> int:
+    a = ctx.args
+    if ctx.dry_run_notice(f"would create process '{a.name}' ({a.display_name})"):
+        return 0
+    return cmd_create(
+        a.name, a.display_name, a.description, a.components, a.instructions, a.enable, a.env
     )
-    sub = parser.add_subparsers(dest="command", required=True)
 
-    list_p = sub.add_parser("list", help="List processes (agents) in the org")
-    list_p.add_argument("--env", help="Environment to use (defaults to active env)")
 
-    get_p = sub.add_parser("get", help="Fetch one process by id")
-    get_p.add_argument("process_id")
-    get_p.add_argument("--env", help="Environment to use (defaults to active env)")
+def _cmd_update(ctx: Context) -> int:
+    a = ctx.args
+    if ctx.dry_run_notice(f"would update process {a.process_id}"):
+        return 0
+    return cmd_update(
+        a.process_id,
+        a.display_name,
+        a.description,
+        a.components,
+        a.instructions,
+        a.enable,
+        a.disable,
+        a.env,
+    )
 
-    create_p = sub.add_parser("create", help="Create a new process (agent)")
-    create_p.add_argument("name", help="Stable slug, unique per org, immutable after creation")
-    create_p.add_argument("display_name", help="Customer-facing name")
-    create_p.add_argument("--description")
-    create_p.add_argument(
+
+def _cmd_delete(ctx: Context) -> int:
+    if ctx.dry_run_notice(f"would soft-delete process {ctx.args.process_id}"):
+        return 0
+    return cmd_delete(ctx.args.process_id, ctx.env_arg)
+
+
+def _cmd_get_workstreams(ctx: Context) -> int:
+    return cmd_get_workstreams(ctx.args.process_id, ctx.env_arg)
+
+
+def _cmd_set_workstreams(ctx: Context) -> int:
+    a = ctx.args
+    if ctx.dry_run_notice(f"would set workstreams of {a.process_id} to {a.workstream_ids}"):
+        return 0
+    return cmd_set_workstreams(a.process_id, a.workstream_ids, a.env)
+
+
+def _cmd_run(ctx: Context) -> int:
+    if ctx.dry_run_notice(f"would test-run process {ctx.args.process_id}"):
+        return 0
+    return cmd_run(ctx.args.process_id, ctx.env_arg)
+
+
+def register(registry: Registry) -> None:
+    """Register ``abcd agent ...`` (and the flat ``harness_process.py`` CLI)."""
+    group = registry.group("agent", "Agents (processes) in the org")
+
+    group.command("list", _cmd_list, help="List processes (agents) in the org", legacy_name="list")
+
+    p = group.command("get", _cmd_get, help="Fetch one process by id", legacy_name="get")
+    p.add_argument("process_id")
+
+    p = group.command(
+        "create",
+        _cmd_create,
+        help="Create a new process (agent)",
+        writes=True,
+        legacy_name="create",
+    )
+    p.add_argument("name", help="Stable slug, unique per org, immutable after creation")
+    p.add_argument("display_name", help="Customer-facing name")
+    p.add_argument("--description")
+    p.add_argument(
         "--component",
         dest="components",
         action="append",
         help="TYPE:REF, e.g. skill:email-sorting-plugin -- repeatable",
     )
-    create_p.add_argument("--instructions", help="Orchestration prompt (agent_instructions)")
-    create_p.add_argument("--enable", action="store_true", help="Create as Live, not Draft")
-    create_p.add_argument("--env", help="Environment to use (defaults to active env)")
+    p.add_argument("--instructions", help="Orchestration prompt (agent_instructions)")
+    p.add_argument("--enable", action="store_true", help="Create as Live, not Draft")
 
-    update_p = sub.add_parser("update", help="Patch an existing process")
-    update_p.add_argument("process_id")
-    update_p.add_argument("--display-name")
-    update_p.add_argument("--description")
-    update_p.add_argument(
+    p = group.command(
+        "update", _cmd_update, help="Patch an existing process", writes=True, legacy_name="update"
+    )
+    p.add_argument("process_id")
+    p.add_argument("--display-name")
+    p.add_argument("--description")
+    p.add_argument(
         "--component",
         dest="components",
         action="append",
         help="TYPE:REF -- repeatable; passing any replaces the FULL components list",
     )
-    update_p.add_argument("--instructions")
-    update_p.add_argument("--enable", action="store_true")
-    update_p.add_argument("--disable", action="store_true")
-    update_p.add_argument("--env", help="Environment to use (defaults to active env)")
+    p.add_argument("--instructions")
+    p.add_argument("--enable", action="store_true")
+    p.add_argument("--disable", action="store_true")
 
-    delete_p = sub.add_parser("delete", help="Soft-delete a process")
-    delete_p.add_argument("process_id")
-    delete_p.add_argument("--env", help="Environment to use (defaults to active env)")
-
-    gws_p = sub.add_parser("get-workstreams", help="List workstreams assigned to a process")
-    gws_p.add_argument("process_id")
-    gws_p.add_argument("--env", help="Environment to use (defaults to active env)")
-
-    sws_p = sub.add_parser(
-        "set-workstreams", help="Full replace of a process's assigned workstreams"
+    p = group.command(
+        "delete", _cmd_delete, help="Soft-delete a process", writes=True, legacy_name="delete"
     )
-    sws_p.add_argument("process_id")
-    sws_p.add_argument("workstream_ids", nargs="+")
-    sws_p.add_argument("--env", help="Environment to use (defaults to active env)")
+    p.add_argument("process_id")
 
-    run_p = sub.add_parser("run", help="Builder test-run across all assigned workstreams")
-    run_p.add_argument("process_id")
-    run_p.add_argument("--env", help="Environment to use (defaults to active env)")
+    p = group.command(
+        "workstreams",
+        _cmd_get_workstreams,
+        help="List workstreams assigned to a process",
+        legacy_name="get-workstreams",
+    )
+    p.add_argument("process_id")
 
-    args = parser.parse_args()
+    p = group.command(
+        "set-workstreams",
+        _cmd_set_workstreams,
+        help="Full replace of a process's assigned workstreams",
+        writes=True,
+        legacy_name="set-workstreams",
+    )
+    p.add_argument("process_id")
+    p.add_argument("workstream_ids", nargs="+")
 
-    if args.command == "list":
-        sys.exit(cmd_list(args.env))
-    elif args.command == "get":
-        sys.exit(cmd_get(args.process_id, args.env))
-    elif args.command == "create":
-        sys.exit(
-            cmd_create(
-                args.name,
-                args.display_name,
-                args.description,
-                args.components,
-                args.instructions,
-                args.enable,
-                args.env,
-            )
-        )
-    elif args.command == "update":
-        sys.exit(
-            cmd_update(
-                args.process_id,
-                args.display_name,
-                args.description,
-                args.components,
-                args.instructions,
-                args.enable,
-                args.disable,
-                args.env,
-            )
-        )
-    elif args.command == "delete":
-        sys.exit(cmd_delete(args.process_id, args.env))
-    elif args.command == "get-workstreams":
-        sys.exit(cmd_get_workstreams(args.process_id, args.env))
-    elif args.command == "set-workstreams":
-        sys.exit(cmd_set_workstreams(args.process_id, args.workstream_ids, args.env))
-    elif args.command == "run":
-        sys.exit(cmd_run(args.process_id, args.env))
+    p = group.command(
+        "run",
+        _cmd_run,
+        help="Builder test-run across all assigned workstreams",
+        writes=True,
+        legacy_name="run",
+    )
+    p.add_argument("process_id")
+
+
+def main(argv: list[str] | None = None) -> int:
+    return legacy_main("harness_process.py", register, __doc__, argv)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

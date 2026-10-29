@@ -1,6 +1,6 @@
 # Adopt Builder: plan
 
-**Status:** draft for review, revised 2026-10-27 (first draft 2026-10-20)
+**Status:** implemented on `feat/adopt-builder` (offline-verified and run live on staging, see section 22). Plan revised 2026-10-27 (first draft 2026-10-20)
 **Companion:** [`adopt_builder_spec.html`](adopt_builder_spec.html) is an interactive explainer of this plan for FDEs. Open it in a browser.
 **Base:** abcd `feat/noui-merge` (PR #25, `a25c228`): abcd and NoUI together. Everything this plan calls "today" or "exists" is on that branch.
 **Checked against:** adoptai-workflows `29a3fe717` (sandbox secrets and skill tiers re-checked at `4e39b4570`), adoptwebui `88416ad0c`, abcd `a25c228`.
@@ -172,7 +172,7 @@ All of these were verified in code. Paths are relative to `adoptwebui/backend/ap
 | Default skills changing under an agent | Default-tier skills update on Adopt's schedule; an org can't pin them | Each version records the `bundle_version` of every default skill it uses. The nightly cloud run re-runs the blind gate on live when one moves (section 6) | A regression shows up the next morning, not before |
 | Org skill hiding a default skill | Org skills override defaults totally on a name collision. The platform's own guard refuses that collision only when `replace` is off | The first upload of any new name goes without `replace`, so the platform's guard fires. Later releases need `replace`, so `abcd release` checks the name against the default catalog itself and refuses unless a lead records a decision. `abcd audit drift` lists every org skill that shadows a default | None |
 | Client view with per-user filtering | Data Store has no per-user row security | Clients get a read grant only on their Builder status workstream, which holds files; no table access | Scorecards are files, refreshed daily |
-| PAT identity | Some routes record the token id (`sub`) instead of the user | abcd runs everything through `POST /turns`, which records the user. Cron pipelines are created once from a browser session | Pipeline setup is one manual step |
+| PAT identity | Some routes record the token id (`sub`) instead of the user | abcd runs everything through `POST /turns`, which records the user. `abcd pipeline create` exists for test and admin use, and warns that a PAT-created pipeline records the token id as its owner. Production cron pipelines are still created once from a browser session | Pipeline setup is one manual step |
 | FDE permissions | Skill, process, workstream and grant writes need Admin | FDEs use Admin PATs in the orgs they build for | FDEs can edit outside the Builder; the drift audit covers that |
 | Credentials for cloud runs | Sandbox secrets are org-wide: every sandbox in the org gets every `SANDBOX_*` secret, including sandboxes that read untrusted content (transcripts, emails, SME uploads) | The cloud runner lives in an Adopt-owned **Builder home org, one per client**, with no client users and no client-facing agents. Its vault holds only that client's Admin PAT and a GitHub token scoped to that client's workspace repo. Nothing goes in a client org's vault (section 6) | A prompt injection in one client's material can reach that client's PAT, but never another client's |
 | Sandboxes are short-lived | A sandbox is reaped after ~10 minutes idle, and one `bash` call is capped at 60 minutes | Every cloud run clones the workspace repo fresh, at a pinned ref. Results go to the Doc Store, the tables, or a pushed branch, never only to the sandbox. `abcd eval run` is resumable: it submits turns, records their ids in `bld_eval_runs`, and later calls poll and score | Each cloud run pays a clone and a dependency install |
@@ -293,7 +293,7 @@ The same abcd code, the same workspace repo, and the same commands run in both p
 | Dependencies | `poetry install` (add `-E wdl` for WDL discovery) | The core install only. NoUI comes with it as a path dependency, and the WDL extras (faiss, sentence-transformers) aren't installed (section 17) |
 | The workspace | `workspaces/<env>/`, cloned once | Cloned fresh into `/workspace/abcd/workspaces/<env>/` on every run, at a pinned ref |
 | Platform credentials | The FDE's Admin PAT in `workspaces/<env>/.env` | `SANDBOX_ABCD_PAT_CLIENT_ID` and `SANDBOX_ABCD_PAT_SECRET` in the home org vault, written into the workspace `.env` at bootstrap |
-| Git credentials | The FDE's own `git` and `gh` login | `SANDBOX_GITHUB_TOKEN`: a fine-grained token limited to this client's workspace repo, passed to `git` through a credential helper and never put in a remote URL |
+| Git credentials | The FDE's own `git` and `gh` login | `SANDBOX_GITHUB_TOKEN`: a fine-grained token limited to this client's workspace repo, passed to `git` through a credential helper and never put in a remote URL. Or `SANDBOX_GITHUB_DEPLOY_KEY`: a repo-scoped write deploy key, written to a 0600 file under the sandbox home and used through `GIT_SSH_COMMAND` (git only; pull requests and releases are flagged) |
 | Platform endpoint | `ADOPT_WEBUI_ENDPOINT` in `.env` | `ADOPT_APP_BASE_URL`, unless `SANDBOX_ABCD_WEBUI_ENDPOINT` overrides it |
 | Who pays for the model | The FDE's subscription | Platform tokens |
 | NoUI capture and replay | Yes | No. The Tabby broker is minted for the home org's conversation, not the client org, so recording and replay stay local |
@@ -324,7 +324,10 @@ The same abcd code, the same workspace repo, and the same commands run in both p
     - the daily FDE report.
   - `abcd-weekly`: the Friday scorecard, sent through the home org's Slack or Gmail integration.
 - **Pushing back:** a cloud run never changes the default branch. Code changes go to a pushed `cloud/<conversation>` branch. abcd opens pull requests and GitHub releases through the GitHub REST API, so it doesn't depend on `gh` being in the sandbox image. Reports and status go to the Doc Store and tables.
-- **Approvals in the cloud:** the FDE's own chat turns are `user_message` events. So the browser-skill approval token (section 7) and the release approval are both the FDE's own messages, never the agent's.
+- **Approvals in the cloud:** the FDE's own chat turns are `user_message` events. So the browser-skill approval token (section 7) and the release approval are both the FDE's own messages, never the agent's. A human types them in the chat UI: `abcd hitl approve-release` and `approve-skill` are refused in a cloud run. abcd accepts a token only from a `user_message` of a workstream-shared run (`is_shared`), whose author is present and is not the user the PAT authenticates as, and only in the conversation the sandbox was started for (recorded in `.builder/cloud.json` at bootstrap and cross-checked against `ADOPT_CONVERSATION_ID`). A private chat is refused. A rollback needs its own token (`action="rollback"`; a release token never authorises one); `agent push` without `--staged`, `--redeploy` and every self-asserted name (`--approved-by`, `--by`, `--lead`, `--vetted-by`) are refused. The facts and the limits are in section 21.
+- **Cloud mode detection:** a run is a cloud run when `ADOPT_CONVERSATION_ID`, `ABCD_PAT_CLIENT_ID` or `ADOPT_APP_BASE_URL` is set, or when the workspace has `.builder/cloud.json`. One unset variable does not leave it. A hostile agent can still unset all of them and delete the marker: these checks guard against mistakes, not against an agent that works around them (section 21).
+- **Deploy key instead of a token:** `cloud bootstrap` accepts `GITHUB_DEPLOY_KEY` when `GITHUB_TOKEN` is absent (the token wins if both are set). The key goes to `~/.abcd/github_deploy_key` (0600, outside the workspace), the remote becomes `git@github.com:<owner>/<repo>.git`, and `GIT_SSH_COMMAND` (`-i <key> -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`) is set for every network git call; the workspace's `core.sshCommand` is set the same way. A deploy key cannot call the REST API, so the PR and GitHub-release steps are flagged, not failed, and bootstrap reports `github_api: flagged`.
+- **Git credentials:** the sandbox token is used only for `github.com` (a credential helper scoped to `https://github.com`), and only in a cloud run or when `ABCD_GITHUB_TOKEN` is set. A plain `GH_TOKEN` or `GITHUB_TOKEN` in a local shell never replaces the user's own login, and a local run never clears the machine's helpers.
 - **Attribution:** a cloud run logs `bld_dev_events` as `cloud:<process>`, with `ADOPT_CONVERSATION_ID`, so the daily report can tell cloud runs from FDE runs.
 
 **What stays in the client org:** the Builder workstreams, Doc Stores and tables (section 9), the staged and live objects, and the client-facing meta agents: the Status agent, the Context agent and the maker-checker step. None of these hold credentials, and none of them call abcd.
@@ -642,7 +645,7 @@ Every operation also writes the case files and manifest in the workspace, and co
 
 **Build phase exit criteria**
 - Every active case reproduces blind, or its gap is waived with a lead's approval.
-- No gaps are open, asked or encoded.
+- No gaps are open, asked, answered or encoded.
 - No instruction has a flagged leak check.
 - The blind reproduction rate meets its release criterion.
 
@@ -671,7 +674,7 @@ Every operation also writes the case files and manifest in the workspace, and co
 
 ## 13. Meta skills and meta agents
 
-**The `abcd-builder` plugin** (`abcd-builder/`, listed in abcd's `.claude-plugin/marketplace.json`) is the one plugin FDEs install. It ships four skills today. The Builder extends it to thirteen and bumps it to 0.2.0. `adopt-skill-review` stays a separate plugin in the same marketplace, and `abcd review` calls it.
+**The `abcd-builder` plugin** (`abcd-builder/`, listed in abcd's `.claude-plugin/marketplace.json`) is the one plugin FDEs install. It ships four skills today. The Builder extends it to fourteen and bumps it to 0.2.0. `adopt-skill-review` stays a separate plugin in the same marketplace, and `abcd review` calls it.
 
 | Skill | Status | Covers (the first draft's `builder-*` names) |
 |---|---|---|
@@ -688,6 +691,7 @@ Every operation also writes the case files and manifest in the workspace, and co
 | `context-gaps` | new | Gaps, the SME loop, instructions and the leak check (`builder-gaps`, `builder-instructions`) |
 | `release-manager` | new | `stage`, `test-staged`, `release`, `rollback`, `audit drift`, the default-tier rules (`builder-release`) |
 | `explain-and-train` | new | `abcd explain`, `abcd train` (`builder-explain`, `builder-train`) |
+| `session-debug` | new | Driving harness sessions, logs, HITL resolution and pipelines: `abcd session`, `abcd hitl`, `abcd pipeline` (not in the first draft) |
 | (`adopt-skill-review` plugin) | exists | `abcd review` (`builder-review`) |
 
 The plugin is installed once per FDE machine, at onboarding (it's user-global, not per workspace), through abcd's marketplace (`claude plugin marketplace add <abcd checkout>` then `claude plugin install abcd-builder@abcd`, or `npx skills add <abcd checkout>` for other agents), as the README already documents. In the cloud, the plugin's skills ship inside `abcd-bundle.zip`, and the `abcd` harness skill points the agent at them.
@@ -771,6 +775,13 @@ Both run in the FDE's coding agent, or in the cloud runner when the release ran 
 | `tabby` | `status`, `init`, `up`, `provision`, `down`, `full` | `tabby_bootstrap.py` (moved) |
 | `builder` | `setup` | new |
 | `plan`, `dataset`, `metric`, `check`, `criteria`, `eval`, `gap`, `instructions`, `context`, `status`, `report`, `explain`, `train`, `cloud` | as in sections 8 to 16 | new |
+| `session` | `start`, `send`, `status`, `logs`, `outputs`, `stop` | new: drive a harness conversation |
+| `hitl` | `list`, `resolve`, `answer`, `decide`, `approve-skill`, `approve-release` | new: resolve held gates and questions |
+| `pipeline` | `create`, `list`, `get`, `activate`, `pause`, `delete`, `runs` | new: test and admin use (section 4, PAT identity) |
+| `events` | `flush`, `session start`, `session end` | new: `bld_dev_events` and the Claude Code hooks (R16) |
+| `kg` | `page`, `link`, `impact` | new: knowledge graph pages and edges |
+| `report` | `daily`, `scorecard` | new |
+| `build-exit` | (top-level command) | new: the build-phase exit check (section 11) |
 | `stage`, `test-staged`, `release`, `rollback`, `audit` | as in section 7 | new |
 | `wdl` | `abcd wdl <script> [args]`, e.g. `abcd wdl save_wdl_draft ...` | Every WDL script, passed through unchanged (legacy) |
 
@@ -909,3 +920,94 @@ The NoUI and Tabby scenario isn't a build step anymore. It ships with the base; 
 21. **Repo hosting:** one GitHub org for all client workspace repos, or the client's own GitHub when they ask for it? abcd only needs a remote URL and a token that can push.
 22. **Default-tier dependencies:** should an agent be allowed to use a default-tier skill at all? Today the nightly blind gate catches changes after the fact, and the alternative is copying the skill into the workspace as an org skill.
 23. **The installed package name:** abcd installs its code as a top-level `cli` package, which is a generic name that could clash with another package. Rename it (e.g. to `abcd_cli`) now, at the cost of touching every import, or later once the CLI has settled?
+
+## 21. Cloud approvals: what the platform guarantees, and what it doesn't
+
+abcd's cloud checks are defence in depth against an agent's mistakes. An agent with a PAT and a shell can call the BFF directly, so the boundary has to come from platform facts. Read from adoptwebui `origin/dev` (`backend/app/routes/end_user_agent_harness.py`, `backend/app/dependencies/harness_caller.py`):
+
+- **A PAT is a user.** The caller's `user_id` is the JWT `sub` and `org_id` its `tenantId` (`harness_caller.py:28-42`). `GET /v1/end-user/agent-harness/me` returns `user_id`, `email` and `role` (`end_user_agent_harness.py:414-448`). PAT tokens have been seen with `userId` different from `sub`, so abcd treats every claim and the `/me` id as the PAT's identity.
+- **A conversation has an owner**, `created_by_user_id` (`end_user_agent_harness.py:714-719`); abcd does not look it up.
+  - `POST /turns` into a conversation another user owns returns 403 "You do not have access to this conversation" (`end_user_agent_harness.py:733-739`; the rule is `agent_conversation_service.py:220-230`).
+  - The exception is a workstream-shared run (a run the system agent created, or a person started with an agent's Run button): any member of that workstream may take a turn in it (`agent_conversation_service.py:223-227`, `harness_caller.py:120-126`). The transcript follows the same rule (`end_user_agent_harness.py:1746-1768`).
+- **What responses expose.** The transcript has `events`, `is_shared` and an `authors` map `{user_id: {name, email}}`. For a shared conversation it stamps `author_user_id` on each user-side event (`end_user_agent_harness.py:1821-1834`, `message_attribution.py:43-101`). In a private chat human turns carry no author, so they cannot be told from the PAT's own: "cloud approvals need a workstream-shared run; the platform attributes human turns only there".
+
+So a PAT cannot write into another user's private chat but can write into a shared run, and authorship is what tells a human's turn from the agent's. abcd accepts an approval token only when, in the one transcript it fetched (no owner lookup, no second fetch; `browser_gate` uses the same transcript): the transcript is a workstream-shared run (`is_shared`), the token is in a `user_message`, that event's `author_user_id` (or author email) is present and is not the PAT's identity, and the conversation is the one the sandbox was started for. Otherwise it refuses with a message; it never accepts silently.
+
+The release token is `<!--adopt:release-approval v="1" action="release" release="<agent>@v<n>" sha="<sha12>"-->`; a rollback uses `action="rollback"` and names the version rolled back to. The action is matched. `abcd hitl approve-release --action release|rollback` sends either from a local machine; it is refused in a cloud run. A cloud rollback to a version that records no git sha is refused; local rollbacks are not affected.
+
+**Limits.**
+- If the cloud PAT belongs to the same user as the human who chats, no turn can be told from the human's. The agent can post the token through the API and abcd cannot see the difference.
+- An agent can unset every variable and delete `.builder/cloud.json`. That run is no longer in cloud mode, so the approval check is skipped, and identity and the self-asserted flags fall back to local behaviour. abcd does not claim to fail closed here: the real boundary is the service-user PAT. The marker is looked up only in the workspace (the given directory, or the one holding it or the cwd), never in sibling workspaces, and a marker once found is remembered for the process.
+- A local FDE machine is not a sandbox: nothing here stops a person from doing locally what a cloud run may not.
+
+**Platform-side mitigation.** The cloud PAT is owned by a dedicated service user (for example `builder@adopt.ai` per client org), never by an FDE. Then the author check holds by platform fact: the service user cannot post into the FDE's private chat, and in a shared run its turns carry its own id. This resolves open question 17 in favour of the service user.
+
+## 22. Implementation status
+
+Implemented on the `feat/adopt-builder` line of work (integration branch `integ/adopt-builder`). Everything below is verified offline: unit tests, command tests and an end-to-end suite that drives the real `abcd` CLI against an in-process fake of the BFF routes (`tests/integration/`). **Nothing has been run against a live platform yet** (see "Not run live").
+
+### What is built, by build step
+
+| Step | Built | Commands |
+|---|---|---|
+| 1. One CLI | Package mode, `abcd` console script, `wdl`/`ce` extras, `cli/core/` (registry, context, `--json`, exit codes, events), harness/NoUI/Tabby scripts moved behind `abcd` with their old entry points kept, WDL passthrough | `abcd <group> <command>`, `abcd wdl <script>` |
+| 2. Workspace repos and agent bundles | Workspace layout, `builder.json` (with `role: home\|client`), `.gitignore`, pre-commit hook (secret scan, unredacted captures, cookie headers, `security_params`), `ADOPT.md`, git/GitHub helpers (gh locally, REST in the cloud, token via a credential helper only), bundles to the `noui-bundles` store | `ws init\|clone\|status\|pull [--check\|--adopt]\|push-bundles\|pull-bundles\|hook`, `agent new\|push\|pull\|diff` |
+| 3. Versions and releases | 25 `bld_*` table specs (paths and hashes only for answers), Data Store client, version ledger, staged lock, drift, default-tier pins, staged copies, the browser-skill gate (full parity with the platform's install gate, plus the member token), release in nine steps, rollback, redeploy | `builder setup`, `push --staged`, `stage`, `test-staged`, `release`, `rollback`, `audit drift`, `plan *` |
+| 4. Cloud runner | `harness-skills/abcd/` (bundle + SKILL.md), bootstrap from `SANDBOX_*` secrets, home-org setup, runner/nightly/weekly process templates, release as a gated HITL step | `cloud bootstrap\|bundle\|nightly\|setup --home`, `meta install` |
+| 5. Datasets, evals, gaps, gate | Four dataset kinds, resumable blind evals through the BFF, all scorers incl. `goal_reached`, judging packets, the gate incl. `no_regression`, the six-section report, context gaps, instructions with the leak check | `dataset *`, `metric *`, `check *`, `criteria *`, `eval *`, `gap *`, `instructions *`, `build-exit` |
+| 6. Context, status, training | KG pages and edges, context pull, status and scorecards, daily report, explainer and training kit, events sink to `bld_dev_events`, Claude Code session hooks, client-org meta agents (status, context, curator) and the maker-checker skill | `context *`, `kg *`, `status [publish]`, `report *`, `explain`, `train`, `events *`, `meta maker-checker` |
+| Added beyond the plan | Driving harness sessions and pulling logs, resolving HITL, pipelines for process runs, NoUI wiring into bundles/KG/checks | `session start\|send\|status\|logs\|outputs\|stop`, `hitl list\|resolve\|answer\|decide\|approve-skill\|approve-release`, `pipeline *`, `wire skill\|kg\|goal-check\|all` |
+
+The `abcd-builder` plugin ships 14 skills (the four existing ones plus the ten in section 13, incl. `session-debug`), all checked by tests against the real command parsers (every documented command and flag must exist, and full invocations must carry required options).
+
+### Decisions made during implementation
+
+- **Releases ship exactly what was staged.** Release validates the latest `staged` record (not a later draft) against the source and the staged commit, and refuses if a newer staged push exists.
+- **Approvals in the cloud are a human's messages, never flags** (section 21). In a cloud run (any sandbox variable, or the bootstrap marker), `--force-reason/--lead`, `--accept-regression`, `--local-approval` and every `--by/--approved-by/--vetted-by` are refused, live `agent push` is refused, `hitl approve-*` is refused, and release and rollback each need their own `<!--adopt:release-approval ... action="release|rollback" ...-->` token written by a human other than the PAT's user in the sandbox's own conversation. Locally the flags remain; lead approvals there are by process, as section 4 says.
+- **No command commits to the default branch.** Commands that commit while on it move the work to a `builder/<topic>-<date>-<id>` branch and commit only their own paths. The release branch is cut from `origin/<default>`. `ws init` pushes the default branch only for the first commit or an empty remote.
+- **Stage tags** are `<agent>@v<n>-rc`, then `-rc.1`, `-rc.2` when a version is re-staged at a new commit (squash merges); the tag is recorded on the version row.
+- **`recording_bundle.json` is never uploaded** (it holds the full HAR and cookies); it stays local for the browser gate.
+- **One identity** (`cli/builder_common/identity.py`): `cloud:<process>` in the cloud, else `ABCD_FDE`, the workspace's git email, `$USER`.
+- **Typed exit codes**: a refused PAT exchange exits 3, missing PAT config exits 2.
+- **Gap exit criteria** count `answered` gaps as unresolved (section 11).
+- **`release.yaml`** has one schema: top-level `dataset`, `criteria: [{metric, comparator, target, ...}]`, with the two automatic blind criteria.
+
+### Live staging run (2026-10-29)
+
+Run on staging, in an Adopt-owned org (owner-confirmed), from a dedicated workspace, through the BFF with a PAT only. Every object created is prefixed `abcd-test-` or is Builder-named; nothing pre-existing was changed or deleted (70 recorded mutations, 0 deletes). Harness turns used the cheapest model.
+
+| Area | Result |
+|---|---|
+| PAT exchange and tenant check | PASS |
+| Skills (incl. one with a gated `process:` step), plugin, workstream, agent create/assign/disable | PASS |
+| Sessions: start, send, status, logs and traces, outputs, stop; legacy `run start/continue`; runs and conversations | PASS |
+| HITL: list, resolve (gated step left review), answer, decide | PASS; `hitl decide` on a real policy escalation (workstream-scoped test policy, held `ws_list`, reject recorded, platform ran the follow-up turn) |
+| Pipelines: manual draft create, get, list, run-now (a RUN_PROCESS pipeline fires), runs, pause | PASS |
+| Workspace repo: init, status, pre-commit hook, branch push, clone (local bare remote) | PASS |
+| `builder setup` (5 workstreams, 6 stores, 25 tables), idempotent re-run | PASS |
+| drift, pull plan, build plan | PASS |
+| `push --staged` (staged agent on staging/dataset workstreams only), `stage` (rc tags) | PASS |
+| Dataset, blind eval (submit, resume), report, gate, gaps, `build-exit`, `test-staged` | PASS |
+| `release` (live process verified, release row, tags, release branch from `origin/main`) | PASS; GitHub PR/release flagged (no GitHub remote) |
+| second release (v2) then `rollback` to v1 | PASS; live skill body hash equals v1, rollback row recorded, both processes disabled afterwards |
+| `cloud setup --home`, 2nd run, `cloud bootstrap` with no `SANDBOX_*` | PASS; idempotent, bootstrap exits 2 naming every missing variable; no vault writes, no cron pipelines |
+| status, publish, explain, train, events and session hooks | PASS |
+
+About 25 bugs found live were fixed with offline regression tests, and the fake BFF was corrected to the observed behaviour. Examples:
+- `created_source` is an enum.
+- A table column named `workstream_id` collides with the platform's own column.
+- A new workstream gets a linked "Workstream Files" store.
+- `GET /skills` returns the body without its frontmatter.
+- The conversation list is `{items}`.
+- A turn's stream replays earlier turns first.
+- Eval conversation ids must be plain hex.
+
+### Still to verify live
+
+1. A GitHub remote (PR and release creation through `gh` or REST); only local bare repositories were used.
+2. The `abcd-runner` approval flow in a workstream-shared run with a service-user PAT (section 21).
+3. Whether a brand-new org needs `/v1/org-db/provision` before `builder setup` (this org did not).
+
+### Publishing note
+
+The integration history contains one commit with client identifiers in a test fixture (removed in a later commit). Publish this work squashed, or rewrite that commit, so it never reaches the open-source remote.

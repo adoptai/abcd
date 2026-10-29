@@ -1,0 +1,11 @@
+name: abcd-nightly
+display_name: abcd nightly
+description: Nightly run for one client workspace. A cron pipeline starts it; it runs abcd cloud nightly.
+components:
+- type: skill
+  source: org
+  ref: abcd
+workstreams:
+- abcd-${env}
+write_workstreams: []
+is_enabled: true

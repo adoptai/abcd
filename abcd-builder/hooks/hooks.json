@@ -1,0 +1,27 @@
+{
+  "description": "Adopt Builder: log each Claude Code session to the Builder (bld_dev_sessions) when an abcd workspace with builder.json is active. Never blocks or fails the session.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/abcd_session_hook.py\" start || python \"${CLAUDE_PLUGIN_ROOT}/hooks/abcd_session_hook.py\" start",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/abcd_session_hook.py\" end || python \"${CLAUDE_PLUGIN_ROOT}/hooks/abcd_session_hook.py\" end",
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
