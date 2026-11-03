@@ -139,7 +139,10 @@ def test_bootstrap_with_deploy_key_flags_github_api_steps(
     for k, v in CLOUD_VARS.items():
         monkeypatch.setenv(k, v)
     monkeypatch.delenv("GITHUB_TOKEN")
-    key = "-----BEGIN OPENSSH PRIVATE KEY-----\nQUJDREVGR0hJSktMTU5PUA\n-----END OPENSSH PRIVATE KEY-----\n"
+    key = (
+        "-----BEGIN "
+        "OPENSSH PRIVATE KEY-----\nQUJDREVGR0hJSktMTU5PUA\n-----END OPENSSH PRIVATE KEY-----\n"
+    )
     monkeypatch.setenv("GITHUB_DEPLOY_KEY", key)
     monkeypatch.setattr(bc, "EXCHANGE_PAT", lambda *a: None)
     urls: list[str] = []

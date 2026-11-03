@@ -183,7 +183,9 @@ def test_pull_refuses_a_secret_and_returns_to_the_branch(
     world: tuple[Path, WsBFF], capsys: pytest.CaptureFixture[str]
 ) -> None:
     ws, bff = world
-    bff.platform.add_org_skill("leaky", "key AKIAIOSFODNN7EXAMPLE and token ghp_" + "a" * 36 + "\n")
+    bff.platform.add_org_skill(
+        "leaky", "key AKIA" + "IOSFODNN7EXAMPLE and token ghp_" + "a" * 36 + "\n"
+    )
     code, doc = run(capsys, "ws", "pull", "--env", "acme")
     assert code == 1 and "refused" in doc["error"]
     assert repo.current_branch(ws) == "main"

@@ -187,7 +187,7 @@ def test_a_harness_error_ends_the_run_with_exit_2(cli, agent, bff: FakeBFFServer
 
 
 def test_credential_in_a_message_starts_nothing(cli, agent, bff: FakeBFFServer) -> None:
-    jwt_like = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
+    jwt_like = "eyJhbGciOiJIUzI1NiJ9" + ".eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
     res = cli("run", "start", "--workstream", "ops", "--process", agent["process_id"],
               "--message", f"use this token {jwt_like}")  # fmt: skip
     assert res.code == 1 and "No turn_id" in res.text

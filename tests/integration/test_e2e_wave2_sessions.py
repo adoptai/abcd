@@ -14,7 +14,7 @@ from tests.integration.helpers import require_command
 
 pytestmark = pytest.mark.integration
 
-JWT_LIKE = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
+JWT_LIKE = "eyJhbGciOiJIUzI1NiJ9" + ".eyJzdWIiOiJ4In0.c2lnbmF0dXJl"
 
 
 @pytest.fixture

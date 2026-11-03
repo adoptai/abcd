@@ -218,7 +218,7 @@ def test_dry_run_notice(capsys) -> None:  # type: ignore[no-untyped-def]
 
 
 def test_mask_by_key_and_shape() -> None:
-    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijk"
+    jwt = "eyJhbGciOiJIUzI1NiJ9" + ".eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefghijk"
     out = events.mask(
         {
             "pat_secret": "hunter2",

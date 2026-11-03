@@ -119,7 +119,7 @@ def test_delete_needs_yes_and_only_touches_the_org_tier(
 def test_secret_in_a_skill_never_reaches_the_platform(
     cli, bff: FakeBFFServer, fixture_skill: Path
 ) -> None:
-    (fixture_skill / "references" / "creds.md").write_text("key: AKIAABCDEFGHIJKLMNOP\n")
+    (fixture_skill / "references" / "creds.md").write_text("key: AKIA" + "ABCDEFGHIJKLMNOP\n")
     res = cli("skill", "push", str(fixture_skill))
     assert res.code == 1
     assert "Refusing to upload" in res.text

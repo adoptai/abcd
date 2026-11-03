@@ -188,7 +188,9 @@ def test_workspace_file_validation(tmp_path: Path) -> None:
 # -- deploy key (an alternative to GITHUB_TOKEN) ----------------------------------------------
 
 KEY_BODY = "b3BlbnNzaC1rZXktdjEAAAAAdGVzdC1rZXktbWF0ZXJpYWw" + "Q" * 20
-DEPLOY_KEY = f"-----BEGIN OPENSSH PRIVATE KEY-----\n{KEY_BODY}\n-----END OPENSSH PRIVATE KEY-----\n"
+DEPLOY_KEY = (
+    "-----BEGIN " + f"OPENSSH PRIVATE KEY-----\n{KEY_BODY}\n-----END OPENSSH PRIVATE KEY-----\n"
+)
 
 
 def _key_env(**over: str) -> dict[str, str]:

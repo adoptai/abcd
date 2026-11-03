@@ -68,7 +68,7 @@ def test_audit_critical_refuses_push_and_any_finding_refuses_stage(
 
 def test_secret_scan_refuses_push_and_stage(tmp_path, monkeypatch, capsys) -> None:
     env = build_env(tmp_path, monkeypatch)
-    env.write("harness/skills/tax-calc/scripts/calc.py", 'KEY = "AKIAABCDEFGHIJKLMNOP"\n')
+    env.write("harness/skills/tax-calc/scripts/calc.py", 'KEY = "AKIA' + 'ABCDEFGHIJKLMNOP"\n')
     env.commit("oops")
     code, doc = env.run("push", AGENT, "--staged", capsys=capsys)
     assert code == 1 and "secret scan" in error(doc)

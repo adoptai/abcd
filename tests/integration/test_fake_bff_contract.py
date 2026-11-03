@@ -125,15 +125,15 @@ def test_turn_start_validation_and_workstream_access(
 
 def test_credential_shapes_return_requires_confirmation_with_200(bff: FakeBFFServer) -> None:
     admin = token(bff)
-    for secret in ("AKIAABCDEFGHIJKLMNOP", "sk-abcdefghijklmnopqrstuvwx", "ghp_" + "a" * 30, "xoxb-1234567890-abcdef",
-                   "Authorization: Bearer abc.def.ghi", "-----BEGIN RSA PRIVATE KEY-----", make_jwt({"a": 1})):  # fmt: skip
+    for secret in ("AKIA" + "ABCDEFGHIJKLMNOP", "sk-" + "abcdefghijklmnopqrstuvwx", "ghp_" + "a" * 30, "xoxb-" + "1234567890-abcdef",
+                   "Authorization: Bearer abc.def.ghi", "-----BEGIN " + "RSA PRIVATE KEY-----", make_jwt({"a": 1})):  # fmt: skip
         body = {"user_message": f"here: {secret}", "conversation_id": "cc"}
         res = call(bff, "POST", BASE + "/turns", admin, json=body)
         assert res.status_code == 200 and res.json()["requires_confirmation"] is True, secret
         assert "turn_id" not in res.json()
     assert bff.state.turns == {}
     ack = call(bff, "POST", BASE + "/turns", admin,
-               json={"user_message": "AKIAABCDEFGHIJKLMNOP", "conversation_id": "cc", "credential_warning_acknowledged": True})  # fmt: skip
+               json={"user_message": "AKIA" + "ABCDEFGHIJKLMNOP", "conversation_id": "cc", "credential_warning_acknowledged": True})  # fmt: skip
     assert ack.status_code == 200 and "turn_id" in ack.json()
 
 

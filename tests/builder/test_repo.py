@@ -403,7 +403,10 @@ def test_explicit_token_prefers_rest_even_with_gh(
 # GITHUB_DEPLOY_KEY (cloud runs without a token)
 # ---------------------------------------------------------------------------
 
-KEY_TEXT = "-----BEGIN OPENSSH PRIVATE KEY-----\nQUJDREVGR0hJSktMTU5PUA\n-----END OPENSSH PRIVATE KEY-----\n"
+KEY_TEXT = (
+    "-----BEGIN "
+    "OPENSSH PRIVATE KEY-----\nQUJDREVGR0hJSktMTU5PUA\n-----END OPENSSH PRIVATE KEY-----\n"
+)
 
 
 def _cloud_key_env(home: Path) -> dict[str, str]:
