@@ -1,0 +1,14 @@
+name: abcd-runner
+display_name: abcd runner
+description: Runs abcd in the cloud for one client workspace, for whatever the FDE asks in chat. A release is a gated step the FDE approves.
+components:
+- type: skill
+  source: org
+  ref: abcd
+- type: skill
+  source: org
+  ref: abcd-release-gate
+workstreams:
+- abcd-${env}
+write_workstreams: []
+is_enabled: true

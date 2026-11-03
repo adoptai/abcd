@@ -356,6 +356,10 @@ class HarnessAPIClient:
             json={"name": name, "workstream_id": workstream_id},
         )
 
+    def list_stores(self, workstream_id: str | None = None) -> dict[str, Any]:
+        params = {"workstream_id": workstream_id} if workstream_id else {}
+        return self._request("GET", "/v1/docstore/stores", params=params)
+
     def link_store_to_workstreams(self, store_id: str, workstream_ids: list[str]) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -397,8 +401,13 @@ class HarnessAPIClient:
     def start_turn(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/v1/end-user/agent-harness/turns", json=payload)
 
-    def stop_turn(self, turn_id: str) -> dict[str, Any]:
-        return self._request("POST", f"/v1/end-user/agent-harness/turns/{turn_id}/stop")
+    def stop_turn(self, turn_id: str, conversation_id: str) -> dict[str, Any]:
+        # The route validates a body: without conversation_id it answers 422.
+        return self._request(
+            "POST",
+            f"/v1/end-user/agent-harness/turns/{turn_id}/stop",
+            json={"conversation_id": conversation_id},
+        )
 
     def turn_status(self, turn_id: str, conversation_id: str) -> dict[str, Any]:
         return self._request(

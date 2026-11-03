@@ -72,6 +72,29 @@ ABCD is a comprehensive Agent powered by guiding prompts and a CLI toolkit for b
 curl -sSL https://install.python-poetry.org | python3 -
 ```
 
+## Install the `abcd` command
+
+abcd is one installable CLI: `abcd <group> <command>`. Harness skills and agents, runs and traces,
+NoUI, Tabby and workspaces all live behind it, and every command takes `--env`, `--json`, `--yes`
+and `--verbose`. Exit codes: `0` done, `1` refused or a check failed, `2` usage error, `3`
+platform or network error.
+
+```bash
+pip install .            # in a checkout or a sandbox: the core (harness, NoUI, Builder commands)
+pip install ".[wdl]"     # + faiss-cpu, sentence-transformers, numpy (WDL discovery only)
+pip install ".[ce]"      # + Playwright (Chrome-extension tests)
+poetry install           # the same, for development
+abcd --help
+```
+
+An installed `abcd` keeps workspaces in `./workspaces` (set `ABCD_WORKSPACES_DIR` to move them);
+a checkout uses `<repo>/workspaces`.
+
+> **WDL scripts:** every `python cli/<script>.py` below also runs as `abcd wdl <script> ...`
+> (`abcd wdl --list`), unchanged. The harness, NoUI, Tabby and workspace (`env`) commands are
+> the native `abcd` groups: `skill`, `plugin`, `agent`, `run`, `runs`, `trace`, `conversations`,
+> `workstream`, `noui`, `tabby`, `ws`. The old `python cli/harness_*.py` entry points still work.
+
 ## Installation
 
 ```bash
@@ -79,8 +102,8 @@ curl -sSL https://install.python-poetry.org | python3 -
 git clone --recurse-submodules https://github.com/adoptai/abcd.git abcd
 cd abcd
 
-# Install dependencies
-poetry install --no-root
+# Install dependencies and the `abcd` command
+poetry install --extras wdl
 
 # Copy environment template to default workspace
 cp dev.env.example workspaces/default/.env
@@ -180,12 +203,12 @@ The NoUI toolkit lives in `cli/noui/` (capture / compile / activate / verify; de
 no LLM key). Run it **through the workspace bridge**, which scopes everything to a workspace:
 
 ```bash
-python cli/noui_workspace.py --env <env> doctor                       # config + Tabby reachability
-python cli/noui_workspace.py --env <env> capture_record --url https://app.example.com/login --name example
-python cli/noui_workspace.py --env <env> capture_import <session_id> --as skill --execution-mode harness --name example
-python cli/noui_workspace.py --env <env> generalize draft ws:skills/<skill_id>   # → member confirms → apply
-python cli/harness_skill.py push workspaces/<env>/harness/skills/<skill_id> --env <env>
-python cli/harness_run.py start --env <env> --workstream <ws> --message "..."
+abcd noui doctor --env <env>                       # config + Tabby reachability
+abcd noui capture_record --env <env> --url https://app.example.com/login --name example
+abcd noui capture_import --env <env> <session_id> --as skill --execution-mode harness --name example
+abcd noui generalize --env <env> draft ws:skills/<skill_id>   # → member confirms → apply
+abcd skill push workspaces/<env>/harness/skills/<skill_id> --env <env>
+abcd run start --env <env> --workstream <ws> --message "..."
 ```
 
 Everything NoUI produces lands under the workspace's harness tree (gitignored):
@@ -212,22 +235,22 @@ passed to NoUI.
 (recording schema v5).
 
 ```bash
-python cli/tabby_bootstrap.py status
-python cli/tabby_bootstrap.py up --env <env> --write-env [--port 18000 --port-offset 20000]
-python cli/tabby_bootstrap.py down
+abcd tabby status
+abcd tabby up --env <env> --write-env [--port 18000 --port-offset 20000]
+abcd tabby down
 ```
 
 `up` starts the **API tier** (Docker Compose infra + the Tabby API) and writes agent credentials
 into the workspace — enough for auth, App Templates and profiles. Recording and `/execute` need
-browser workers: a cloud Tabby, or `python cli/tabby_bootstrap.py full` (Kind).
+browser workers: a cloud Tabby, or `abcd tabby full` (Kind).
 
 ### Publishing
 
 | Target | Command |
 |---|---|
-| Org tier (skill) | `python cli/harness_skill.py push <dir> --env <env> [--replace]` |
-| Org tier (plugin) | `python cli/harness_skill.py push-plugin <plugin_dir> --env <env>` |
-| Default "Built-in" tier | `python cli/harness_skill.py deploy-default <dir> --env <env>` (`@adopt.ai` only) |
+| Org tier (skill) | `abcd skill push <dir> --env <env> [--replace]` |
+| Org tier (plugin) | `abcd plugin push <plugin_dir> --env <env>` |
+| Default "Built-in" tier | `abcd skill deploy-default <dir> --env <env>` (`@adopt.ai` only) |
 | The NoUI harness skill | `harness-skills/noui/` + `.github/workflows/deploy-skill.yml` |
 
 Every upload content-scans SKILL.md and all aux files (zip members included) for credentials
@@ -263,10 +286,10 @@ For staging/production separation or multiple clients:
 
 ```bash
 # Create production environment
-python cli/workspace.py env create --id production --name "Production" --target production
+abcd ws create --id production --name "Production" --target production
 
 # Switch to production
-python cli/workspace.py env use production
+abcd ws use production
 
 # Configure production credentials
 # Edit workspaces/production/.env
@@ -275,7 +298,7 @@ python cli/workspace.py env use production
 ### 3. Check Active Environment
 
 ```bash
-python cli/workspace.py env list
+abcd ws list
 ```
 
 ## Quick Decision Tree
@@ -597,7 +620,7 @@ A separate toolkit, alongside the WDL tooling above, for developing **agent-harn
 platform LLM budget; local Claude Code iteration on the skill's own instructions
 does not (it's a seat you already have). So:
 1. Iterate on the skill locally in Claude Code until it does what you want.
-2. Run `python cli/harness_skill.py audit path/to/my-skill` (wraps the vendored
+2. Run `abcd skill audit path/to/my-skill` (wraps the vendored
    [`adopt-skill-review`](adopt-skill-review/) plugin) — free, local, deterministic
    checks for the step-budget/batching/file-placement issues that actually cost
    turns on the harness. `push` (below) runs this automatically and blocks on
@@ -609,30 +632,30 @@ does not (it's a seat you already have). So:
 
 ```bash
 # 1. Local, free check before spending anything
-python cli/harness_skill.py audit path/to/my-skill
+abcd skill audit path/to/my-skill
 
 # 2. Push the local skill (lints frontmatter, runs the audit, then verifies
 #    what actually landed)
-python cli/harness_skill.py push path/to/my-skill --replace
+abcd skill push path/to/my-skill --replace
 
 # 3. Ensure a real workstream + linked docstore exist, seeded with test data
-python cli/harness_workstream.py ensure my-test-ws
-python cli/harness_workstream.py seed my-test-ws sample-invoice.pdf
+abcd workstream ensure my-test-ws
+abcd workstream seed my-test-ws sample-invoice.pdf
 
 # 4. Start a turn. Streams live, persists the trace, and ALWAYS stops after
 #    one turn -- it never auto-continues. Prints a run_id.
-python cli/harness_run.py start --workstream my-test-ws --message "Process this invoice"
+abcd run start --workstream my-test-ws --message "Process this invoice"
 
 # 5. Decide: looks wrong -> fix SKILL.md locally (back to step 1), push --replace,
 #            then re-run. looks right -> keep going on the same conversation:
-python cli/harness_run.py continue <run_id> --message "Now reconcile it against the GL"
+abcd run continue <run_id> --message "Now reconcile it against the GL"
 
 # 6. Pull a past turn's status/trace/temporal-history on demand
-python cli/harness_trace.py fetch <turn_id>
+abcd trace fetch <turn_id> --conversation-id <conversation_id>
 
 # 7. Run the platform's own §2.5 performance checklist (inline-data-through-
 #    the-model, missed batching, iteration count, context growth) over a run
-python cli/harness_trace.py review <run_id>
+abcd trace review <run_id>
 ```
 
 Every turn's raw NDJSON stream + trace + temporal-history is persisted under `workspaces/{env}/harness/traces/<run_id>/` regardless of what you do next — pausing to fix a skill never loses history.

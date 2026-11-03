@@ -3,6 +3,11 @@
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "e2e: end-to-end autopilot tests (need --run-e2e)")
+    config.addinivalue_line(
+        "markers",
+        "integration: drives the real abcd CLI against the in-process fake BFF (offline; runs "
+        "by default, deselect with -m 'not integration')",
+    )
 
 
 def pytest_addoption(parser):
