@@ -50,10 +50,16 @@ Tests assert it is empty. Presigned storage URLs live under `/_presigned/` and a
 ```python
 from tests.integration import fake_agent as fa
 
+# The builder card puts step "approve" in review. `process` is an id or a name; the other
+# matchers are message=, workstream=, once=, hold= and failure=.
 bff.state.script(
-    [fa.text("Reading. "), fa.tool_use("read_skill_file"), fa.artifact("outputs/a.csv", "x\n"),
-     fa.builder("bld-1", step_id="approve", title="Approve")],   # puts step "approve" in review
-    process="triage",   # process id or name; also message=, workstream=, once=, hold=, failure=
+    [
+        fa.text("Reading. "),
+        fa.tool_use("read_skill_file"),
+        fa.artifact("outputs/a.csv", "x\n"),
+        fa.builder("bld-1", step_id="approve", title="Approve"),
+    ],
+    process="triage",
 )
 ```
 

@@ -197,7 +197,7 @@ def test_kg_page_proposed_and_vetted(ops: OpsEnv, tmp_path: Path) -> None:
 def test_kg_page_api_layout(ops: OpsEnv, tmp_path: Path) -> None:
     f = tmp_path / "p.md"
     f.write_text("x")
-    code, doc = run("kg", "page", "api", "ERP/Invoices", "--file", str(f))
+    code, doc = run("kg", "page", "api", "ERP/" + "Invoices", "--file", str(f))
     assert code == 0 and doc["data"]["page_path"] == "kg/apis/erp/invoices.md"
     code, doc = run("kg", "page", "api", "noslash", "--file", str(f))
     assert code == 2

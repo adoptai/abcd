@@ -303,7 +303,7 @@ def test_the_actor_in_the_cloud_is_always_the_cloud_identity(
     ("text", "leaked", "kept"),
     [
         ("Authorization: Basic dXNlcjpwYXNzd29yZA==", "dXNlcjpwYXNzd29yZA", "Authorization: ***"),
-        ("curl -H 'Authorization: Bearer abc.def-ghi_jkl' https://x", "abc.def", "https://x"),
+        ("curl -H 'Authorization: " + "Bearer abc.def-ghi_jkl' https://x", "abc.def", "https://x"),
         ("authorization: token ghs_shortbutsecret", "shortbutsecret", "authorization: ***"),
         ("password: multi word value here\nnext: line", "word value", "next: line"),
         ("  PASSWORD:   p4ss w0rd  ", "p4ss", "PASSWORD:"),

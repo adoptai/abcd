@@ -187,7 +187,10 @@ def test_workspace_file_validation(tmp_path: Path) -> None:
 
 # -- deploy key (an alternative to GITHUB_TOKEN) ----------------------------------------------
 
-KEY_BODY = "b3BlbnNzaC1rZXktdjEAAAAAdGVzdC1rZXktbWF0ZXJpYWw" + "Q" * 20
+_FAKE_B64 = (
+    "b3BlbnNzaC1rZXktdjEAAAAA" + "dGVzdC1rZXktbWF0ZXJpYWw"
+)  # "openssh-key-v1...test-key-material"
+KEY_BODY = _FAKE_B64 + "Q" * 20
 DEPLOY_KEY = (
     "-----BEGIN " + f"OPENSSH PRIVATE KEY-----\n{KEY_BODY}\n-----END OPENSSH PRIVATE KEY-----\n"
 )

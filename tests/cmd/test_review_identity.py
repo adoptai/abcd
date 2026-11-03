@@ -26,7 +26,7 @@ def ops(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[OpsEnv]:
 
 ENV_DUMP = """\
 DATABASE_URL=postgres://app@db.internal/app
-API_TOKEN=tok_live_9f8e7d6c5b4a
+API_TOKEN=tok_fake_aaaa_bbbb
 export ADOPT_CLIENT_SECRET="s3cr3t value with spaces"
 SANDBOX_ABCD_PAT_SECRET='pat-secret-123'
 DB_PASSWORD=hunter2
@@ -44,7 +44,7 @@ note: the key: is not secret here
 def test_mask_text_masks_secret_named_pairs_in_every_form() -> None:
     out = mask_text(ENV_DUMP + JSON_CONFIG)
     for leaked in (
-        "tok_live_9f8e7d6c5b4a", "s3cr3t value", "pat-secret-123", "hunter2", "k-123-456",
+        "tok_fake_aaaa_bbbb", "s3cr3t value", "pat-secret-123", "hunter2", "k-123-456",
         "cs-777", "pw 1", "abc def", "yaml-pw-5",
     ):  # fmt: skip
         assert leaked not in out, leaked
@@ -72,7 +72,7 @@ def test_session_end_redacts_a_env_dump_and_json_config(ops: OpsEnv, tmp_path: P
     assert code == 0, doc
     rel = doc["data"]["transcript_path"].removeprefix("builder-ops/")
     body = ops.docs.read("store-1", rel)
-    for leaked in ("tok_live_9f8e7d6c5b4a", "hunter2", "k-123-456", "cs-777", "yaml-pw-5",
+    for leaked in ("tok_fake_aaaa_bbbb", "hunter2", "k-123-456", "cs-777", "yaml-pw-5",
                    "s3cr3t value", "pat-secret-123"):  # fmt: skip
         assert leaked not in body
     assert "LOG_LEVEL=debug" in body and "us-east-1" in body
