@@ -77,6 +77,8 @@ def test_vendored_audit_script_is_present() -> None:
         (("tests", "test_x.py"), True),
         (("scripts", "run.py"), False),
         ((".hidden", "x.md"), True),
+        (("recording_bundle.json",), True),
+        (("operations.json",), False),
     ],
 )
 def test_exclusions(parts: tuple[str, ...], excluded: bool) -> None:

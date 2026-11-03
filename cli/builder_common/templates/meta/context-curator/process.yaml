@@ -1,0 +1,10 @@
+name: context-curator
+display_name: Context curator
+description: Nightly. Reads new context in builder-context, proposes pages under proposed/, and records decisions and open items.
+components: []
+workstreams:
+- builder-context
+write_workstreams:
+- builder-context
+write_folder_prefix: proposed
+is_enabled: true

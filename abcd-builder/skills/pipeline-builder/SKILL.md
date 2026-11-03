@@ -8,7 +8,7 @@ description: "Build, test and publish WDL pipelines (scheduled or manual data-sy
 Author WDL **pipelines** with the abcd CLI. A pipeline is a scheduled or triggered
 data flow that writes to tables. An action is a chat response, and those belong to
 the `action-builder` skill. Run everything from the root of an abcd checkout as
-`python cli/<script>.py ...` (or `poetry run python cli/<script>.py ...`).
+`abcd wdl <script> ...` (`abcd wdl --list` shows them; `python cli/<script>.py` still works in a checkout).
 
 ## Hard rules
 
@@ -48,8 +48,8 @@ The pipeline scripts use the **active** env (`workspaces/.active_env`) and have 
 `--env` flag. Check it and switch before you start:
 
 ```bash
-python cli/workspace.py env list
-python cli/workspace.py env use <env-id>
+abcd ws list
+abcd ws use <env-id>
 ```
 
 If the request doesn't fit the env's `env.json` description, ask the user before
@@ -64,19 +64,19 @@ manage_pipeline --create → edit widdle.json → save_pipeline_draft → test_p
 ### 1. Create the workspace (local only)
 
 ```bash
-python cli/manage_pipeline.py --create -t "Sync Vendor Invoices" \
+abcd wdl manage_pipeline --create -t "Sync Vendor Invoices" \
     -d "Pull vendor invoices nightly and store them" \
     --prompt "Fetch all vendor invoices and store them in the data store"
 # with a connector source and a cron schedule
-python cli/manage_pipeline.py --create -t "S3 Invoice Ingest" \
+abcd wdl manage_pipeline --create -t "S3 Invoice Ingest" \
     --source-type connector --source-connector-id <connector-id> \
     --source-connector-type amazon_s3 --source-connector-name "Invoices bucket" \
     --destination-label results --schedule-type cron
-python cli/manage_pipeline.py --show sync-vendor-invoices [--json]
+abcd wdl manage_pipeline --show sync-vendor-invoices [--json]
 ```
 
 `--id` is derived from the title when you leave it out. `--source-type` is
-`internal` (the default), `salesforce` or `connector`. `python cli/workspace.py pipeline create ...`
+`internal` (the default), `salesforce` or `connector`. `abcd wdl workspace pipeline create ...`
 is equivalent but has no destination or schedule flags.
 
 This creates:
@@ -89,7 +89,7 @@ workspaces/<env>/pipelines/<id>/
 ```
 
 To work on pipelines that already exist remotely:
-`python cli/workspace.py pipeline checkout-all [--state running] [--search "invoice"] [--limit N] [--force] [--dry-run]`.
+`abcd wdl workspace pipeline checkout-all [--state running] [--search "invoice"] [--limit N] [--force] [--dry-run]`.
 
 ### 2. Edit `widdle.json`
 
@@ -101,9 +101,9 @@ WRITE_TO_DB destinations, and an end-to-end skeleton are in
 ### 3. Save the draft (auto-creates the remote)
 
 ```bash
-python cli/save_pipeline_draft.py <id> --description "Add fan-out enrichment"
-python cli/save_pipeline_draft.py a b --parallel 2
-python cli/save_pipeline_draft.py <id> --dry-run
+abcd wdl save_pipeline_draft <id> --description "Add fan-out enrichment"
+abcd wdl save_pipeline_draft a b --parallel 2
+abcd wdl save_pipeline_draft <id> --dry-run
 ```
 
 The first push creates the remote pipeline and stores `remote_pipeline_id` and
@@ -115,13 +115,13 @@ rejects prompt-less drafts.
 ### 4. Test (streams by default)
 
 ```bash
-python cli/test_pipeline.py <id>                    # test_mode=true, remote draft, live NDJSON stream
-python cli/test_pipeline.py <id> --local-wdl        # send local widdle.json instead of the saved draft
-python cli/test_pipeline.py <id> --timeout 900      # wait longer for the final event (default 300 s)
-python cli/test_pipeline.py <id> --no-stream        # fire-and-forget: trigger only, print run id
-python cli/test_pipeline.py <id> --status           # remote state, last test status, 5 recent runs
-python cli/test_pipeline.py <id> --mark-passed      # or --mark-failed, with no new run
-python cli/test_pipeline.py <id> --production       # test_mode=false; 409 if a run is active (explicit ask only)
+abcd wdl test_pipeline <id>                    # test_mode=true, remote draft, live NDJSON stream
+abcd wdl test_pipeline <id> --local-wdl        # send local widdle.json instead of the saved draft
+abcd wdl test_pipeline <id> --timeout 900      # wait longer for the final event (default 300 s)
+abcd wdl test_pipeline <id> --no-stream        # fire-and-forget: trigger only, print run id
+abcd wdl test_pipeline <id> --status           # remote state, last test status, 5 recent runs
+abcd wdl test_pipeline <id> --mark-passed      # or --mark-failed, with no new run
+abcd wdl test_pipeline <id> --production       # test_mode=false; 409 if a run is active (explicit ask only)
 ```
 
 In stream mode, the script subscribes to the BFF `GET /stream/<remote_pipeline_id>`
@@ -140,11 +140,11 @@ arguments on the server.
 ### 5. Publish and activate (after the user confirms)
 
 ```bash
-python cli/publish_pipeline.py <id> --yes                # mark test passed + publish draft
-python cli/publish_pipeline.py <id> --activate --yes     # publish + state=running
-python cli/publish_pipeline.py a b --parallel 2 --yes
-python cli/publish_pipeline.py <id> --skip-test-mark --yes   # test already marked
-python cli/publish_pipeline.py <id> --dry-run
+abcd wdl publish_pipeline <id> --yes                # mark test passed + publish draft
+abcd wdl publish_pipeline <id> --activate --yes     # publish + state=running
+abcd wdl publish_pipeline a b --parallel 2 --yes
+abcd wdl publish_pipeline <id> --skip-test-mark --yes   # test already marked
+abcd wdl publish_pipeline <id> --dry-run
 ```
 
 Publish marks the test as passed, because the platform requires it, so **you** must
@@ -153,11 +153,11 @@ have actually seen a passing run first. Publishing makes the pipeline live.
 ### 6. List and inspect
 
 ```bash
-python cli/list_pipelines.py                         # local workspaces
-python cli/list_pipelines.py --remote                # merge platform pipelines
-python cli/list_pipelines.py --state running --search invoice --json
-python cli/harness_runs.py list --source pipeline --range 24h [--status failed] [--json]   # org-wide runs
-python cli/harness_runs.py detail --run-id pr:<id>
+abcd wdl list_pipelines                         # local workspaces
+abcd wdl list_pipelines --remote                # merge platform pipelines
+abcd wdl list_pipelines --state running --search invoice --json
+abcd runs list --source pipeline --range 24h [--status failed] [--json]   # org-wide runs
+abcd runs detail --run-id pr:<id>
 ```
 
 `harness_runs.py` needs the workspace's platform PAT (the agent-harness credentials).
