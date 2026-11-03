@@ -118,7 +118,7 @@ class BffHarnessDriver:
         mine = [e for e in events if e.get("turn_id", handle.turn_id) == handle.turn_id]
         final = "".join(str(e.get("text", "")) for e in mine if e.get("kind") == "final")
         held = [e for e in mine if e.get("kind") in _HELD_KINDS]
-        usage = next((e for e in reversed(mine) if e.get("kind") == "usage"), {})
+        usage: dict[str, Any] = next((e for e in reversed(mine) if e.get("kind") == "usage"), {})
         out = TurnStatus(
             state=TURN_NEEDS_INPUT if held else TURN_COMPLETED,
             final_text=final,
