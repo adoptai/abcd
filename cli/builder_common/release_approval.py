@@ -40,6 +40,13 @@ caller fetched (no owner lookup, no second fetch):
 
 A private chat is refused with a clear message.
 
+The same rules apply to an approval given through the ``abcd-release-gate`` HITL card (module
+``gate_card``): a ``<builder_data>`` user_message submitted for a card that names the exact
+release, action and sha, with ``decision=approve``. ``ABCD_ALLOW_SAME_IDENTITY_APPROVAL=1`` is a
+TESTING-ONLY opt-in that relaxes rules 1 and 3 (the shared run and the author), never the release,
+action, sha or the presence of an approval; it warns on stderr and is recorded as
+``approval_mode=same_identity_override``.
+
 Limits, written down honestly. These checks are defence in depth against an agent's mistakes, not
 a security boundary. An agent with a shell can unset the sandbox variables and delete the marker:
 that run is not in cloud mode, so the approval check is skipped (it is then just a local run with
@@ -53,12 +60,15 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
+from cli.builder_common import gate_card
 from cli.builder_common.cloudmode import cloud_mode, read_marker
 from cli.builder_common.errors import RefusedError
+from cli.builder_common.gate_card import gate_card_approved
 
 RELEASE_APPROVAL_RE = re.compile(
     r'<!--\s*adopt:release-approval\s+v="1"(?:\s+action="(release|rollback)")?'
@@ -178,20 +188,74 @@ def human_user_events(
     return kept
 
 
+OVERRIDE_ENV = "ABCD_ALLOW_SAME_IDENTITY_APPROVAL"
+OVERRIDE_MODE = "same_identity_override"
+OVERRIDE_WARNING = (
+    "WARNING: approval author is the runner's own identity; accepted only because "
+    f"{OVERRIDE_ENV} is set -- use a service-account PAT in production"
+)
+
+
+def same_identity_override() -> bool:
+    """``ABCD_ALLOW_SAME_IDENTITY_APPROVAL=1`` (in the sandbox: vault secret
+    ``SANDBOX_ABCD_ALLOW_SAME_IDENTITY_APPROVAL``): TESTING ONLY, until a service-account PAT
+    exists. It relaxes only the author and shared-run rules, never what is approved."""
+    return os.environ.get(OVERRIDE_ENV, "").strip().lower() in ("1", "true", "yes")
+
+
+def _approved(
+    events: list[dict[str, Any]],
+    allowed: list[dict[str, Any]],
+    release: str,
+    sha: str,
+    action: str,
+) -> bool:
+    """Token or gate-card approval, taken from the ``allowed`` user_message events."""
+    if (release, sha[:12]) in approved_releases(allowed, action):
+        return True
+    return gate_card_approved(events, {id(e) for e in allowed}, release, sha, action)
+
+
 def require_release_approval(
     client: Any, release: str, sha: str, ws: Path | None = None, action: str = "release"
-) -> None:
-    """In a cloud run, refuse unless the sandbox's conversation holds the human's token for
-    ``action`` (``release`` or ``rollback``)."""
+) -> str:
+    """In a cloud run, refuse unless the sandbox's conversation holds the human's approval for
+    ``action`` (``release`` or ``rollback``): the token, or a submitted ``abcd-release-gate``
+    card (see ``gate_card``). Returns ``""`` locally, ``"human"`` for an approval that passed
+    every rule, ``"same_identity_override"`` when only ``ABCD_ALLOW_SAME_IDENTITY_APPROVAL``
+    let it through (after a loud warning)."""
     if not cloud_mode(ws):
-        return
+        return ""
     conversation = sandbox_conversation(ws)
-    want = (release, sha[:12])
-    if want in approved_releases(human_user_events(client, conversation), action):
-        return
+    try:
+        raw = client.transcript_events(conversation)
+    except RefusedError:
+        raise
+    except Exception as e:
+        raise RefusedError(
+            f"cannot verify who wrote the approval in conversation {conversation}: "
+            f"{type(e).__name__}: {e}"
+        ) from e
+    strict_err: RefusedError | None = None
+    strict: list[dict[str, Any]] = []
+    try:
+        strict = human_user_events(client, conversation, events=raw)
+    except RefusedError as e:
+        strict_err = e
+    if _approved(raw, strict, release, sha, action):
+        return "human"
+    override = same_identity_override()
+    if override:
+        relaxed = [e for e in raw if isinstance(e, dict) and e.get("kind") == "user_message"]
+        if _approved(raw, relaxed, release, sha, action):
+            print(OVERRIDE_WARNING, file=sys.stderr)
+            return OVERRIDE_MODE
+    if strict_err is not None and not override:
+        raise strict_err
+    card = gate_card.card_spec(release, sha, action)["values"]
     raise RefusedError(
         f"{release}: no {action} approval from a human in conversation {conversation}. Ask the "
-        f"FDE to type the approval in this chat ({HUMAN_SENDS}): "
-        f"{release_approval_token(release, sha, action)}; --yes alone is not an approval in a "
-        "cloud run"
+        f"FDE to approve the gate card (fields {card}, decision=approve) or to type the "
+        f"approval in this chat ({HUMAN_SENDS}): {release_approval_token(release, sha, action)}; "
+        "--yes alone is not an approval in a cloud run"
     )

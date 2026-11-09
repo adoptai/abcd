@@ -62,7 +62,7 @@ from cli.builder_agent import (
     verify_skill,
 )
 from cli.builder_common import agent_bundle as ab
-from cli.builder_common import explain, gaps, train
+from cli.builder_common import explain, gaps, gate_card, train
 from cli.builder_common import repo as rp
 from cli.builder_common import workspace as bws
 from cli.builder_common.cloudmode import cloud_mode
@@ -1100,7 +1100,46 @@ def _explain_info(
     )
 
 
+def _gate_card(ctx: Context) -> Result:
+    """``abcd release gate-card <agent> --action release|rollback``: the card the runner opens."""
+    a = ctx.args
+    if not a.target:
+        raise UsageError("abcd release gate-card <agent> --action release|rollback")
+    w = open_work(ctx)
+    if a.action == "rollback":
+        _live, target = _rollback_target(w, a.target)
+        release, sha = target.version_id, target.git_sha or ""
+    else:
+        staged = w.ledger.latest("agent", a.target, "staged")
+        if staged is None:
+            raise RefusedError(f"{a.target} is not staged; run `abcd stage {a.target}` first")
+        release, sha = staged.version_id, staged.git_sha or ""
+    if not sha:
+        raise RefusedError(f"{release} records no git sha; it cannot be approved")
+    spec = gate_card.card_spec(release, sha, a.action)
+    lines = [
+        f"Open the gate card on step {spec['step_id']!r} ({spec['title']}), submit label "
+        f"{spec['submit_label']!r}. Fields (read-only fields carry these values):"
+    ]
+    for f in spec["block"]["fields"]:
+        v = f.get("value")
+        opts = f.get("options")
+        lines.append(
+            f"  {f['name']} ({f['field_type']}{', required' if f['required'] else ''})"
+            + (f" = {v}" if v is not None else "")
+            + (f" options {opts}" if opts else "")
+        )
+    lines.append(f"  context: {spec['block']['context']}")
+    lines.append(
+        f"Then wait for the FDE; run `abcd {a.action if a.action == 'rollback' else 'release'} "
+        f"{a.target} --yes` only after they submit decision=approve."
+    )
+    return Result.done({"agent": a.target, "action": a.action, **spec}, "\n".join(lines))
+
+
 def _cmd_release(ctx: Context) -> Result:
+    if ctx.args.agent == "gate-card":
+        return _gate_card(ctx)
     if ctx.args.redeploy:
         return _redeploy(ctx)
     a = ctx.args
@@ -1222,8 +1261,9 @@ def _cmd_release(ctx: Context) -> Result:
     step(4, "approval (--yes)")
     if not ctx.yes and not dry:
         raise RefusedError("release needs --yes (it never prompts)")
-    if not dry:
-        require_release_approval(w.client, version_id, sha, w.ws)  # cloud: the human's own message
+    approval_mode = ""
+    if not dry:  # cloud: the human's own message or submitted gate card
+        approval_mode = require_release_approval(w.client, version_id, sha, w.ws)
 
     prev_live = w.ledger.latest("agent", a.agent, "live")
     previous_id = prev_live.version_id if prev_live else None
@@ -1315,6 +1355,7 @@ def _cmd_release(ctx: Context) -> Result:
                 "rc_tag": rc,
                 "objects": {k: v["bundle_sha256"] for k, v in dep.skill_hashes.items()},
                 "local_approvals": {k: v for k, v in dep.gate.items() if v.get("mode") == "local"},
+                "approval_mode": approval_mode or None,
             }
             w.svc.docs.put(
                 f"{base}/eval_report.json", json.dumps(report, indent=2, sort_keys=True).encode()
@@ -1447,6 +1488,7 @@ def _cmd_release(ctx: Context) -> Result:
         "failures": failures,
         "steps": log,
         "local_approvals": {k: v for k, v in dep.gate.items() if v.get("mode") == "local"},
+        "approval_mode": approval_mode or None,
     }
     text = f"Released {version_id} (live process {dep.process_id})"
     if forced:
@@ -1575,12 +1617,11 @@ def _record_restore(
     return rid
 
 
-def _cmd_rollback(ctx: Context) -> Result:
-    a = ctx.args
-    w = open_work(ctx)
-    live = w.ledger.latest("agent", a.agent, "live")
+def _rollback_target(w: Work, agent: str) -> tuple[VersionRecord, VersionRecord]:
+    """``(live, target)``: the live version and the one a rollback re-uploads."""
+    live = w.ledger.latest("agent", agent, "live")
     if live is None:
-        raise RefusedError(f"{a.agent} has no live version to roll back")
+        raise RefusedError(f"{agent} has no live version to roll back")
     target_id = None
     for r in w.svc.rows.find_rows(T_RELEASES, "version_id", live.version_id):
         if r.get("previous_version_id") and "@rollback-" not in str(r.get("release_id")):
@@ -1588,14 +1629,21 @@ def _cmd_rollback(ctx: Context) -> Result:
     if target_id is None:
         older = [
             r
-            for r in w.ledger.history("agent", a.agent)
+            for r in w.ledger.history("agent", agent)
             if r.state == "superseded" and r.number < live.number
         ]
         target_id = older[-1].version_id if older else None
     target = w.ledger.get(target_id) if target_id else None
     if target is None:
-        raise RefusedError(f"{a.agent}: {live.version_id} has no previous version to roll back to")
-    data = {"agent": a.agent, "from": live.version_id, "to": target.version_id}
+        raise RefusedError(f"{agent}: {live.version_id} has no previous version to roll back to")
+    return live, target
+
+
+def _cmd_rollback(ctx: Context) -> Result:
+    a = ctx.args
+    w = open_work(ctx)
+    live, target = _rollback_target(w, a.agent)
+    data: dict[str, Any] = {"agent": a.agent, "from": live.version_id, "to": target.version_id}
     if ctx.dry_run_notice(f"would re-upload {target.version_id} and patch the live process"):
         return Result.done({**data, "dry_run": True}, "")
     if not ctx.yes:
@@ -1606,7 +1654,10 @@ def _cmd_rollback(ctx: Context) -> Result:
                 f"{target.version_id} records no git sha; a cloud rollback cannot be approved"
             )
         # the human's own rollback message naming the target version and its commit
-        require_release_approval(w.client, target.version_id, target.git_sha, w.ws, "rollback")
+        data["approval_mode"] = (
+            require_release_approval(w.client, target.version_id, target.git_sha, w.ws, "rollback")
+            or None
+        )
     dep, _b, _o, flags = deploy_tag(w, a.agent, target.version_id, _gate_opts(ctx))
     rid = _record_restore(w, a.agent, target, dep, "rollback", w.who, live.version_id)
     return Result.done(
@@ -1730,7 +1781,11 @@ def register(registry: Registry) -> None:
         help="Promote a staged agent to live (the only sanctioned path); --yes is required",
         writes=True,
     )
-    p.add_argument("agent", nargs="?")
+    p.add_argument("agent", nargs="?", help="The agent, or `gate-card` followed by the agent")
+    p.add_argument("target", nargs="?", help="With `gate-card`: the agent")
+    p.add_argument(
+        "--action", choices=list(gate_card.ACTIONS), default="release", help="With gate-card"
+    )
     p.add_argument("--redeploy", metavar="AGENT@vN", help="Re-upload a released tag (needs --lead)")
     p.add_argument("--force-reason", help="Force past a failed gate (needs --lead)")
     p.add_argument("--lead", help="The lead who forces or approves a redeploy")

@@ -15,9 +15,10 @@ unclear. Run `--dry-run` first for anything that writes to the platform, and sho
 `abcd release` is never run on your own. Use the `abcd-release-gate` skill:
 
 1. Prepare: run `abcd test-staged` and `abcd release --dry-run`, and show the FDE the result.
-2. Hold: the release step waits for the FDE. The FDE's approval is their own answer to the
-   gate in this chat. You cannot close the gate.
-3. After the FDE approves, run `abcd release --yes` and report the version and the report path.
+2. Open the gate card with the fields `abcd release gate-card <agent> --action release` prints.
+3. Hold: the release step waits for the FDE. The FDE's approval is their own submission of that
+   card in this chat. You cannot close the gate.
+4. After the FDE approves, run `abcd release --yes` and report the version and the report path.
 
 If the FDE does not approve, stop. Do not retry, and do not release a different version.
 

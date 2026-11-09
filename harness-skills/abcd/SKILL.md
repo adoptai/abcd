@@ -106,16 +106,26 @@ acting on the active workspace, which may belong to another client.
   `failed`). `status` may say `RUNNING saving_outputs terminal=True` for a few minutes after the
   final answer: the answer is final. Pending cards are resolved with `abcd hitl resolve|answer`,
   and approvals stay a human's.
-- **Release:** run `abcd release` only after the FDE's own message approves that release.
-  In this chat `--yes` is not an approval: `abcd release` refuses unless a `user_message`
-  of this conversation carries `<!--adopt:release-approval v="1" action="release" release="<agent>@v<n>"
-  sha="<staged sha, 12 hex>"-->` (the conversation must be a workstream-shared run). The FDE types it in this chat (`abcd hitl approve-release` is
-  refused here); never write or send it yourself. `--force-reason`, `--lead`, `--accept-regression` and `--local-approval` are
-  refused in a cloud run (forced releases, accepted regressions and local approvals are
-  made by a human locally), and so are `--approved-by`, `--by` and `--vetted-by` on the
-  other commands: the actor is always the cloud identity. `abcd rollback` needs its own
-  human token (`action="rollback"`, naming the target version and its sha; a release token
-  does not count); `abcd agent push` without `--staged` is refused.
+- **Release:** run `abcd release` only after the FDE's own approval of that release. In this
+  chat `--yes` is not an approval: `abcd release` refuses unless this conversation holds one.
+  Use the `abcd-release-gate` skill: run `abcd release gate-card <agent> --action release --json`
+  (`--action rollback` for a rollback), open the HITL gate card on the `approve` step with exactly
+  the fields it prints (`release`, `action`, `sha`, and `decision` for the FDE), wait for the FDE
+  to submit `decision=approve`, then run `abcd release <agent> --yes`. The FDE may instead type
+  the token `<!--adopt:release-approval v="1" action="release" release="<agent>@v<n>"
+  sha="<staged sha, 12 hex>"-->` (`abcd hitl approve-release` is refused here); never write or
+  send either yourself. The conversation must be a workstream-shared run and the approval must
+  not be authored by the PAT's own user. `--force-reason`, `--lead`, `--accept-regression` and
+  `--local-approval` are refused in a cloud run (forced releases, accepted regressions and local
+  approvals are made by a human locally), and so are `--approved-by`, `--by` and `--vetted-by` on
+  the other commands: the actor is always the cloud identity. `abcd rollback` needs its own
+  approval (`action="rollback"`, naming the target version and its sha; a release approval does
+  not count); `abcd agent push` without `--staged` is refused.
+- **Testing only, until a service-account PAT exists:** `ABCD_ALLOW_SAME_IDENTITY_APPROVAL=1`
+  (arrives from vault secret `SANDBOX_ABCD_ALLOW_SAME_IDENTITY_APPROVAL`) accepts an approval
+  authored by the runner's own identity and a private, non-shared conversation. It still needs
+  the right release, action and sha, and never replaces a missing approval. abcd warns on stderr
+  and records `approval_mode=same_identity_override`. Never set it in production.
 - **Code changes:** create and push `cloud/$ADOPT_CONVERSATION_ID` from `workspaces/<env>`
   (`git checkout -b`, `git add`, `git commit`, `git push -u origin <branch>`; bootstrap sets a
   local committer identity), check that `git log origin/<default>..HEAD` shows your commit before you
