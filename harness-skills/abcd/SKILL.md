@@ -1,6 +1,6 @@
 ---
 name: abcd
-description: "Run abcd, the Adopt Builder CLI, inside this sandbox to drive a client's Builder workspace: status, drift audits, evals, staging, test-staged, releases, explainers and training kits. Use when an FDE asks to run abcd, a nightly or weekly Builder run, or any `abcd ...` command from a chat. Installs abcd from the bundled zip, clones the client's workspace repo, and checks the platform token. NoUI capture and replay are not available here."
+description: "Run abcd, the Adopt Builder CLI, inside this sandbox: drive a client's Builder workspace (status, drift audits, evals, staging, test-staged, releases, explainers, training kits) and build, publish or push a skill or agent to the org and test it in a session. Use when an FDE asks to run abcd, a nightly or weekly Builder run, any `abcd ...` command, to build / publish / push a skill or agent to the org, or to test it in a session. Installs abcd from the bundled zip, clones the client's workspace repo when there is one, and checks the platform token. NoUI capture and replay are not available here."
 ---
 
 # abcd (Agent Harness edition)
@@ -55,6 +55,10 @@ runs locally.
 
 ## Step 1: find the workspace
 
+(No workstream, so no `abcd-workspace.json`? Skip to "Build and publish a skill or agent": run
+`abcd cloud bootstrap --platform-only`. Repo work needs the pointer file; skill and agent pushes
+do not.)
+
 The harness copies the Doc Store files of this workstream into the sandbox. Find the one
 that names the workspace:
 
@@ -63,9 +67,17 @@ find /workspace -name abcd-workspace.json -not -path '/workspace/abcd/*' 2>/dev/
 ```
 
 It holds `env`, `repo` and `ref`. Read it to learn which client workspace this run is for.
-If there is no such file, stop and tell the user the workstream has no `abcd-workspace.json`.
+If there is no such file, this is an unscoped chat: either tell the user to open the
+`abcd-<env>` workstream for repo work, or, for a skill or agent push only, use
+`abcd cloud bootstrap --platform-only` (see "Build and publish a skill or agent").
 
 ## Step 2: bootstrap
+
+To check what this sandbox has, run `abcd cloud doctor --json` (read-only): it names the
+variables that are present or missing (never their values), says whether a pointer file and a
+bootstrapped workspace exist, and shows the PAT's tenant and roles. Use it instead of listing
+environment variables. With no pointer file use `abcd cloud bootstrap --platform-only` (below)
+instead of the command here.
 
 ```bash
 cd /workspace/abcd
@@ -135,3 +147,102 @@ acting on the active workspace, which may belong to another client.
   default branch.
 - Keep long steps inside one `bash` call (up to 60 minutes) and report results briefly, with
   paths to any report files rather than their whole contents.
+
+## Build and publish a skill or agent
+
+Use this when the FDE asks to build, publish or push a skill or agent to the org, or to test
+one. Everything is `abcd ... --env <env> --json`.
+
+**Rules for this section**
+
+- Pushing to the org tier (`abcd skill push`, `abcd plugin push`) and creating or enabling an
+  agent (`abcd agent create`, `--enable`) need the FDE's explicit request in this chat. Before a
+  real push, state the skill name and whether it replaces an existing one, and wait for a yes.
+- `abcd skill deploy-default` (the Built-in tier, visible to every org) is never run from the
+  cloud; abcd refuses it. Do not look for another way.
+- Name new test objects clearly (for example `test-<name>`, display name "TEST <name>") so they
+  are not mistaken for production ones. A process has no hard delete: disable it when done.
+
+**(a) Bootstrap.** With a workstream and pointer file, do Step 1 and Step 2 as above. With no
+pointer file (an unscoped chat) run:
+
+```bash
+cd /workspace/abcd
+abcd cloud bootstrap --platform-only --json      # writes workspaces/cloud/ , no git, no repo
+abcd cloud doctor --json                         # variables by name, PAT tenant and roles
+```
+
+`--platform-only` builds `workspaces/cloud/` (default `--env cloud`; pass `--env <name>` to pick
+another) from `ABCD_PAT_CLIENT_ID`, `ABCD_PAT_SECRET` and `ABCD_WEBUI_ENDPOINT` (or
+`ADOPT_APP_BASE_URL`), and checks the PAT. Use `--env cloud` (or your name) on every later
+command. If it names missing variables, tell the FDE which vault secrets (`SANDBOX_<NAME>`) to
+add, and stop. Never `cat` the `.env`.
+
+**(b) Author.** With a repo: `workspaces/<env>/harness/skills/<name>/SKILL.md` (plus aux files).
+Without one, any directory, for example `/workspace/skills/<name>/`. The directory holds
+`SKILL.md` with YAML frontmatter `name` and `description`. The `name` is a slug matching
+`^[a-z0-9][a-z0-9-]*$`. Quote every frontmatter value that contains a colon, or the platform
+silently drops the rest of the frontmatter (a `process:` block included).
+
+**(c) Check the name.**
+
+```bash
+abcd skill list --search <name> --env <env> --json
+```
+
+A hit in the `org` tier means the push needs `--replace` (confirm that with the FDE). A hit in
+the `default` tier means the name is taken by a Built-in skill: pick another name.
+
+**(d) Audit** (free, local):
+
+```bash
+abcd skill audit <skill_dir>
+```
+
+**(e) Dry run, then push.**
+
+```bash
+abcd skill push <skill_dir> --env <env> --dry-run --json     # local checks only; lists the upload
+abcd skill push <skill_dir> --env <env> [--replace] --json   # only after the FDE's yes
+```
+
+The dry run fails (non-zero) on a missing directory or `SKILL.md`, bad frontmatter or a bad name
+slug, runs the audit, and lists the name, aux files and new or replace. It makes no platform
+call. `abcd plugin push <plugin_dir> --dry-run` does the same for a plugin.
+
+**(f) Verify.**
+
+```bash
+abcd skill verify <name> --env <env> --json
+abcd skill list --search <name> --env <env> --json   # a gated-step skill must show has_process
+```
+
+**(g) Make it an agent** (only when the FDE asked for one). Check `abcd agent create --help`:
+
+```bash
+abcd workstream ensure abcd-test-<name> --env <env> --json    # or the workstream the FDE names
+abcd agent create test-<name> "TEST <name>" --component skill:<name> \
+    --instructions "<short>" --enable --env <env> --json
+abcd agent set-workstreams <process_id> <workstream_id> --env <env> --json
+```
+
+Without `--enable` the agent is created as a Draft. A process must be enabled and assigned to
+the workstream before a session can use it. With a bundle in a repo workspace
+(`harness/agents/<agent>/`), `abcd agent push <agent> --staged` is the staged path; plain
+`abcd agent push` is refused in the cloud.
+
+**(h) Test session.**
+
+```bash
+abcd session start --workstream abcd-test-<name> --process test-<name> \
+    --message "<a short task>" --env <env> --json
+abcd session logs <conversation_id> --env <env> --json
+abcd hitl list --conversation <conversation_id> --env <env> --json
+abcd hitl resolve <conversation_id> --builder-id <id> --value <field>=<value> --env <env> --json
+```
+
+`hitl resolve` answers the test agent's own cards. A release approval stays the FDE's.
+
+**(i) Commit.** When there is a repo workspace, commit the skill (and agent bundle) on
+`cloud/$ADOPT_CONVERSATION_ID` and push it as described under "Code changes". With no repo,
+say where the files are in `/workspace` so the FDE can keep them.

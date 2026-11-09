@@ -15,7 +15,7 @@ import io
 import json
 import os
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -31,8 +31,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BUNDLE_SCRIPT = REPO_ROOT / "harness-skills" / "abcd" / "build_bundle.py"
 WORKSPACE_FILE_ENV = "ABCD_WORKSPACE_FILE"
 
+PLATFORM_ONLY_ENV = "cloud"
+
 # Hooks for tests: a fake PAT exchange and a git runner. None means the real ones.
 EXCHANGE_PAT: cloud.ExchangePat | None = None
+EXCHANGE_CLAIMS: cloud.ExchangeClaims | None = None
 RUN_GIT: cloud.RunGit | None = None
 
 NIGHTLY_STEPS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
@@ -44,10 +47,17 @@ NIGHTLY_STEPS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
 _PRIORITY = {3: 3, 2: 2, 1: 1}
 
 
-def find_workspace_file(
+NO_POINTER_MESSAGE = (
+    f"no {cloud.WORKSPACE_FILE_NAME}: run in the abcd-<env> workstream for repo work, or "
+    "`abcd cloud bootstrap --platform-only` for skill/agent pushes"
+)
+
+
+def locate_workspace_file(
     explicit: str | None, search_roots: tuple[Path, ...] = (Path("/workspace"),)
-) -> Path:
-    """``--workspace-file``, ``$ABCD_WORKSPACE_FILE``, ``./abcd-workspace.json`` or the file the harness copied."""
+) -> Path | None:
+    """``--workspace-file``, ``$ABCD_WORKSPACE_FILE``, ``./abcd-workspace.json`` or the file the
+    harness copied; None when there is none."""
     for given in (explicit, os.environ.get(WORKSPACE_FILE_ENV)):
         if given:
             return Path(given)
@@ -58,7 +68,16 @@ def find_workspace_file(
         for hit in sorted(root.rglob(cloud.WORKSPACE_FILE_NAME)) if root.is_dir() else []:
             if "abcd" not in hit.relative_to(root).parts[:1]:
                 return hit
-    raise UsageError(f"no {cloud.WORKSPACE_FILE_NAME} found; pass --workspace-file <path>")
+    return None
+
+
+def find_workspace_file(
+    explicit: str | None, search_roots: tuple[Path, ...] = (Path("/workspace"),)
+) -> Path:
+    found = locate_workspace_file(explicit, search_roots)
+    if found is None:
+        raise UsageError(NO_POINTER_MESSAGE)
+    return found
 
 
 def abcd_root_for(ctx: Context, given: str | None) -> Path:
@@ -68,8 +87,26 @@ def abcd_root_for(ctx: Context, given: str | None) -> Path:
     return wd.parent if wd.name == "workspaces" else REPO_ROOT
 
 
+def _cmd_bootstrap_platform_only(ctx: Context) -> Result:
+    env = ctx.env_arg or PLATFORM_ONLY_ENV
+    root = abcd_root_for(ctx, ctx.args.abcd_root)
+    if ctx.dry_run_notice(f"would write a platform-only workspace {root / 'workspaces' / env}"):
+        return Result.done({"dry_run": True, "platform_only": True, "env": env})
+    try:
+        res = cloud.bootstrap_platform_only(root, env, exchange_pat=EXCHANGE_PAT)
+    except cloud.MissingVariablesError as exc:
+        return Result(exc.code, {"missing": exc.missing}, None, str(exc))
+    text = (
+        f"Platform-only workspace {res.env} ready at {res.workspace_dir} (no repo cloned); "
+        f"PAT verified. Pass --env {res.env} to the skill / agent / session commands."
+    )
+    return Result.done(res.to_dict(), text)
+
+
 def _cmd_bootstrap(ctx: Context) -> Result:
     a = ctx.args
+    if a.platform_only:
+        return _cmd_bootstrap_platform_only(ctx)
     wfile = find_workspace_file(a.workspace_file)
     root = abcd_root_for(ctx, a.abcd_root)
     if ctx.dry_run_notice(f"would clone the workspace named in {wfile} into {root / 'workspaces'}"):
@@ -86,6 +123,94 @@ def _cmd_bootstrap(ctx: Context) -> Result:
     )
     text += "".join(f"\nFLAG: {f}" for f in res.flags)
     return Result.done(res.to_dict(), text)
+
+
+def _present(environ: Mapping[str, str], *names: str) -> bool:
+    return any((environ.get(n) or "").strip() for n in names)
+
+
+def doctor_report(
+    ctx: Context,
+    *,
+    environ: Mapping[str, str] | None = None,
+    exchange: cloud.ExchangeClaims | None = None,
+) -> dict[str, Any]:
+    """What a cloud run has, by variable NAME only (never a value)."""
+    env = os.environ if environ is None else environ
+    groups: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+        (cloud.VAR_PAT_CLIENT_ID, (cloud.VAR_PAT_CLIENT_ID,), True),
+        (cloud.VAR_PAT_SECRET, (cloud.VAR_PAT_SECRET,), True),
+        (
+            f"{cloud.VAR_WEBUI_ENDPOINT} or {cloud.VAR_APP_BASE_URL}",
+            (cloud.VAR_WEBUI_ENDPOINT, cloud.VAR_APP_BASE_URL),
+            True,
+        ),
+        (cloud.VAR_CONVERSATION_ID, (cloud.VAR_CONVERSATION_ID,), False),
+        (cloud.VAR_GIT_CREDENTIAL, (cloud.VAR_GITHUB_TOKEN, cloud.VAR_GITHUB_DEPLOY_KEY), False),
+    )
+    variables = [
+        {
+            "name": label,
+            "present": _present(env, *names),
+            "needed_for": "platform" if req else "repo",
+        }
+        for label, names, req in groups
+    ]
+    pointer = locate_workspace_file(None)
+    wd = ctx.workspaces_dir
+    bootstrapped: list[str] = []
+    try:
+        for d in sorted(wd.iterdir()) if wd.is_dir() else []:
+            if (d / "env.json").is_file() and (d / ".env").is_file():
+                bootstrapped.append(d.name)
+    except OSError:
+        pass
+    platform_ready = all(v["present"] for v in variables if v["needed_for"] == "platform")
+    pat: dict[str, Any] = {"checked": False}
+    if platform_ready:
+        endpoint = env.get(cloud.VAR_WEBUI_ENDPOINT) or env.get(cloud.VAR_APP_BASE_URL) or ""
+        try:
+            claims = (exchange or EXCHANGE_CLAIMS or cloud.exchange_pat_claims_http)(
+                endpoint.strip().rstrip("/"),
+                (env.get(cloud.VAR_PAT_CLIENT_ID) or "").strip(),
+                (env.get(cloud.VAR_PAT_SECRET) or "").strip(),
+            )
+            pat = {"checked": True, "ok": True, **claims}
+        except Exception as e:  # report, never raise: doctor is a diagnosis
+            pat = {"checked": True, "ok": False, "error": str(e)[:200]}
+    return {
+        "variables": variables,
+        "pointer_file": str(pointer) if pointer else None,
+        "bootstrapped_workspaces": bootstrapped,
+        "bootstrapped": bool(bootstrapped),
+        "platform_ready": platform_ready,
+        "repo_ready": bool(pointer) and all(v["present"] for v in variables),
+        "pat": pat,
+    }
+
+
+def _cmd_doctor(ctx: Context) -> Result:
+    rep = doctor_report(ctx)
+    lines = [
+        f"  {'present' if v['present'] else 'MISSING'}: {v['name']} (for {v['needed_for']})"
+        for v in rep["variables"]
+    ]
+    lines.append(f"  pointer file: {rep['pointer_file'] or 'not found'}")
+    lines.append(
+        "  bootstrapped workspace(s): " + (", ".join(rep["bootstrapped_workspaces"]) or "none")
+    )
+    pat = rep["pat"]
+    if pat.get("ok"):
+        lines.append(f"  PAT exchange: ok, tenant {pat['tenant_id'] or '?'}, roles {pat['roles']}")
+    elif pat.get("checked"):
+        lines.append(f"  PAT exchange: FAILED ({pat['error']})")
+    else:
+        lines.append("  PAT exchange: not checked (platform variables missing)")
+    if not rep["pointer_file"]:
+        lines.append("  next: " + NO_POINTER_MESSAGE)
+    text = "Cloud doctor:\n" + "\n".join(lines)
+    ok = bool(pat.get("ok"))
+    return Result(0 if ok else 1, rep, text, None if ok else "platform is not ready (see above)")
 
 
 def _load_bundle_builder() -> Any:
@@ -209,6 +334,17 @@ def register(registry: Registry) -> None:
     )
     p.add_argument(
         "--replace", action="store_true", help="Re-clone over an existing workspace folder"
+    )
+    p.add_argument(
+        "--platform-only",
+        action="store_true",
+        help="No repo: write workspaces/<env>/ (default env 'cloud') from the injected PAT "
+        "variables, for skill/agent/session commands",
+    )
+    g.command(
+        "doctor",
+        _cmd_doctor,
+        help="Read-only: which variables, pointer file and workspace exist; PAT tenant and roles",
     )
     p = g.command(
         "bundle", _cmd_bundle, help="Build abcd-bundle.zip for the harness skill", writes=True

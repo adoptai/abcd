@@ -77,6 +77,7 @@ they stop with "builder.json not found" otherwise). For a throwaway test agent t
 commands are enough:
 
 ```bash
+abcd skill push <skill_dir> --dry-run --env <env> --json      # then a real push (skill-builder)
 abcd skill list --search <prefix> --env <env> --json          # the skills must exist first
 abcd workstream ensure <workstream> --env <env> --json
 abcd agent create <name> "<Display name>" --component skill:<skill> --component plugin:<slug> \
@@ -86,6 +87,9 @@ abcd agent get <process_id> --env <env> --json
 abcd agent update <process_id> --disable --env <env> --json   # when the test is over
 ```
 
+- In a harness sandbox with no workstream repo, `abcd cloud bootstrap --platform-only` makes
+  these direct commands usable (pass `--env cloud`); the `abcd` harness skill has the whole
+  publish path. Creating or enabling an agent there needs the FDE's explicit request.
 - Components are written as `{type, source: org, ref}`; `skill:<name>` admits a standalone org
   skill only, `plugin:<slug>` admits every skill bundled in that plugin. The BFF does not
   validate them, a wrong ref gives an empty skill menu, so check with `abcd agent get`.

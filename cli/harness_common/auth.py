@@ -98,9 +98,17 @@ def get_harness_bearer_token(
         if cached:
             return cached
 
-    client_id = client_id or os.getenv("ADOPT_HARNESS_PAT_CLIENT_ID")
-    secret = secret or os.getenv("ADOPT_HARNESS_PAT_SECRET")
-    webui_endpoint = webui_endpoint or os.getenv("ADOPT_WEBUI_ENDPOINT")
+    # The ABCD_* / ADOPT_APP_BASE_URL names are what a harness sandbox gets from the vault.
+    client_id = (
+        client_id or os.getenv("ADOPT_HARNESS_PAT_CLIENT_ID") or os.getenv("ABCD_PAT_CLIENT_ID")
+    )
+    secret = secret or os.getenv("ADOPT_HARNESS_PAT_SECRET") or os.getenv("ABCD_PAT_SECRET")
+    webui_endpoint = (
+        webui_endpoint
+        or os.getenv("ADOPT_WEBUI_ENDPOINT")
+        or os.getenv("ABCD_WEBUI_ENDPOINT")
+        or os.getenv("ADOPT_APP_BASE_URL")
+    )
 
     if not client_id:
         raise PatConfigError(

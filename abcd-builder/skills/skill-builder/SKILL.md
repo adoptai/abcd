@@ -61,8 +61,18 @@ abcd noui activate_install --env <env> ws:skills/<skill_id> claude-code [--proje
 
 ```bash
 abcd skill audit workspaces/<env>/harness/skills/<skill_id>   # free, local
+abcd skill push workspaces/<env>/harness/skills/<skill_id> --env <env> --dry-run   # local checks
 abcd skill push workspaces/<env>/harness/skills/<skill_id> --env <env> [--replace]
 ```
+
+`--dry-run` is fully local: it checks the directory, `SKILL.md`, the frontmatter lint, the name
+slug, the secret scan and the audit (unless `--skip-audit`), then lists what would be uploaded
+(name, aux files, new or `--replace`). It exits non-zero on a bad directory and never calls the
+platform. `abcd plugin push --dry-run` does the same for a plugin.
+
+In a harness sandbox with no workstream repo, run `abcd cloud bootstrap --platform-only` first
+(then pass `--env cloud`; `abcd cloud doctor` shows what is missing). The `abcd` harness skill
+has the full cloud path under "Build and publish a skill or agent".
 
 `push` lints the frontmatter with the platform's strictness and refuses to stage dev-only
 files by name. It also **content-scans** SKILL.md and every aux file, including members of
@@ -164,6 +174,9 @@ python harness-skills/noui/build_bundle.py
 abcd skill deploy-default harness-skills/noui --env <env> \
     --aux noui-bundle.zip=harness-skills/noui/noui-bundle.zip --bundle-version <sha> [--dry-run]
 ```
+
+`deploy-default` is refused in a cloud (harness sandbox) run, even with `--dry-run`: run it from a
+local machine, and from a cloud chat push to the org tier with `abcd skill push` instead.
 
 ## Rules
 

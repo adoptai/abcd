@@ -283,8 +283,8 @@ def write_env_file(path: Path, endpoint: str, client_id: str, secret: str) -> No
         raise
 
 
-def exchange_pat_http(endpoint: str, client_id: str, secret: str) -> None:
-    """Default PAT check: ``POST /v1/users/api-token``. Raises ``PlatformError`` on failure."""
+def _exchange_token(endpoint: str, client_id: str, secret: str) -> str:
+    """``POST /v1/users/api-token``; returns the access token. Raises ``PlatformError``."""
     import requests
 
     try:
@@ -298,11 +298,119 @@ def exchange_pat_http(endpoint: str, client_id: str, secret: str) -> None:
     if resp.status_code != 200:
         raise PlatformError(f"PAT exchange was refused by {endpoint} (HTTP {resp.status_code})")
     try:
-        ok = bool(resp.json().get("access_token"))
+        token = resp.json().get("access_token")
     except ValueError:
-        ok = False
-    if not ok:
+        token = None
+    if not token or not isinstance(token, str):
         raise PlatformError("PAT exchange returned no access_token")
+    return token
+
+
+def exchange_pat_http(endpoint: str, client_id: str, secret: str) -> None:
+    """Default PAT check: ``POST /v1/users/api-token``. Raises ``PlatformError`` on failure."""
+    _exchange_token(endpoint, client_id, secret)
+
+
+def exchange_pat_claims_http(endpoint: str, client_id: str, secret: str) -> dict[str, Any]:
+    """PAT exchange for ``cloud doctor``: only the tenant and roles claims of the JWT, never the
+    token itself (the payload is read without verifying it; it is a display value)."""
+    import base64
+
+    token = _exchange_token(endpoint, client_id, secret)
+    try:
+        payload = token.split(".")[1]
+        claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
+    except (IndexError, ValueError):
+        claims = {}
+    if not isinstance(claims, dict):
+        claims = {}
+    roles = claims.get("roles")
+    return {
+        "tenant_id": str(claims.get("tenantId") or claims.get("tenant_id") or ""),
+        "roles": [str(r) for r in roles] if isinstance(roles, list) else [],
+    }
+
+
+ExchangeClaims = Callable[[str, str, str], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class PlatformOnlyResult:
+    env: str
+    workspace_dir: Path
+    env_file: Path
+    conversation_id: str
+    webui_endpoint: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "env": self.env,
+            "platform_only": True,
+            "workspace_dir": str(self.workspace_dir),
+            "env_file": str(self.env_file),
+            "conversation_id": self.conversation_id,
+            "webui_endpoint": self.webui_endpoint,
+            "git": "none (no repo cloned)",
+        }
+
+
+def collect_platform_environment(environ: Mapping[str, str]) -> CloudEnv:
+    """Like ``collect_environment`` but only the platform variables (no git credential, no
+    conversation id are required). Raises ``MissingVariablesError`` naming every gap."""
+
+    def get(name: str) -> str:
+        return (environ.get(name) or "").strip()
+
+    missing = [n for n in (VAR_PAT_CLIENT_ID, VAR_PAT_SECRET) if not get(n)]
+    endpoint = get(VAR_WEBUI_ENDPOINT) or get(VAR_APP_BASE_URL)
+    if not endpoint:
+        missing.append(f"{VAR_WEBUI_ENDPOINT} or {VAR_APP_BASE_URL}")
+    if missing:
+        raise MissingVariablesError(missing)
+    return CloudEnv(
+        pat_client_id=get(VAR_PAT_CLIENT_ID),
+        pat_secret=get(VAR_PAT_SECRET),
+        webui_endpoint=endpoint.rstrip("/"),
+        conversation_id=get(VAR_CONVERSATION_ID),
+    )
+
+
+def bootstrap_platform_only(
+    abcd_root: Path,
+    env: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+    exchange_pat: ExchangePat | None = None,
+) -> PlatformOnlyResult:
+    """A minimal workspace for platform commands (``skill push``, ``agent create``, sessions)
+    when there is no workstream repo or ``abcd-workspace.json``: ``workspaces/<env>/`` with
+    ``env.json``, the 0600 ``.env`` and the cloud marker. No git call is made. The variables are
+    checked first, so nothing is written when one is missing; the PAT is checked last."""
+    if not _SAFE_ENV.match(env):
+        raise UsageError(f"{env!r} is not a valid workspace name")
+    cloud_env = collect_platform_environment(os.environ if environ is None else environ)
+    dest = abcd_root / "workspaces" / env
+    dest.mkdir(parents=True, exist_ok=True)
+    env_json = dest / "env.json"
+    if not env_json.exists():
+        env_json.write_text(
+            json.dumps({"env_id": env, "name": env, "platform_only": True}, indent=2)
+        )
+    env_file = dest / ".env"
+    write_env_file(
+        env_file, cloud_env.webui_endpoint, cloud_env.pat_client_id, cloud_env.pat_secret
+    )
+    write_marker(dest, cloud_env.conversation_id)
+    (exchange_pat or exchange_pat_http)(
+        cloud_env.webui_endpoint, cloud_env.pat_client_id, cloud_env.pat_secret
+    )
+    return PlatformOnlyResult(
+        env=env,
+        workspace_dir=dest,
+        env_file=env_file,
+        conversation_id=cloud_env.conversation_id,
+        webui_endpoint=cloud_env.webui_endpoint,
+    )
 
 
 def bootstrap(

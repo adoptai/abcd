@@ -60,7 +60,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import yaml
 
-from cli.builder_common.errors import UsageError
+from cli.builder_common.cloudmode import cloud_mode
+from cli.builder_common.errors import RefusedError, UsageError
 from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import HarnessAPIError, get_harness_client_for_env
 from cli.harness_common.secret_scan import Finding, scan_bytes
@@ -264,7 +265,11 @@ def push(
     env: str | None,
     allow_secret_findings: bool = False,
     aux_specs: list[str] | None = None,
+    dry_run: bool = False,
 ) -> int:
+    if not skill_dir.is_dir():
+        print(f"❌ Not a directory: {skill_dir}")
+        return 1
     skill_md_path = skill_dir / "SKILL.md"
     if not skill_md_path.exists():
         print(f"❌ No SKILL.md in {skill_dir}")
@@ -278,6 +283,9 @@ def push(
         return 1
 
     skill_name = name or meta["name"]
+    if not _SLUG_RE.match(str(skill_name)):
+        print(f"❌ Skill name '{skill_name}' is not a valid slug (must match ^[a-z0-9][a-z0-9-]*$)")
+        return 1
     has_process = "process" in meta
     print(f"📦 Skill: {skill_name}" + (" (process)" if has_process else ""))
 
@@ -317,6 +325,16 @@ def push(
                 "⚠️  adopt-skill-review found medium/high issues above -- worth fixing locally "
                 "before spending a harness run on this push, but not blocking."
             )
+
+    if dry_run:
+        uploads = ["SKILL.md", *(a["path"] for a in aux_files)]
+        print(
+            f"\nDRY RUN OK: would upload skill '{skill_name}' to the org tier "
+            f"({'replace an existing skill of that name' if replace else 'new skill: fails with a 409 if the name exists, add --replace'})"
+        )
+        print(f"   files: {', '.join(uploads)}")
+        print("   nothing was uploaded.")
+        return 0
 
     try:
         client = get_harness_client_for_env(env)
@@ -492,7 +510,11 @@ def push_plugin(
     skip_audit: bool,
     env: str | None,
     allow_secret_findings: bool = False,
+    dry_run: bool = False,
 ) -> int:
+    if not plugin_dir.is_dir():
+        print(f"❌ Not a directory: {plugin_dir}")
+        return 1
     try:
         zip_bytes, meta, skills, findings = build_plugin_zip(plugin_dir)
     except ValueError as e:
@@ -504,6 +526,14 @@ def push_plugin(
         return 1
     if not skip_audit and _audit_gate(plugin_dir, force):
         return 1
+    if dry_run:
+        print(
+            f"\nDRY RUN OK: would upload plugin '{meta['name']}' ({len(zip_bytes)} bytes, "
+            f"skills: {', '.join(skills)}; "
+            f"{'replace' if replace else 'new: 409 if the name exists, add --replace'}). "
+            "nothing was uploaded."
+        )
+        return 0
     try:
         client = get_harness_client_for_env(env)
         print(f"\n⬆️  Uploading plugin to org tier{' (replace)' if replace else ''}...")
@@ -606,8 +636,6 @@ def _cmd_audit(ctx: Context) -> int:
 
 def _cmd_push(ctx: Context) -> int:
     a = ctx.args
-    if ctx.dry_run_notice(f"would audit and upload skill dir {a.skill_dir}"):
-        return 0
     return push(
         a.skill_dir,
         a.name,
@@ -617,6 +645,7 @@ def _cmd_push(ctx: Context) -> int:
         a.env,
         a.allow_secret_findings,
         a.aux,
+        dry_run=ctx.dry_run,
     )
 
 
@@ -632,15 +661,26 @@ def _cmd_delete(ctx: Context) -> int:
 
 def _cmd_push_plugin(ctx: Context) -> int:
     a = ctx.args
-    if ctx.dry_run_notice(f"would audit, zip and upload plugin dir {a.plugin_dir}"):
-        return 0
     return push_plugin(
-        a.plugin_dir, a.replace, a.force, a.skip_audit, a.env, a.allow_secret_findings
+        a.plugin_dir,
+        a.replace,
+        a.force,
+        a.skip_audit,
+        a.env,
+        a.allow_secret_findings,
+        dry_run=ctx.dry_run,
     )
 
 
 def _cmd_deploy_default(ctx: Context) -> int:
     a = ctx.args
+    # The Built-in tier reaches every org: never from a cloud sandbox, not even as a dry run.
+    if cloud_mode(ctx.env_dir):
+        raise RefusedError(
+            "skill deploy-default publishes to the Built-in tier, which every org sees: it is "
+            "refused in a cloud run. Push to the org tier with `abcd skill push` instead, or ask "
+            "an Adopt engineer to deploy it from a local machine."
+        )
     return deploy_default(
         a.skill_dir,
         a.name,

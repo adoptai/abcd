@@ -486,11 +486,18 @@ def get_harness_client_for_env(env_name: str | None = None) -> HarnessAPIClient:
     if env_dotenv.exists():
         load_dotenv(env_dotenv, override=True)
 
-    webui_endpoint = os.getenv("ADOPT_WEBUI_ENDPOINT")
+    # A harness sandbox gets the vault names (ABCD_WEBUI_ENDPOINT / ADOPT_APP_BASE_URL) in its
+    # environment; the workspace .env, when there is one, wins.
+    webui_endpoint = (
+        os.getenv("ADOPT_WEBUI_ENDPOINT")
+        or os.getenv("ABCD_WEBUI_ENDPOINT")
+        or os.getenv("ADOPT_APP_BASE_URL")
+    )
     if not webui_endpoint:
         raise ValueError(
             "ADOPT_WEBUI_ENDPOINT is required (the base URL of the Adopt webui backend). "
-            f"Set it in workspaces/{env}/.env."
+            f"Set it in workspaces/{env}/.env; in a cloud sandbox run "
+            "`abcd cloud bootstrap --platform-only` (or set ABCD_WEBUI_ENDPOINT)."
         )
 
     token = get_harness_bearer_token_for_env(env)

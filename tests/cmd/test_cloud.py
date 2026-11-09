@@ -319,3 +319,180 @@ def test_nightly_continues_after_a_failure_and_returns_the_worst_code(
     states = {s["step"]: s["state"] for s in doc["data"]["steps"]}
     assert states["status publish"] == "ok"
     assert "platform down" in doc["data"]["steps"][0]["message"]
+
+
+# -- platform-only mode, doctor, missing pointer ------------------------------------------------
+
+PLATFORM_VARS = {
+    "ABCD_PAT_CLIENT_ID": "client-id-1",
+    "ABCD_PAT_SECRET": "s3cr3t-value-xyz",
+    "ABCD_WEBUI_ENDPOINT": "https://bff.test",
+}
+
+
+def test_platform_only_bootstrap_writes_workspace_without_git(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for k, v in PLATFORM_VARS.items():
+        monkeypatch.setenv(k, v)
+    for k in ("GITHUB_TOKEN", "GITHUB_DEPLOY_KEY", "ADOPT_CONVERSATION_ID", "ADOPT_APP_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    exchanged: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(bc, "EXCHANGE_PAT", lambda *a: exchanged.append(a))
+
+    def no_git(*a: Any, **k: Any) -> None:
+        raise AssertionError("platform-only must not call git")
+
+    monkeypatch.setattr(bc, "RUN_GIT", no_git)
+    monkeypatch.setattr("cli.builder_common.cloud._run_git", no_git)
+    monkeypatch.setattr(subprocess, "run", no_git)
+    root = tmp_path / "abcd-root"
+    # --env goes through the shared `run` helper's own --env acme, so call main directly
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = abcd_main.main(
+            ["cloud", "bootstrap", "--platform-only", "--abcd-root", str(root), "--json"]
+        )
+    out = buf.getvalue()
+    assert code == 0, out
+    dest = root / "workspaces" / "cloud"
+    assert json.loads((dest / "env.json").read_text())["env_id"] == "cloud"
+    env_text = (dest / ".env").read_text()
+    assert "ADOPT_HARNESS_PAT_CLIENT_ID=client-id-1" in env_text
+    assert "ADOPT_HARNESS_PAT_SECRET=s3cr3t-value-xyz" in env_text
+    assert "ADOPT_WEBUI_ENDPOINT=https://bff.test" in env_text
+    assert (dest / ".env").stat().st_mode & 0o777 == 0o600
+    assert (dest / ".builder" / "cloud.json").is_file()
+    assert not (dest / ".git").exists()
+    assert exchanged == [("https://bff.test", "client-id-1", "s3cr3t-value-xyz")]
+    assert "s3cr3t" not in out and "s3cr3t" not in capsys.readouterr().err
+
+
+def test_platform_only_bootstrap_names_missing_variables_and_writes_nothing(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for k in (*PLATFORM_VARS, "ADOPT_APP_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    import contextlib
+    import io
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = abcd_main.main(
+            [
+                "cloud",
+                "bootstrap",
+                "--platform-only",
+                "--abcd-root",
+                str(tmp_path / "r"),
+                "--json",
+            ]
+        )
+    assert code == 2
+    assert "ABCD_PAT_SECRET" in buf.getvalue()
+    assert not (tmp_path / "r").exists()
+
+
+def test_bootstrap_without_a_pointer_file_names_both_options(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(bc.WORKSPACE_FILE_ENV, raising=False)
+    monkeypatch.setattr(bc, "find_workspace_file", bc.find_workspace_file)
+    with pytest.raises(Exception) as exc:
+        bc.find_workspace_file(None, search_roots=(tmp_path / "nowhere",))
+    msg = str(exc.value)
+    assert "no abcd-workspace.json: run in the abcd-<env> workstream for repo work" in msg
+    assert "abcd cloud bootstrap --platform-only" in msg
+
+
+def test_doctor_lists_names_never_values(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(bc.WORKSPACE_FILE_ENV, raising=False)
+    for k, v in PLATFORM_VARS.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_DEPLOY_KEY", raising=False)
+    monkeypatch.setenv("ADOPT_CONVERSATION_ID", "conv-77")
+    monkeypatch.setattr(
+        bc, "EXCHANGE_CLAIMS", lambda *a: {"tenant_id": "tenant-9", "roles": ["Admin"]}
+    )
+    code, doc = run("cloud", "doctor")
+    assert code == 0, doc
+    names = {v["name"]: v["present"] for v in doc["data"]["variables"]}
+    assert names["ABCD_PAT_SECRET"] is True
+    assert names["GITHUB_TOKEN or GITHUB_DEPLOY_KEY"] is False
+    assert doc["data"]["pointer_file"] is None
+    assert doc["data"]["pat"] == {
+        "checked": True,
+        "ok": True,
+        "tenant_id": "tenant-9",
+        "roles": ["Admin"],
+    }
+    blob = json.dumps(doc)
+    for secret in ("s3cr3t-value-xyz", "client-id-1", "conv-77", "https://bff.test"):
+        assert secret not in blob
+
+
+def test_doctor_reports_a_failed_pat_exchange_without_raising(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    for k, v in PLATFORM_VARS.items():
+        monkeypatch.setenv(k, v)
+
+    def refuse(*a: str) -> dict[str, Any]:
+        raise RuntimeError("PAT exchange was refused (HTTP 401)")
+
+    monkeypatch.setattr(bc, "EXCHANGE_CLAIMS", refuse)
+    code, doc = run("cloud", "doctor")
+    assert code == 1
+    assert doc["data"]["pat"]["ok"] is False and "401" in doc["data"]["pat"]["error"]
+
+
+def test_doctor_without_platform_variables_does_not_exchange(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    for k in (*PLATFORM_VARS, "ADOPT_APP_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(bc, "EXCHANGE_CLAIMS", lambda *a: pytest.fail("must not be called"))
+    code, doc = run("cloud", "doctor")
+    assert code == 1 and doc["data"]["pat"] == {"checked": False}
+
+
+def test_vault_variables_alone_authenticate_the_harness_client(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reported failure: ABCD_* variables present, no workspaces/<env>/.env."""
+    from cli.harness_common import auth
+
+    for k, v in PLATFORM_VARS.items():
+        monkeypatch.setenv(k, v)
+    for k in ("ADOPT_HARNESS_PAT_CLIENT_ID", "ADOPT_HARNESS_PAT_SECRET", "ADOPT_WEBUI_ENDPOINT"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.delenv("ADOPT_HARNESS_BEARER_TOKEN", raising=False)
+    posted: list[Any] = []
+
+    class Resp:
+        status_code = 200
+        text = ""
+
+        def json(self) -> dict[str, Any]:
+            return {"access_token": "tok", "expires_in": 60}
+
+    monkeypatch.setattr(
+        auth.requests, "post", lambda url, json, timeout: posted.append((url, json)) or Resp()
+    )
+    assert auth.get_harness_bearer_token() == "tok"
+    assert posted == [
+        (
+            "https://bff.test/v1/users/api-token",
+            {"client_id": "client-id-1", "secret": "s3cr3t-value-xyz"},
+        )
+    ]
