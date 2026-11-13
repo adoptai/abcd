@@ -1,0 +1,11 @@
+name: abcd-weekly
+display_name: abcd weekly
+description: Friday run for one client workspace. A cron pipeline starts it; it freezes the status files and produces the scorecard report.
+components:
+- type: skill
+  source: org
+  ref: abcd
+workstreams:
+- abcd-${env}
+write_workstreams: []
+is_enabled: true

@@ -1,0 +1,5 @@
+# Synthetic fixtures in tests (fake keys/tokens used to test abcd secret scanners); fixed in the next commit.
+376d91b0073569f7cb970777161cbff69e4ecfed:tests/builder/test_cloud.py:generic-api-key:190
+376d91b0073569f7cb970777161cbff69e4ecfed:tests/cmd/test_context.py:generic-api-key:200
+376d91b0073569f7cb970777161cbff69e4ecfed:tests/cmd/test_review_identity.py:generic-api-key:29
+376d91b0073569f7cb970777161cbff69e4ecfed:tests/cmd/test_review2.py:curl-auth-header:306

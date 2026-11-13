@@ -1,0 +1,139 @@
+name: Deploy abcd Skill
+
+# Publishes the abcd Agent Harness skill system-wide (the platform's default
+# "Built-in" tier) so every org sees it without an org copy:
+#   abcd               harness-skills/abcd/SKILL.md + abcd-bundle.zip (cli/, abcd-builder/, ...)
+#   abcd-release-gate  the HITL release-gate skill the cloud runner uses (no aux files)
+#
+# Triggers:
+#   pull_request     dry run only: builds the bundle, assembles both payloads, runs the content
+#                    secret scan. No credentials, no environment.
+#   push to dev      deploys to environment `dev`.
+#   release          (published) deploys to environment `prod`; BUNDLE_VERSION is the release tag.
+#   workflow_dispatch  manual deploy to dev or prod.
+# NoUI keeps its own manual-only workflow (deploy-skill.yml); this one never touches it.
+#
+# Required per-environment config (Settings > Environments > dev|prod):
+#   var    ADOPT_BASE_URL       e.g. https://api.adopt.ai
+#   secret ADOPT_CLIENT_ID      Adopt @adopt.ai service-account PAT client id
+#   secret ADOPT_CLIENT_SECRET  matching PAT secret
+# `prod` MUST have a required-reviewer protection rule: a published release deploys to
+# every org, and the rule is the only human gate before it does.
+#
+# Client orgs get this skill through `abcd cloud setup --home`, which uses the default tier
+# when the skill is published there (and only pushes an org copy with --org-copy).
+
+on:
+  pull_request:
+    paths: &paths
+      - "harness-skills/abcd/**"
+      - "cli/**"
+      - "abcd-builder/**"
+      - "adopt-skill-review/**"
+      - "pyproject.toml"
+      - "cli/builder_common/templates/meta/skills/abcd-release-gate/**"
+      - "scripts/deploy_default_skill.py"
+      - ".github/workflows/deploy-abcd-skill.yml"
+  push:
+    branches: [dev]
+    paths: *paths
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        type: choice
+        options: [dev, prod]
+        required: true
+
+concurrency:
+  group: deploy-abcd-skill-${{ github.event.inputs.environment || (github.event_name == 'release' && 'prod') || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  GATE_DIR: cli/builder_common/templates/meta/skills/abcd-release-gate
+
+jobs:
+  # PR-time check: no environment, no credentials.
+  dry-run:
+    name: dry-run (validate publish payloads)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build bundle
+        run: python harness-skills/abcd/build_bundle.py
+      - name: Dry-run deploy abcd (no publish)
+        env:
+          DRY_RUN: "1"
+          SKILL_NAME: abcd
+          SKILL_MD: harness-skills/abcd/SKILL.md
+          AUX: abcd-bundle.zip=harness-skills/abcd/abcd-bundle.zip
+          BUNDLE_VERSION: ${{ github.sha }}
+          MIN_PLATFORM_CONTRACT: "1"
+        run: python scripts/deploy_default_skill.py
+      - name: Dry-run deploy abcd-release-gate (no publish)
+        env:
+          DRY_RUN: "1"
+          SKILL_NAME: abcd-release-gate
+          SKILL_MD: ${{ env.GATE_DIR }}/SKILL.md
+          AUX: ""
+          BUNDLE_VERSION: ${{ github.sha }}
+          MIN_PLATFORM_CONTRACT: "1"
+        run: python scripts/deploy_default_skill.py
+      - name: Secret scan of SKILL.md + every bundle member
+        run: |
+          pip install -q PyYAML requests python-dotenv
+          python cli/harness_skill.py deploy-default harness-skills/abcd --dry-run \
+            --aux abcd-bundle.zip=harness-skills/abcd/abcd-bundle.zip
+          python cli/harness_skill.py deploy-default "$GATE_DIR" --dry-run
+
+  deploy:
+    name: deploy
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # release -> prod, push (dev branch) -> dev, dispatch -> the chosen environment.
+    environment: ${{ github.event.inputs.environment || (github.event_name == 'release' && 'prod') || 'dev' }}
+    env:
+      BUNDLE_VERSION: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.release.tag_name || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build bundle
+        run: python harness-skills/abcd/build_bundle.py
+      # The same content secret scan the PR dry run runs: a manual dispatch can
+      # target a ref that never went through a PR.
+      - name: Secret scan of SKILL.md + every bundle member
+        run: |
+          pip install -q PyYAML requests python-dotenv
+          python cli/harness_skill.py deploy-default harness-skills/abcd --dry-run \
+            --aux abcd-bundle.zip=harness-skills/abcd/abcd-bundle.zip
+          python cli/harness_skill.py deploy-default "$GATE_DIR" --dry-run
+      - name: Deploy abcd
+        env:
+          ADOPT_BASE_URL: ${{ vars.ADOPT_BASE_URL }}
+          ADOPT_CLIENT_ID: ${{ secrets.ADOPT_CLIENT_ID }}
+          ADOPT_CLIENT_SECRET: ${{ secrets.ADOPT_CLIENT_SECRET }}
+          SKILL_NAME: abcd
+          SKILL_MD: harness-skills/abcd/SKILL.md
+          AUX: abcd-bundle.zip=harness-skills/abcd/abcd-bundle.zip
+          MIN_PLATFORM_CONTRACT: "1"
+        run: python scripts/deploy_default_skill.py
+      - name: Deploy abcd-release-gate
+        env:
+          ADOPT_BASE_URL: ${{ vars.ADOPT_BASE_URL }}
+          ADOPT_CLIENT_ID: ${{ secrets.ADOPT_CLIENT_ID }}
+          ADOPT_CLIENT_SECRET: ${{ secrets.ADOPT_CLIENT_SECRET }}
+          SKILL_NAME: abcd-release-gate
+          SKILL_MD: ${{ env.GATE_DIR }}/SKILL.md
+          AUX: ""
+          MIN_PLATFORM_CONTRACT: "1"
+        run: python scripts/deploy_default_skill.py

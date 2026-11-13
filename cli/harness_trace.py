@@ -4,17 +4,21 @@ Fetch a turn's status/trace/temporal-history on demand, or run the §2.5
 performance-checklist review over an already-persisted run.
 
 Usage:
-    python cli/harness_trace.py fetch TURN_ID [--env ENV] [--save DIR]
-    python cli/harness_trace.py review RUN_ID [--env ENV]
+    abcd trace fetch TURN_ID [--env ENV] [--save DIR]
+    abcd trace review RUN_ID [--env ENV]
+    (the old `python cli/harness_trace.py <command> ...` form still works)
 """
 
-import argparse
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import (
     UNSCOPED_WORKSTREAM_ID,
     HarnessAPIError,
@@ -22,6 +26,9 @@ from cli.harness_common.api_client import (
 )
 from cli.harness_common.trace_review import print_review, review_run
 from cli.harness_common.workspace import run_dir as harness_run_dir
+
+if TYPE_CHECKING:
+    from cli.core.context import Context
 
 
 def fetch(
@@ -90,40 +97,50 @@ def review(run_id: str, env: str | None) -> int:
     return 0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
+def _cmd_fetch(ctx: Context) -> int:
+    a = ctx.args
+    return fetch(a.turn_id, a.conversation_id, a.workstream_id, a.env, a.save)
 
-    fetch_p = sub.add_parser("fetch", help="Fetch a turn's status/trace/temporal-history")
-    fetch_p.add_argument("turn_id")
-    fetch_p.add_argument(
+
+def _cmd_review(ctx: Context) -> int:
+    return review(ctx.args.run_id, ctx.env_arg)
+
+
+def register(registry: Registry) -> None:
+    """Register ``abcd trace fetch|review`` (and the flat ``harness_trace.py`` CLI)."""
+    group = registry.group("trace", "Turn traces and the performance checklist")
+    p = group.command(
+        "fetch",
+        _cmd_fetch,
+        help="Fetch a turn's status/trace/temporal-history",
+        legacy_name="fetch",
+    )
+    p.add_argument("turn_id")
+    p.add_argument(
         "--conversation-id",
         required=True,
         help="Conversation the turn belongs to (required by the API)",
     )
-    fetch_p.add_argument(
+    p.add_argument(
         "--workstream-id", help="Workstream the turn ran in (omit for an unscoped/general turn)"
     )
-    fetch_p.add_argument("--env", help="Environment to use (defaults to active env)")
-    fetch_p.add_argument(
+    p.add_argument(
         "--save",
         type=Path,
         help="Directory to write status.json/trace.json/temporal_history.json into",
     )
+    p = group.command(
+        "review",
+        _cmd_review,
+        help="Run the §2.5 performance checklist over a run",
+        legacy_name="review",
+    )
+    p.add_argument("run_id")
 
-    review_p = sub.add_parser("review", help="Run the §2.5 performance checklist over a run")
-    review_p.add_argument("run_id")
-    review_p.add_argument("--env", help="Environment to use (defaults to active env)")
 
-    args = parser.parse_args()
-
-    if args.command == "fetch":
-        sys.exit(fetch(args.turn_id, args.conversation_id, args.workstream_id, args.env, args.save))
-    elif args.command == "review":
-        sys.exit(review(args.run_id, args.env))
+def main(argv: list[str] | None = None) -> int:
+    return legacy_main("harness_trace.py", register, __doc__, argv)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

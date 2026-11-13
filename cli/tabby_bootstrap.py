@@ -18,24 +18,25 @@ Two tiers, because Tabby has two:
          kind-deploy), which build the worker images and deploy everything.
 
 Usage:
-    python cli/tabby_bootstrap.py status [--env ENV]          # submodule, prereqs, reachability
-    python cli/tabby_bootstrap.py init                         # git submodule update --init tabby
-    python cli/tabby_bootstrap.py up   [--env ENV] [--port 8000] [--port-offset N] [--write-env]
-    python cli/tabby_bootstrap.py provision --url URL [--env ENV] [--write-env]
-    python cli/tabby_bootstrap.py down
-    python cli/tabby_bootstrap.py full                         # Kind deploy (workers included)
+    abcd tabby status [--env ENV]          # submodule, prereqs, reachability
+    abcd tabby init                         # git submodule update --init tabby
+    abcd tabby up   [--env ENV] [--port 8000] [--port-offset N] [--write-env]
+    abcd tabby provision --url URL [--env ENV] [--write-env]
+    abcd tabby down
+    abcd tabby full                         # Kind deploy (workers included)
 
 `provision` mints local agent credentials on a running Tabby: bootstrap-admin
 login -> tenant -> agent client (unrestricted profiles). With --write-env it
 writes TABBY_API_URL / TABBY_CLIENT_ID / TABBY_CLIENT_SECRET / TABBY_ADMIN_TOKEN
 and NOUI_TABBY_AUTH_MODE=agent_token into workspaces/<env>/.env.
 
+(The old `python cli/tabby_bootstrap.py <command> ...` form still works.)
+
 Local state (generated keys, logs, pid) lives in .tabby-local/ (gitignored).
 """
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import re
@@ -45,13 +46,19 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import httpx
+
+from cli.core.registry import Registry, legacy_main
+
+if TYPE_CHECKING:
+    from cli.core.context import Context
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TABBY_DIR = PROJECT_ROOT / "tabby"
@@ -500,7 +507,7 @@ def cmd_up(env_name: str | None, port: int, write_env: bool, offset: int = 0) ->
     _report_creds(creds, env_name, write_env)
     print(
         "\nNote: this is the API tier -- auth, App Templates and profiles work; recording "
-        "and /execute need browser workers (`python cli/tabby_bootstrap.py full`)."
+        "and /execute need browser workers (`abcd tabby full`)."
     )
     return 0
 
@@ -560,51 +567,15 @@ def cmd_full() -> int:
     _run(["make", "build", "docker-build", "kind-deploy"], cwd=TABBY_DIR)
     print(
         "Kind deploy finished. Point TABBY_API_URL at the API service (see tabby/RUNBOOK.md for "
-        "the port-forward), then run `python cli/tabby_bootstrap.py provision --url <url> "
+        "the port-forward), then run `abcd tabby provision --url <url> "
         "--write-env` with TABBY_ADMIN_EMAIL/TABBY_ADMIN_PASSWORD set."
     )
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    p = argparse.ArgumentParser(
-        description="Bootstrap a local Tabby from the pinned submodule for the NoUI toolkit."
-    )
-    sub = p.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("status", help="submodule, prerequisites and reachability")
-    s.add_argument("--env")
-    sub.add_parser("init", help="initialize the pinned tabby submodule")
-    u = sub.add_parser("up", help="start the API tier locally and mint agent credentials")
-    u.add_argument("--env")
-    u.add_argument("--port", type=int, default=DEFAULT_PORT, help="Tabby API port")
-    u.add_argument(
-        "--port-offset",
-        type=int,
-        default=0,
-        help="shift Tabby's infra host ports (5432, 6379, 4222, 9000, ...) by this much",
-    )
-    u.add_argument("--write-env", action="store_true", help="write creds into the workspace .env")
-    pr = sub.add_parser("provision", help="mint agent credentials on a running Tabby")
-    pr.add_argument("--url", required=True)
-    pr.add_argument("--env")
-    pr.add_argument("--write-env", action="store_true")
-    sub.add_parser("down", help="stop the local API and infra")
-    sub.add_parser("full", help="deploy the full stack (workers) to Kind")
-    args = p.parse_args(argv)
+def _guarded(fn: Callable[[], int]) -> int:
     try:
-        if args.cmd == "status":
-            return cmd_status(args.env)
-        if args.cmd == "init":
-            init_submodule()
-            print(f"tabby initialized at {pinned_commit()} (schema v{recording_schema_version()})")
-            return 0
-        if args.cmd == "up":
-            return cmd_up(args.env, args.port, args.write_env, args.port_offset)
-        if args.cmd == "provision":
-            return cmd_provision(args.url, args.env, args.write_env)
-        if args.cmd == "down":
-            return cmd_down()
-        return cmd_full()
+        return fn()
     except BootstrapError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1
@@ -613,6 +584,112 @@ def main(argv: list[str] | None = None) -> int:
             f"Error: command failed ({e.returncode}): {' '.join(map(str, e.cmd))}", file=sys.stderr
         )
         return 1
+
+
+def _cmd_status(ctx: Context) -> int:
+    return _guarded(lambda: cmd_status(ctx.env_arg))
+
+
+def _cmd_init(ctx: Context) -> int:
+    def run() -> int:
+        if ctx.dry_run_notice("would run `git submodule update --init tabby`"):
+            return 0
+        init_submodule()
+        print(f"tabby initialized at {pinned_commit()} (schema v{recording_schema_version()})")
+        return 0
+
+    return _guarded(run)
+
+
+def _cmd_up(ctx: Context) -> int:
+    a = ctx.args
+    if ctx.dry_run_notice(f"would start the Tabby API tier on port {a.port}"):
+        return 0
+    return _guarded(lambda: cmd_up(a.env, a.port, a.write_env, a.port_offset))
+
+
+def _cmd_provision(ctx: Context) -> int:
+    a = ctx.args
+    if ctx.dry_run_notice(f"would mint agent credentials on {a.url}"):
+        return 0
+    return _guarded(lambda: cmd_provision(a.url, a.env, a.write_env))
+
+
+def _cmd_down(ctx: Context) -> int:
+    if ctx.dry_run_notice("would stop the local Tabby API and infra"):
+        return 0
+    return _guarded(cmd_down)
+
+
+def _cmd_full(ctx: Context) -> int:
+    if ctx.dry_run_notice("would deploy the full Tabby stack to Kind"):
+        return 0
+    return _guarded(cmd_full)
+
+
+def register(registry: Registry) -> None:
+    """Register ``abcd tabby ...`` (and the flat ``tabby_bootstrap.py`` CLI)."""
+    group = registry.group("tabby", "Bootstrap a local Tabby for the NoUI toolkit")
+    group.command(
+        "status",
+        _cmd_status,
+        help="submodule, prerequisites and reachability",
+        legacy_name="status",
+    )
+    group.command(
+        "init",
+        _cmd_init,
+        help="initialize the pinned tabby submodule",
+        writes=True,
+        legacy_name="init",
+    )
+    p = group.command(
+        "up",
+        _cmd_up,
+        help="start the API tier locally and mint agent credentials",
+        writes=True,
+        legacy_name="up",
+    )
+    p.add_argument("--port", type=int, default=DEFAULT_PORT, help="Tabby API port")
+    p.add_argument(
+        "--port-offset",
+        type=int,
+        default=0,
+        help="shift Tabby's infra host ports (5432, 6379, 4222, 9000, ...) by this much",
+    )
+    p.add_argument("--write-env", action="store_true", help="write creds into the workspace .env")
+    p = group.command(
+        "provision",
+        _cmd_provision,
+        help="mint agent credentials on a running Tabby",
+        writes=True,
+        legacy_name="provision",
+    )
+    p.add_argument("--url", required=True)
+    p.add_argument("--write-env", action="store_true")
+    group.command(
+        "down",
+        _cmd_down,
+        help="stop the local API and infra",
+        writes=True,
+        legacy_name="down",
+    )
+    group.command(
+        "full",
+        _cmd_full,
+        help="deploy the full stack (workers) to Kind",
+        writes=True,
+        legacy_name="full",
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    return legacy_main(
+        "tabby_bootstrap.py",
+        register,
+        "Bootstrap a local Tabby from the pinned submodule for the NoUI toolkit.",
+        argv,
+    )
 
 
 if __name__ == "__main__":

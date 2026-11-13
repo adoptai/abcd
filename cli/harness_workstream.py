@@ -11,20 +11,28 @@ link, and caches the IDs in workspaces/{env}/harness/workstreams.json so
 repeat runs reuse them instead of creating a new workstream every time.
 
 Usage:
-    python cli/harness_workstream.py ensure <name> [--env ENV]
-    python cli/harness_workstream.py seed <name> <file> [<file> ...] [--env ENV]
+    abcd workstream ensure <name> [--env ENV]
+    abcd workstream seed <name> <file> [<file> ...] [--env ENV]
+    (the old `python cli/harness_workstream.py ensure|seed ...` form still works)
 """
 
-import argparse
+from __future__ import annotations
+
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import requests
 
+from cli.core.output import Result
+from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import HarnessAPIError, get_harness_client_for_env
 from cli.harness_common.workspace import load_workstreams_cache, save_workstreams_cache
+
+if TYPE_CHECKING:
+    from cli.core.context import Context
 
 
 def ensure(name: str, env: str | None) -> dict | None:
@@ -59,25 +67,39 @@ def ensure(name: str, env: str | None) -> dict | None:
         return None
     print(f"   ✅ workstream_id={workstream_id}")
 
-    print(f"🆕 Creating docstore store for '{name}'...")
+    # The BFF creates a default "Workstream Files" docstore (linked) with every workstream;
+    # reuse it instead of adding a second, redundant store.
+    store_id: str | None = None
     try:
-        store = client.create_store(name=name, workstream_id=None)
-    except HarnessAPIError as e:
-        print(f"❌ Failed to create docstore store: {e}")
-        return None
-    store_id = store.get("id") or store.get("store_id")
-    if not store_id:
-        print(f"❌ No store id in response: {store}")
-        return None
-    print(f"   ✅ store_id={store_id}")
+        existing = client.list_stores(workstream_id)
+    except HarnessAPIError:
+        existing = {}
+    for found in existing.get("stores", []) if isinstance(existing, dict) else []:
+        if isinstance(found, dict) and found.get("id"):
+            store_id = str(found["id"])
+            print(f"   ♻️  reusing the workstream's default docstore {store_id}")
+            break
 
-    print("🔗 Linking store to workstream...")
-    try:
-        client.link_store_to_workstreams(store_id, [workstream_id])
-    except HarnessAPIError as e:
-        print(f"❌ Failed to link store to workstream: {e}")
-        return None
-    print("   ✅ Linked")
+    if store_id is None:
+        print(f"🆕 Creating docstore store for '{name}'...")
+        try:
+            store = client.create_store(name=name, workstream_id=None)
+        except HarnessAPIError as e:
+            print(f"❌ Failed to create docstore store: {e}")
+            return None
+        store_id = store.get("id") or store.get("store_id")
+        if not store_id:
+            print(f"❌ No store id in response: {store}")
+            return None
+        print(f"   ✅ store_id={store_id}")
+
+        print("🔗 Linking store to workstream...")
+        try:
+            client.link_store_to_workstreams(store_id, [workstream_id])
+        except HarnessAPIError as e:
+            print(f"❌ Failed to link store to workstream: {e}")
+            return None
+        print("   ✅ Linked")
 
     entry = {"workstream_id": workstream_id, "store_id": store_id}
     cache[name] = entry
@@ -134,29 +156,49 @@ def seed(name: str, files: list[Path], env: str | None) -> int:
     return 0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+def _cmd_ensure(ctx: Context) -> int | Result:
+    if ctx.dry_run:
+        print(f"DRY RUN: would create-or-reuse workstream '{ctx.args.name}' + docstore")
+        return 0
+    entry = ensure(ctx.args.name, ctx.env_arg)
+    if not entry:
+        return 1
+    # `--json` used to carry `data: null`; the ids are what a caller needs (text "": already printed)
+    return Result.done({"name": ctx.args.name, **entry}, "")
+
+
+def _cmd_seed(ctx: Context) -> int:
+    if ctx.dry_run:
+        print(f"DRY RUN: would upload {len(ctx.args.files)} file(s) to '{ctx.args.name}'")
+        return 0
+    return seed(ctx.args.name, ctx.args.files, ctx.env_arg)
+
+
+def register(registry: Registry) -> None:
+    """Register ``abcd workstream ensure|seed`` (and the flat ``harness_workstream.py`` CLI)."""
+    group = registry.group("workstream", "Workstreams + docstores for harness skill testing")
+    p = group.command(
+        "ensure",
+        _cmd_ensure,
+        help="Create-or-reuse a workstream + linked docstore",
+        writes=True,
+        legacy_name="ensure",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    p.add_argument("name")
+    p = group.command(
+        "seed",
+        _cmd_seed,
+        help="Upload local test file(s) into the workstream's docstore",
+        writes=True,
+        legacy_name="seed",
+    )
+    p.add_argument("name")
+    p.add_argument("files", nargs="+", type=Path)
 
-    ensure_p = sub.add_parser("ensure", help="Create-or-reuse a workstream + linked docstore")
-    ensure_p.add_argument("name")
-    ensure_p.add_argument("--env", help="Environment to use (defaults to active env)")
 
-    seed_p = sub.add_parser("seed", help="Upload local test file(s) into the workstream's docstore")
-    seed_p.add_argument("name")
-    seed_p.add_argument("files", nargs="+", type=Path)
-    seed_p.add_argument("--env", help="Environment to use (defaults to active env)")
-
-    args = parser.parse_args()
-
-    if args.command == "ensure":
-        entry = ensure(args.name, args.env)
-        sys.exit(0 if entry else 1)
-    elif args.command == "seed":
-        sys.exit(seed(args.name, args.files, args.env))
+def main(argv: list[str] | None = None) -> int:
+    return legacy_main("harness_workstream.py", register, __doc__, argv)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

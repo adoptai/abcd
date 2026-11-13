@@ -1,0 +1,8 @@
+name: status-agent
+display_name: Status agent
+description: Answers a client's questions about their agents, scorecard, releases and pending items. Read only.
+components: []
+workstreams:
+- builder-status-${client}
+write_workstreams: []
+is_enabled: true

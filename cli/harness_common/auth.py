@@ -29,6 +29,17 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 
+from cli.builder_common.errors import PlatformError, UsageError
+
+
+class PatConfigError(UsageError):
+    """The workspace .env lacks the PAT or endpoint (exit 2)."""
+
+
+class PatExchangeError(PlatformError):
+    """The platform refused the PAT exchange (exit 3), e.g. a locked-out user."""
+
+
 # Refresh this many seconds before actual expiry, so a long-running command
 # doesn't race a request against a token that expires mid-flight.
 _EXPIRY_SAFETY_MARGIN_S = 60
@@ -87,23 +98,31 @@ def get_harness_bearer_token(
         if cached:
             return cached
 
-    client_id = client_id or os.getenv("ADOPT_HARNESS_PAT_CLIENT_ID")
-    secret = secret or os.getenv("ADOPT_HARNESS_PAT_SECRET")
-    webui_endpoint = webui_endpoint or os.getenv("ADOPT_WEBUI_ENDPOINT")
+    # The ABCD_* / ADOPT_APP_BASE_URL names are what a harness sandbox gets from the vault.
+    client_id = (
+        client_id or os.getenv("ADOPT_HARNESS_PAT_CLIENT_ID") or os.getenv("ABCD_PAT_CLIENT_ID")
+    )
+    secret = secret or os.getenv("ADOPT_HARNESS_PAT_SECRET") or os.getenv("ABCD_PAT_SECRET")
+    webui_endpoint = (
+        webui_endpoint
+        or os.getenv("ADOPT_WEBUI_ENDPOINT")
+        or os.getenv("ABCD_WEBUI_ENDPOINT")
+        or os.getenv("ADOPT_APP_BASE_URL")
+    )
 
     if not client_id:
-        raise ValueError(
+        raise PatConfigError(
             "ADOPT_HARNESS_PAT_CLIENT_ID is required. Mint a Personal Access Token in the "
             "Adopt webui once (see cli/harness_common/auth.py docstring), then set it in "
             "workspaces/{env}/.env."
         )
     if not secret:
-        raise ValueError(
+        raise PatConfigError(
             "ADOPT_HARNESS_PAT_SECRET is required. Mint a Personal Access Token in the "
             "Adopt webui once, then set it in workspaces/{env}/.env."
         )
     if not webui_endpoint:
-        raise ValueError(
+        raise PatConfigError(
             "ADOPT_WEBUI_ENDPOINT is required (the base URL of the Adopt webui backend). "
             "Set it in workspaces/{env}/.env."
         )
@@ -111,14 +130,14 @@ def get_harness_bearer_token(
     url = f"{webui_endpoint.rstrip('/')}/v1/users/api-token"
     response = requests.post(url, json={"client_id": client_id, "secret": secret}, timeout=30)
     if response.status_code != 200:
-        raise ValueError(
+        raise PatExchangeError(
             f"Harness PAT exchange failed with status {response.status_code}: {response.text}"
         )
 
     data = response.json()
     access_token = data.get("access_token")
     if not access_token:
-        raise ValueError(f"No access_token in PAT exchange response: {data}")
+        raise PatExchangeError("No access_token in PAT exchange response")
 
     if env_path is not None:
         _write_cached_token(env_path, access_token, int(data.get("expires_in", 3600)))

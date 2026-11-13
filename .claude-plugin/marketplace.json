@@ -10,7 +10,7 @@
     {
       "name": "abcd-builder",
       "source": "./abcd-builder",
-      "description": "Record a website into a skill (NoUI + Tabby), verify/install/run it on the Agent Harness, and author WDL actions and pipelines."
+      "description": "The Adopt Builder: client workspaces, build plans, agents and skills (NoUI + Tabby), datasets, blind evals, context gaps, staged releases, explainers and training, harness session debugging, plus legacy WDL actions and pipelines."
     },
     {
       "name": "adopt-skill-review",

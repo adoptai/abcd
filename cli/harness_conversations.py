@@ -9,24 +9,31 @@ whose PAT is configured for the active environment, not every conversation
 on the platform. There is no admin bypass.
 
 Usage:
-    python cli/harness_conversations.py list [--hours 24] [--process-id ID]
+    abcd conversations list [--hours 24] [--process-id ID]
         [--workstream-id ID] [--env ENV] [--json]
-    python cli/harness_conversations.py list --hours 24 --transcripts --save DIR
+    abcd conversations list --hours 24 --transcripts --save DIR
+    (the old `python cli/harness_conversations.py list ...` form still works)
 """
 
-import argparse
+from __future__ import annotations
+
 import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import HarnessAPIError, get_harness_client_for_env
+
+if TYPE_CHECKING:
+    from cli.core.context import Context
 
 # The API has returned timestamps under different keys across endpoints;
 # try them in order rather than guessing one.
-_TIMESTAMP_KEYS = ("created_at", "started_at", "updated_at")
+_TIMESTAMP_KEYS = ("last_message_at", "created_at", "started_at", "updated_at")
 
 
 def _parse_timestamp(value: str) -> datetime | None:
@@ -55,6 +62,7 @@ def list_recent(
     as_json: bool,
     transcripts: bool,
     save: Path | None,
+    limit: int = 100,
 ) -> int:
     try:
         client = get_harness_client_for_env(env)
@@ -63,14 +71,18 @@ def list_recent(
         return 1
 
     try:
-        response = client.list_conversations(process_id=process_id, workstream_id=workstream_id)
+        response = client.list_conversations(
+            process_id=process_id, workstream_id=workstream_id, limit=limit
+        )
     except HarnessAPIError as e:
         print(f"❌ Failed to list conversations: {e}")
         return 1
 
-    conversations = (
-        response.get("conversations", response) if isinstance(response, dict) else response
-    )
+    # The real BFF answers {"items": [...], "developer_trace_default": bool}; older/legacy
+    # shapes used "conversations" or a bare list.
+    conversations: object = response
+    if isinstance(response, dict):
+        conversations = response.get("items", response.get("conversations"))
     if not isinstance(conversations, list):
         print(f"❌ Unexpected response shape: {response}")
         return 1
@@ -119,40 +131,40 @@ def list_recent(
     return 0
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+def _cmd_list(ctx: Context) -> int:
+    a = ctx.args
+    return list_recent(
+        a.hours, a.process_id, a.workstream_id, a.env, a.json, a.transcripts, a.save, a.limit
     )
-    sub = parser.add_subparsers(dest="command", required=True)
 
-    list_p = sub.add_parser("list", help="List conversations from the last N hours")
-    list_p.add_argument(
-        "--hours", type=float, default=24, help="Look-back window in hours (default 24)"
+
+def register(registry: Registry) -> None:
+    """Register ``abcd conversations list`` (and the flat ``harness_conversations.py`` CLI)."""
+    group = registry.group("conversations", "Agents-tab conversations")
+    p = group.command(
+        "list",
+        _cmd_list,
+        help="List conversations active in the last N hours",
+        legacy_name="list",
     )
-    list_p.add_argument("--process-id", help="Filter to a single process")
-    list_p.add_argument("--workstream-id", help="Filter to a single workstream")
-    list_p.add_argument("--env", help="Environment to use (defaults to active env)")
-    list_p.add_argument("--json", action="store_true", help="Print raw JSON instead of a summary")
-    list_p.add_argument(
+    p.add_argument("--hours", type=float, default=24, help="Look-back window in hours (default 24)")
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=100,
+        help="Most conversations to ask the BFF for (it allows 1..100, default 100)",
+    )
+    p.add_argument("--process-id", help="Filter to a single process")
+    p.add_argument("--workstream-id", help="Filter to a single workstream")
+    p.add_argument(
         "--transcripts", action="store_true", help="Also fetch each conversation's full transcript"
     )
-    list_p.add_argument("--save", type=Path, help="Directory to write a timestamped JSON dump into")
+    p.add_argument("--save", type=Path, help="Directory to write a timestamped JSON dump into")
 
-    args = parser.parse_args()
 
-    if args.command == "list":
-        sys.exit(
-            list_recent(
-                args.hours,
-                args.process_id,
-                args.workstream_id,
-                args.env,
-                args.json,
-                args.transcripts,
-                args.save,
-            )
-        )
+def main(argv: list[str] | None = None) -> int:
+    return legacy_main("harness_conversations.py", register, __doc__, argv)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
