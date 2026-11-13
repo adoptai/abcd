@@ -153,8 +153,14 @@ abcd cloud setup --home --env <home-env> --workspace-env <env> --json
   PAT belongs to that org and which is already a Builder repo (`abcd ws init --env <home-env>`
   first; it needs no remote and calls nothing on the platform), and `--workspace-env` is the client workspace the cloud runs work on.
   It makes the `abcd-<env>` workstream and its Doc Store, writes the `abcd-workspace.json` pointer
-  (`env`, `repo`, `ref`), pushes the `abcd` skill with its bundle at the org tier (never the
-  default tier), and creates or patches the three processes. Always show the `--dry-run` plan
+  (`env`, `repo`, `ref`), uses the `abcd` and `abcd-release-gate` skills from the default
+  tier when abcd's CI has published them there (on releases; the processes then use
+  `source: default` and no org copy is pushed; it reports "using default tier (bundle_version
+  ...)"). Only when a skill is absent from the default tier does it push an org copy with the
+  bundle. `--org-copy` (needs `--yes`) forces the org push for testing a branch only: an org
+  copy hides the default for this org. If an org copy already exists next to a default, it
+  warns and prints the `abcd skill delete` command; it never deletes anything. It creates or
+  patches the three processes. Always show the `--dry-run` plan
   first. It refuses a workspace whose `builder.json` says `role: client` (`builder setup` sets
   that; `cloud setup --home` sets `role: home`). The command is idempotent: a second run creates
   and patches nothing. New processes come up enabled, so disable the ones you do not want

@@ -159,7 +159,9 @@ one. Everything is `abcd ... --env <env> --json`.
   agent (`abcd agent create`, `--enable`) need the FDE's explicit request in this chat. Before a
   real push, state the skill name and whether it replaces an existing one, and wait for a yes.
 - `abcd skill deploy-default` (the Built-in tier, visible to every org) is never run from the
-  cloud; abcd refuses it. Do not look for another way.
+  cloud; abcd refuses it. Do not look for another way. abcd itself ships system-wide from CI on
+  releases, and `abcd cloud setup --home` uses that default copy; an org copy of `abcd`
+  (`--org-copy`) is for testing a branch only, because it hides the default for the org.
 - Name new test objects clearly (for example `test-<name>`, display name "TEST <name>") so they
   are not mistaken for production ones. A process has no hard delete: disable it when done.
 

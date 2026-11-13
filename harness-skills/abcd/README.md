@@ -22,9 +22,14 @@ python harness-skills/abcd/build_bundle.py
 
 ## Publish
 
-Org tier of the **Builder home org only**, with that org's Admin PAT in the workspace
-`.env`. **Never deploy to the default tier**: default skills are visible to every org and
-this one is an FDE tool.
+CI publishes `abcd` and `abcd-release-gate` system-wide (the default "Built-in" tier) with
+`.github/workflows/deploy-abcd-skill.yml`: a dry run on every PR, `dev` on a push to the `dev`
+branch, `prod` on a published release (give the `prod` environment a required-reviewer rule).
+`abcd cloud setup --home` then uses the default tier and pushes no org copy.
+
+The manual org-tier push below is for testing a branch only: an org copy **hides** the
+default for that org. It goes to the org tier of the **Builder home org only**, with that
+org's Admin PAT in the workspace `.env` (`abcd cloud setup --home --org-copy --yes` does the same).
 
 ```bash
 abcd skill push harness-skills/abcd --env <home-org-env> --replace \

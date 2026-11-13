@@ -70,7 +70,7 @@ def test_dry_run_makes_no_call_and_writes_nothing(home_env: Env) -> None:
     assert plan["pointer"]["content"] == {"env": "zeta", "repo": REPO, "ref": "main"}
     assert plan["pointer"]["replace"] is True
     assert [s["name"] for s in plan["skills"]] == ["abcd", "abcd-release-gate"]
-    assert all(s["tier"] == "org" for s in plan["skills"])
+    assert all(s["tier"] == "auto" and "default" in s["tier_note"] for s in plan["skills"])
     assert [p["name"] for p in plan["processes"]] == ["abcd-runner", "abcd-nightly", "abcd-weekly"]
     steps = plan["manual_steps"]
     assert {s["name"] for s in steps["vault_secrets"]} >= {
@@ -221,13 +221,117 @@ def test_refuses_a_client_org_workspace(home_env: Env) -> None:
     assert "role" not in json.loads((ws2 / "builder.json").read_text())
 
 
-def test_default_tier_name_collision_is_refused(home_env: Env) -> None:
+def _org_pushes(env: Env) -> int:
+    assert env.bff is not None
+    return sum(
+        1
+        for r in env.bff.requests
+        if r["method"] == "POST" and r["path"].endswith("/agent-harness/skills")
+    )
+
+
+def _sources(env: Env) -> dict[str, dict[str, str]]:
+    """process -> {skill ref: source}."""
+    assert env.bff is not None
+    return {
+        p["name"]: {c["ref"]: c["source"] for c in p["components"] if c["type"] == "skill"}
+        for p in env.bff.state.processes.values()
+    }
+
+
+def test_default_tier_skills_are_used_and_no_org_copy_is_pushed(home_env: Env) -> None:
     _home(home_env)
-    home_env.bff.state.add_default_skill("abcd")  # type: ignore[union-attr]
+    st = home_env.bff.state  # type: ignore[union-attr]
+    st.add_default_skill("abcd", bundle_version="v1.2.3")
+    st.add_default_skill("abcd-release-gate", bundle_version="v1.2.3")
     code, doc = run_cli(*_args())
-    assert code == 1 and "name taken" in doc["error"]
-    assert "abcd" not in home_env.bff.state.org_skills  # type: ignore[union-attr]
-    assert home_env.bff.state.processes == {}  # type: ignore[union-attr]
+    assert code == 0, doc
+    assert st.org_skills == {} and _org_pushes(home_env) == 0
+    assert [(s["name"], s["tier"]) for s in doc["data"]["skills"]] == [
+        ("abcd", "default"),
+        ("abcd-release-gate", "default"),
+    ]
+    assert doc["data"]["warnings"] == []
+    for refs in _sources(home_env).values():
+        assert set(refs.values()) == {"default"}
+    assert set(_sources(home_env)) == {"abcd-runner", "abcd-nightly", "abcd-weekly"}
+
+
+def test_default_tier_version_is_reported_when_the_pointer_is_readable(home_env: Env) -> None:
+    _home(home_env)
+    st = home_env.bff.state  # type: ignore[union-attr]
+    st.pats["fake-pat-client"]["email"] = "ops@adopt.ai"  # the version route is Adopt-only
+    st.add_default_skill("abcd", bundle_version="v9")
+    st.add_default_skill("abcd-release-gate", bundle_version="v9")
+    code, doc = run_cli(*_args())
+    assert code == 0, doc
+    assert {s["bundle_version"] for s in doc["data"]["skills"]} == {"v9"}
+
+
+def test_only_one_skill_on_the_default_tier_mixes_sources(home_env: Env) -> None:
+    _home(home_env)
+    st = home_env.bff.state  # type: ignore[union-attr]
+    st.add_default_skill("abcd")
+    code, doc = run_cli(*_args())
+    assert code == 0, doc
+    assert set(st.org_skills) == {"abcd-release-gate"}
+    assert _sources(home_env)["abcd-runner"] == {"abcd": "default", "abcd-release-gate": "org"}
+
+
+def test_org_copy_flag_pushes_and_warns_and_needs_yes(home_env: Env) -> None:
+    _home(home_env)
+    st = home_env.bff.state  # type: ignore[union-attr]
+    st.add_default_skill("abcd")
+    st.add_default_skill("abcd-release-gate")
+    code, doc = run_cli(*_args("--org-copy"))
+    assert code == 1 and "--yes" in doc["error"]
+    assert st.org_skills == {} and st.workstreams == {}  # refused before any write
+    code, doc = run_cli(*_args("--org-copy", "--yes"))
+    assert code == 0, doc
+    assert set(st.org_skills) == {"abcd", "abcd-release-gate"}
+    assert any("hides the default" in w for w in doc["data"]["warnings"])
+    for refs in _sources(home_env).values():
+        assert set(refs.values()) == {"org"}
+
+
+def test_org_copy_dry_run_shows_the_org_plan(home_env: Env) -> None:
+    _home(home_env)
+    code, doc = run_cli(*_args("--org-copy", "--dry-run"))
+    assert code == 0
+    assert {s["tier"] for s in doc["data"]["plan"]["skills"]} == {"org"}
+
+
+def test_existing_org_copy_next_to_a_default_warns_and_is_never_deleted(home_env: Env) -> None:
+    _home(home_env)
+    st = home_env.bff.state  # type: ignore[union-attr]
+    # an Adopt-operator PAT, so the default hidden behind the org copy can be seen
+    st.pats["fake-pat-client"]["email"] = "ops@adopt.ai"
+    assert run_cli(*_args())[0] == 0  # no default yet: org copies are created
+    assert set(st.org_skills) == {"abcd", "abcd-release-gate"}
+    st.add_default_skill("abcd")
+    st.add_default_skill("abcd-release-gate")
+    code, doc = run_cli(*_args())
+    assert code == 0, doc
+    warnings = doc["data"]["warnings"]
+    assert len(warnings) == 2
+    assert all("hides the default" in w for w in warnings)
+    assert "abcd skill delete abcd --yes --env zeta-home" in " ".join(warnings)
+    assert "abcd skill delete abcd-release-gate --yes" in " ".join(warnings)
+    assert set(st.org_skills) == {"abcd", "abcd-release-gate"}  # never deleted
+    assert not any(
+        r["method"] == "DELETE" and "/skills/" in r["path"]
+        for r in home_env.bff.requests  # type: ignore[union-attr]
+    )
+
+
+def test_an_unpublished_default_is_not_used(home_env: Env) -> None:
+    _home(home_env)
+    st = home_env.bff.state  # type: ignore[union-attr]
+    st.pats["fake-pat-client"]["email"] = "ops@adopt.ai"
+    code, doc = run_cli(*_args())
+    assert code == 0, doc
+    assert set(st.org_skills) == {"abcd", "abcd-release-gate"}
+    assert {s["tier"] for s in doc["data"]["skills"]} == {"org"}
 
 
 def test_bundle_is_uploaded_with_the_skill(home_env: Env) -> None:

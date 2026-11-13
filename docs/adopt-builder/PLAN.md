@@ -306,7 +306,7 @@ The same abcd code, the same workspace repo, and the same commands run in both p
   - to drive abcd only with `bash` and the same commands as locally;
   - to never print a secret.
 - **`build_bundle.py`.** It builds `abcd-bundle.zip` from git-tracked files only, the same way NoUI's does. The zip holds `cli/` (NoUI included), `abcd-builder/`, `adopt-skill-review/` and `pyproject.toml`. It leaves out `workspaces/`, `tabby/` and every `.env`.
-- **Deployment.** The skill is pushed with `harness_skill.py push --aux abcd-bundle.zip=...` to the **org tier of the Builder home org only**, never to the default tier. Default-tier skills are visible to every org, and this one is an FDE tool.
+- **Deployment.** abcd ships system-wide: `.github/workflows/deploy-abcd-skill.yml` publishes `abcd` (with `abcd-bundle.zip`) and `abcd-release-gate` to the default ("Built-in") tier on `dev` pushes (to `dev`) and on published releases (to `prod`, behind a required-reviewer rule), with a credential-free dry run on every PR. `abcd cloud setup --home` checks the catalog and, when the default copy is published, pushes no org copy and sets the process components to `source: default` ("using default tier (bundle_version ...)"). Only when the default copy is absent does it push the org copy as before (`harness_skill.py push --aux abcd-bundle.zip=...`). `--org-copy` (needs `--yes`) forces the org push to test a branch; an org copy hides the default for that org, so setup only warns about an existing one and prints the `abcd skill delete` command.
 - **Checks before upload.** The same frontmatter lint and content secret scan that every push runs cover `SKILL.md` and every bundle member.
 
 **The Builder home org, one per client**
@@ -383,7 +383,7 @@ A replay approved outside any harness conversation (a local NoUI run) has no tok
 
 **The default tier:**
 - Client workspaces release to the org tier only. `abcd release` never calls `deploy-default`.
-- The default tier holds abcd's own `harness-skills/*` (today, `noui`). They're released by abcd's CI (`.github/workflows/deploy-skill.yml`), outside the workspace flow.
+- The default tier holds abcd's own `harness-skills/*`: `noui` (manual dispatch, `.github/workflows/deploy-skill.yml`) and `abcd` + `abcd-release-gate` (`.github/workflows/deploy-abcd-skill.yml`, on releases). Both use `scripts/deploy_default_skill.py` and run outside the workspace flow.
 
 **WDL objects:** none of the above applies to them. They keep `save_wdl_draft.py`, `publish_wdl_action.py` and `rollback_changes.py`. Their history is the workspace repo's history.
 
