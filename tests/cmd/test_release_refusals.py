@@ -88,6 +88,25 @@ def test_staged_agent_needs_a_staging_workstream(tmp_path, monkeypatch, capsys) 
     assert not any(p["name"].endswith("-staged") for p in env.client.processes.values())
 
 
+def test_staged_push_skips_vanished_dataset_workstreams(tmp_path, monkeypatch, capsys) -> None:
+    """Live 2026-11-16: builder.json named dataset workstreams the platform had dropped, and the
+    staged push failed with a raw "Unknown workstream ids" 400."""
+    env = build_env(tmp_path, monkeypatch)
+    env.client.live_workstreams -= {"ws-ds2", "ws-ds3"}
+    code, doc = env.run("push", AGENT, "--staged", capsys=capsys)
+    assert code == 0, error(doc)
+    staged_id = env.client.find_process_by_name(f"{AGENT}-staged")["id"]
+    assert set(env.client.assigned[staged_id]) == {"ws-staging", "ws-ds1"}
+
+
+def test_staged_push_names_a_vanished_staging_workstream(tmp_path, monkeypatch, capsys) -> None:
+    env = build_env(tmp_path, monkeypatch)
+    env.client.live_workstreams.discard("ws-staging")
+    code, doc = env.run("push", AGENT, "--staged", capsys=capsys)
+    assert code == 1 and "builder setup" in error(doc) and "acme-staging" in error(doc)
+    assert not any(p["name"].endswith("-staged") for p in env.client.processes.values())
+
+
 def test_a_client_workstream_is_never_a_staging_target(tmp_path, monkeypatch, capsys) -> None:
     env = build_env(tmp_path, monkeypatch)
     text = (env.ws / f"harness/agents/{AGENT}/process.yaml").read_text()

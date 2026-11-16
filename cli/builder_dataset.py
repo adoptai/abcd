@@ -106,7 +106,7 @@ def _ensure_workstream(svc: be.Services, ws: Path, ds: D.Dataset, case_id: str) 
     name = ds.workstream(case_id)
     existing = svc.ops.workstream_id(name)
     wsid = svc.ops.ensure_workstream(name, f"Dataset {ds.name} (inputs only)", {"kind": "dataset"})
-    if existing is None:
+    if existing != wsid:  # new, or recreated because the platform had lost the old one
         agents = list(ds.manifest.get("agents", []))
         probe = ds.manifest.get("probe_agent")
         if probe:

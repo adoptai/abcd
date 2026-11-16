@@ -213,7 +213,11 @@ class BffOps:
     ) -> str:
         known = self.workstream_id(name)
         if known:
-            return known
+            if self.client.workstream_exists(known):
+                return known
+            # Live 2026-11-16: the platform had dropped the workstream builder.json still named,
+            # so every later call failed with a raw "Unknown workstream ids" 400. Find or
+            # recreate it by name and rewrite the id below.
         found = self.client.list_workstreams(search=name)
         items = found.get("items") or found.get("workstreams") or []
         match = next((w for w in items if w.get("name") == name), None)

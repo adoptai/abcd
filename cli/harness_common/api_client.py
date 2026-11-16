@@ -166,6 +166,22 @@ class HarnessAPIClient:
         params = {"search": search} if search else {}
         return self._request("GET", "/v1/org/workstreams", params=params)
 
+    def get_workstream(self, workstream_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/org/workstreams/{workstream_id}")
+
+    def workstream_exists(self, workstream_id: str) -> bool:
+        """True unless the platform answers 404 for this id.
+
+        A by-id read, not a scan of ``list_workstreams``: that listing is paged (20 per page by
+        default), so a live workstream past page one would look deleted."""
+        try:
+            self.get_workstream(workstream_id)
+        except HarnessAPIError as e:
+            if e.status_code == 404:
+                return False
+            raise
+        return True
+
     def delete_workstream(self, workstream_id: str) -> dict[str, Any]:
         """POST .../delete, not a DELETE verb -- that's how this route is wired."""
         return self._request("POST", f"/v1/org/workstreams/{workstream_id}/delete")

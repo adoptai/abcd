@@ -609,6 +609,27 @@ def latest_reusable(
     return None
 
 
+def _drop_vanished_workstreams(w: Work, names: Sequence[str]) -> list[str]:
+    """Staging names whose workstream still exists on the platform.
+
+    builder.json can name a workstream the platform no longer has (live 2026-11-16, after a
+    staging cleanup); assigning its id made the push fail with a raw 400. A dataset workstream
+    that is gone is dropped with a note (the next dataset or eval command recreates it); the
+    staging workstream itself is not optional, so that one stops the push with the fix."""
+    keep: list[str] = []
+    for n in names:
+        if w.client.workstream_exists(w.name_to_id[n]):
+            keep.append(n)
+        elif n.startswith("ds:"):
+            w.note(f"workstream {n} is in builder.json but not on the platform; leaving it out")
+        else:
+            raise RefusedError(
+                f"builder.json names the staging workstream {n!r} (id {w.name_to_id[n]}) but the "
+                "platform no longer has it; run `abcd builder setup` to recreate it"
+            )
+    return keep
+
+
 def staged_agent_bundle(w: Work, bundle: ab.AgentBundle, objs: Sequence[Obj]) -> ab.AgentBundle:
     """The ``<agent>-staged`` bundle, assigned to staging and dataset workstreams only."""
     _live, staged_id = recorded_process_ids(w, bundle.name)
@@ -619,6 +640,7 @@ def staged_agent_bundle(w: Work, bundle: ab.AgentBundle, objs: Sequence[Obj]) ->
         except HarnessAPIError:
             assigned = []
     staging = staging_workstream_names(w, assigned)
+    staging = _drop_vanished_workstreams(w, staging)
     if not staging:
         raise UsageError(
             "builder.json lists no staging or dataset workstream (a name ending '-staging' or "

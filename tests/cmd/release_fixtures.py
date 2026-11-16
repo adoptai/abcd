@@ -64,6 +64,8 @@ class FakeClient:
         self.shared: dict[str, bool] = {}  # conversation id -> is_shared (default True)
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.uploads: list[tuple[str, bool]] = []  # (skill name, replace)
+        # workstream ids the platform still has (the ids bws.init_layout records below)
+        self.live_workstreams: set[str] = {"ws-client", "ws-staging", "ws-ds1", "ws-ds2", "ws-ds3"}
         self._n = 0
 
     def writes(self) -> list[str]:
@@ -219,8 +221,11 @@ class FakeClient:
         self.grants[pid] = {"workstream_ids": list(ids), "folder_prefix": prefix}
         return {}
 
+    def workstream_exists(self, workstream_id: str) -> bool:
+        return workstream_id in self.live_workstreams
+
     def list_workstreams(self) -> dict[str, Any]:
-        return {"workstreams": []}
+        return {"workstreams": [{"id": i, "name": i} for i in sorted(self.live_workstreams)]}
 
     # conversations and identity
     def pat_identity(self) -> PatIdentity:

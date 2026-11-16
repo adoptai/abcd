@@ -72,7 +72,10 @@ class FakeClient:
         raise AssertionError(path)
 
     def list_workstreams(self, search: str | None = None) -> dict[str, Any]:
-        return {"items": [w for w in self.workstreams if search in w["name"]]}
+        return {"items": [w for w in self.workstreams if search is None or search in w["name"]]}
+
+    def workstream_exists(self, workstream_id: str) -> bool:
+        return any(w["id"] == workstream_id for w in self.workstreams)
 
     def link_store_to_workstreams(self, store_id: str, ids: list[str]) -> dict[str, Any]:
         self.calls.append(("link", (store_id, ids)))
@@ -235,3 +238,42 @@ def test_get_services_builds_the_real_adapters(
     assert isinstance(svc.store, DocStoreArtifacts) and isinstance(svc.rows, OrgRowStore)
     assert isinstance(svc.ops, be.BffOps) and svc.driver is not None
     assert svc.driver.model == "claude-haiku-4-5"  # type: ignore[attr-defined]
+
+
+def test_bff_ops_recreates_a_workstream_the_platform_lost(tmp_path: Path) -> None:
+    """Live 2026-11-16: builder.json kept the id of a workstream the platform had dropped."""
+    ws = tmp_path / "acme"
+    ws.mkdir()
+    bws.init_layout(ws)
+    bws.update_builder_config(ws, workstreams={"ds:returns:c1": "w-gone"})
+    c = FakeClient()
+    ops = be.BffOps(c, ws)  # type: ignore[arg-type]
+    wid = ops.ensure_workstream("ds:returns:c1", "d")
+    assert (
+        wid != "w-gone" and ("create-ws", {"name": "ds:returns:c1", "description": "d"}) in c.calls
+    )
+    assert bws.load_builder_config(ws)["workstreams"]["ds:returns:c1"] == wid
+    assert ops.ensure_workstream("ds:returns:c1") == wid and len(c.workstreams) == 1
+
+
+def test_workstream_exists_is_a_by_id_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Existence is a GET by id (404 -> gone), never a scan of the paged listing."""
+    from cli.harness_common.api_client import HarnessAPIClient, HarnessAPIError
+
+    client = HarnessAPIClient("t", "https://bff.invalid")
+    seen: list[tuple[str, str]] = []
+
+    def fake_request(method: str, path: str, **_: Any) -> dict[str, Any]:
+        seen.append((method, path))
+        if path.endswith("/gone"):
+            raise HarnessAPIError(method, path, 404, "Workstream not found")
+        if path.endswith("/boom"):
+            raise HarnessAPIError(method, path, 500, "err")
+        return {"id": path.rsplit("/", 1)[1]}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    assert client.workstream_exists("w21") is True
+    assert client.workstream_exists("gone") is False
+    with pytest.raises(HarnessAPIError):
+        client.workstream_exists("boom")
+    assert all(m == "GET" and p.startswith("/v1/org/workstreams/") for m, p in seen)
