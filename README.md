@@ -251,7 +251,11 @@ browser workers: a cloud Tabby, or `abcd tabby full` (Kind).
 | Org tier (skill) | `abcd skill push <dir> --env <env> [--replace]` |
 | Org tier (plugin) | `abcd plugin push <plugin_dir> --env <env>` |
 | Default "Built-in" tier | `abcd skill deploy-default <dir> --env <env>` (`@adopt.ai` only) |
-| The NoUI harness skill | `harness-skills/noui/` + `.github/workflows/deploy-skill.yml` |
+| The abcd harness skill (NoUI included) | `harness-skills/abcd/` + `.github/workflows/deploy-abcd-skill.yml` |
+
+NoUI ships inside the `abcd` harness skill (`cli/noui` is in `abcd-bundle.zip`; the skill links it as
+`/workspace/noui`). Cutover: the platform's old `noui` Built-in skill, and any process component that
+names `noui`, should be repointed to `abcd` and retired by an owner.
 
 Every upload content-scans SKILL.md and all aux files (zip members included) for credentials
 before the PAT is exchanged.
@@ -260,8 +264,8 @@ before the PAT is exchanged.
 
 `lint.yml` (ruff + mypy for `cli/`, and separately for `cli/noui`), `test.yml` (pytest + the
 skill audit), `secret-gate.yml` (gitleaks + `.github/scripts/sensitive_check.py`: forbidden
-file types and client identifiers, kept as SHA-256 digests), `deploy-skill.yml` (NoUI harness
-skill: PR dry-run, manual deploy).
+file types and client identifiers, kept as SHA-256 digests), `deploy-abcd-skill.yml` (abcd harness
+skill, NoUI included: PR dry-run, deploy on dev push and releases).
 
 ## Environment Setup
 

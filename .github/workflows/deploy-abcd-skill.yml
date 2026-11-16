@@ -11,7 +11,8 @@ name: Deploy abcd Skill
 #   push to dev      deploys to environment `dev`.
 #   release          (published) deploys to environment `prod`; BUNDLE_VERSION is the release tag.
 #   workflow_dispatch  manual deploy to dev or prod.
-# NoUI keeps its own manual-only workflow (deploy-skill.yml); this one never touches it.
+# NoUI ships inside the abcd skill (cli/noui is in the bundle, and cli/** triggers this workflow);
+# there is no separate noui skill or workflow any more.
 #
 # Required per-environment config (Settings > Environments > dev|prod):
 #   var    ADOPT_BASE_URL       e.g. https://api.adopt.ai

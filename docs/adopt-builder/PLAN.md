@@ -53,7 +53,7 @@ Each requirement maps to how it's met. Status values:
 | R20 | The Builder works with minimal FDE guidance | The five inputs plus approval gates. The Builder asks only what the inputs don't settle, and every answer is saved as a decision | abcd |
 | R21 | **During the build phase, the FDE and a customer-appointed SME keep adding missing context and repro explanations until blind evals show that generic prompts, the knowledge graph's instructions and the skills reproduce the golden dataset on their own.** Every agent linked to a dataset must meet this before going live | Context gaps opened automatically from blind-eval misses; an SME workstream and Context agent for answering; generic instruction pages with a leak check, compiled into an instruction skill; blind reproduction rate as a mandatory release criterion (section 11) | abcd |
 | R22 | **Switching between clients is switching workspaces** | Every Builder command takes `--env` and defaults to the active workspace, exactly like the existing `harness_*`, `noui_workspace` and WDL commands. Nothing about one client lives outside its workspace (section 5) | exists + abcd |
-| R23 | **abcd runs headless in the cloud, in the Agent Harness, as well as on an FDE's machine** | `harness-skills/abcd/` ships abcd as a skill bundle, the same way `harness-skills/noui/` ships NoUI. A harness turn clones the workspace repo into the sandbox and runs the same commands. Credentials come from `SANDBOX_*` vault secrets in an Adopt-owned Builder home org (section 6) | setup + abcd |
+| R23 | **abcd runs headless in the cloud, in the Agent Harness, as well as on an FDE's machine** | `harness-skills/abcd/` ships abcd, and NoUI with it, as one skill bundle. A harness turn clones the workspace repo into the sandbox and runs the same commands. Credentials come from `SANDBOX_*` vault secrets in an Adopt-owned Builder home org (section 6) | setup + abcd |
 | R24 | Skills, agents and the Builder's own plugin stay one system | The `abcd-builder` plugin that ships today is extended, not replaced. NoUI's replay approval and the default skill tier are folded into the release rules (sections 7 and 13) | abcd |
 | R25 | **One CLI.** Every Builder and harness command is reachable as `abcd <group> <command>`, with the same `--env`, `--json`, `--yes` and exit codes, installed with one `pip install` locally and in the cloud | Package mode with an `abcd` console script, a shared command layer, existing scripts moved behind it without breaking their old entry points, WDL passed through (section 17) | abcd |
 
@@ -132,7 +132,7 @@ All of these were verified in code. Paths are relative to `adoptwebui/backend/ap
 - The slim sandbox image has no `unzip`, and `gh` isn't confirmed to be present.
 
 **NoUI in the harness (precedent for abcd in the cloud)**
-- `A/harness-skills/noui/` ships the NoUI toolkit as a skill: `SKILL.md` plus a `noui-bundle.zip` aux file built from git-tracked files only. The agent unzips it into `/workspace/noui` and runs `pip install -e .`.
+- NoUI ships inside the `abcd` harness skill (`harness-skills/abcd/`; there is no separate `noui` skill). `abcd-bundle.zip` holds `cli/noui`; Step 0 of the skill extracts it to `/workspace/abcd`, links `/workspace/abcd/cli/noui` as `/workspace/noui` and runs `pip install -e /workspace/noui`. The platform worker recognises a replay by `cd /workspace/noui && python scripts/verify_replay.py ...`, so the skill keeps that exact form. **Cutover:** the platform's old `noui` Built-in skill, and any process component that names `noui`, should be repointed to `abcd` and then retired by an owner; abcd's CI no longer publishes `noui`.
 - Tabby auth comes from a control-plane broker the harness configures. That broker is NoUI-specific, and it's minted for the org and user of the conversation it runs in.
 
 **NoUI capture bundles**
@@ -296,10 +296,10 @@ The same abcd code, the same workspace repo, and the same commands run in both p
 | Git credentials | The FDE's own `git` and `gh` login | `SANDBOX_GITHUB_TOKEN`: a fine-grained token limited to this client's workspace repo, passed to `git` through a credential helper and never put in a remote URL. Or `SANDBOX_GITHUB_DEPLOY_KEY`: a repo-scoped write deploy key, written to a 0600 file under the sandbox home and used through `GIT_SSH_COMMAND` (git only; pull requests and releases are flagged) |
 | Platform endpoint | `ADOPT_WEBUI_ENDPOINT` in `.env` | `ADOPT_APP_BASE_URL`, unless `SANDBOX_ABCD_WEBUI_ENDPOINT` overrides it |
 | Who pays for the model | The FDE's subscription | Platform tokens |
-| NoUI capture and replay | Yes | No. The Tabby broker is minted for the home org's conversation, not the client org, so recording and replay stay local |
+| NoUI capture and replay | Yes | Only in a turn where the harness Tabby broker is configured (it is minted for that conversation's org and user); the NoUI part of the `abcd` skill checks this and the rest of abcd works without it |
 | Used for | Authoring, NoUI capture, local evals, review, gap work, releases | Scheduled work, and steps 2 to 10 of the loop from a chat when the FDE has no machine |
 
-**The `abcd` harness skill** (`harness-skills/abcd/`) mirrors `harness-skills/noui/`:
+**The `abcd` harness skill** (`harness-skills/abcd/`) carries NoUI as well (see above):
 - **`SKILL.md`, frontmatter `name: abcd`.** It teaches the agent four things:
   - how to stage and install the bundle;
   - how to run `abcd cloud bootstrap`, which clones the repo, writes `.env` from the injected secrets and checks the PAT. It fails loudly, naming every missing variable, because a secret fetch that fails or a badly named secret is dropped without an error;
@@ -383,7 +383,7 @@ A replay approved outside any harness conversation (a local NoUI run) has no tok
 
 **The default tier:**
 - Client workspaces release to the org tier only. `abcd release` never calls `deploy-default`.
-- The default tier holds abcd's own `harness-skills/*`: `noui` (manual dispatch, `.github/workflows/deploy-skill.yml`) and `abcd` + `abcd-release-gate` (`.github/workflows/deploy-abcd-skill.yml`, on releases). Both use `scripts/deploy_default_skill.py` and run outside the workspace flow.
+- The default tier holds abcd's own `harness-skills/*`: `abcd` (NoUI included) and `abcd-release-gate` (`.github/workflows/deploy-abcd-skill.yml`, on releases). Both use `scripts/deploy_default_skill.py` and run outside the workspace flow.
 
 **WDL objects:** none of the above applies to them. They keep `save_wdl_draft.py`, `publish_wdl_action.py` and `rollback_changes.py`. Their history is the workspace repo's history.
 
@@ -404,7 +404,7 @@ Every step runs in the active workspace (`--env` to pick another), locally or in
 | 9 | Test the staged agent, blind | `abcd test-staged` | skills read, `POST /turns` | Platform |
 | 10 | Publish the new version | `abcd release` | skills upload, process patch, Doc Store upload | Platform |
 
-In the cloud, "Subscription" steps run on platform tokens instead, and step 1's NoUI capture and replay stay local (section 6).
+In the cloud, "Subscription" steps run on platform tokens instead, and step 1's NoUI capture and replay need the harness Tabby broker (section 6).
 
 **`abcd <group> <command>` is the installed `abcd` CLI** (section 17). The existing scripts keep working as `python cli/<script>.py`, and WDL is reachable as `abcd wdl <script>`.
 
@@ -421,7 +421,7 @@ In the cloud, "Subscription" steps run on platform tokens instead, and step 1's 
 | `abcd ws pull` | `harness_process.py get`, and the skill and plugin GETs in `harness_common/api_client.py` |
 | NoUI scenario | `tabby_bootstrap.py`, `noui_workspace.py`, the `discover-and-plan` and `skill-builder` skills |
 | Browser-skill gate | `noui_core.verify.gate.check_installable`, plus the platform's approval-token rule, reimplemented in abcd |
-| Cloud packaging | The `harness-skills/noui/build_bundle.py` pattern |
+| Cloud packaging | `harness-skills/abcd/build_bundle.py` (git-tracked files only) |
 
 Cron pipelines have no abcd client. They're created once from a browser (section 4).
 

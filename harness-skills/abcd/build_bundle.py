@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build ``abcd-bundle.zip`` (abcd itself, for the cloud runner) into this folder.
 
-Mirrors ``harness-skills/noui/build_bundle.py``: git-tracked files only, so a
+Git-tracked files only, so a
 local build cannot pick up a stray ``.env``, key or cache. The zip root is the
 repo root (``pyproject.toml`` at top). It holds ``cli/`` (NoUI included),
 ``abcd-builder/``, ``adopt-skill-review/``, ``pyproject.toml`` and ``README.md``,

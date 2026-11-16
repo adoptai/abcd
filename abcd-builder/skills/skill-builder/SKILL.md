@@ -166,13 +166,13 @@ A plugin's skills are admitted to an agent through a `plugin:<slug>` component, 
 the push.
 
 The platform **default ("Built-in") tier** is visible to every org and gated to `@adopt.ai`
-principals. It is how the NoUI harness skill itself ships (`harness-skills/noui/`, CI
-`.github/workflows/deploy-skill.yml`):
+principals. It is how the abcd harness skill itself ships, NoUI included (`harness-skills/abcd/`, CI
+`.github/workflows/deploy-abcd-skill.yml`):
 
 ```bash
-python harness-skills/noui/build_bundle.py
-abcd skill deploy-default harness-skills/noui --env <env> \
-    --aux noui-bundle.zip=harness-skills/noui/noui-bundle.zip --bundle-version <sha> [--dry-run]
+python harness-skills/abcd/build_bundle.py
+abcd skill deploy-default harness-skills/abcd --env <env> \
+    --aux abcd-bundle.zip=harness-skills/abcd/abcd-bundle.zip --bundle-version <sha> [--dry-run]
 ```
 
 `deploy-default` is refused in a cloud (harness sandbox) run, even with `--dry-run`: run it from a

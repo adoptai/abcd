@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Deploy a harness skill to the platform **default** ("Built-in") tier.
 
-Shared by every skill abcd ships system-wide (``noui``, ``abcd``, ``abcd-release-gate``).
-``harness-skills/noui/deploy_default_skill.py`` is a thin wrapper that keeps the NoUI defaults.
+Shared by every skill abcd ships system-wide (``abcd``, which includes NoUI, and ``abcd-release-gate``).
 
 CI counterpart to ``build_bundle.py`` + ``publish_bundle.py``. Unlike
 ``publish_bundle.py`` (which uploads an *org*-scoped copy via a pre-minted

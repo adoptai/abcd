@@ -89,9 +89,40 @@ def test_skill_md_covers_required_steps() -> None:
         "abcd cloud bootstrap",
         "--json",
         "cloud/",
-        "NoUI capture and replay are not available",
     ):
         assert needle in text, needle
+    assert "NoUI capture and replay are not available" not in text
+
+
+def test_skill_md_carries_noui_with_the_worker_contract() -> None:
+    """The platform worker finds a NoUI replay by the literal script names and resolves a
+    relative skill dir against /workspace/noui, so the skill must keep that exact form."""
+    text = (SKILL_DIR / "SKILL.md").read_text()
+    for needle in (
+        "cd /workspace/noui",
+        "python scripts/capture_record.py",
+        "python scripts/verify_replay.py",
+        "python scripts/verify_approve.py",
+        "ln -sfn /workspace/abcd/cli/noui /workspace/noui",
+        "pip install -q -e /workspace/noui",
+        "--execution-mode harness",
+        "install_skill(skill_dir=",
+        "NOUI_TABBY_AUTH_MODE",
+    ):
+        assert needle in text, needle
+    assert 'skill_name="noui"' not in text
+    assert "abcd noui verify_replay" not in text
+    desc = hs._lint_frontmatter(text, SKILL_DIR / "SKILL.md")["description"]
+    for phrase in (
+        "onboard <site> into Tabby",
+        "noui capture/compile",
+        "turn this website into a tool",
+    ):
+        assert phrase in desc, phrase
+
+
+def test_no_separate_noui_harness_skill() -> None:
+    assert not (_ROOT / "harness-skills" / "noui").exists()
 
 
 def test_skill_md_secret_scan_clean() -> None:
@@ -131,6 +162,17 @@ def test_real_bundle_members_and_secret_scan(tmp_path: Path) -> None:
     names = zipfile.ZipFile(out).namelist()
     assert "pyproject.toml" in names
     assert any(n.startswith("cli/noui/") for n in names)
+    for needed in (
+        "cli/noui/scripts/verify_replay.py",
+        "cli/noui/scripts/verify_approve.py",
+        "cli/noui/scripts/capture_record.py",
+        "cli/noui/scripts/generalize.py",
+        "cli/noui/scripts/_bootstrap.py",
+        "cli/noui/pyproject.toml",
+    ):
+        assert needed in names, needed
+    assert any(n.startswith("cli/noui/noui_core/") for n in names)
+    assert any(n.startswith("cli/noui/references/") for n in names)
     assert any(n.startswith("abcd-builder/") for n in names)
     forbidden = ("workspaces/", "tabby/")
     assert not [n for n in names if n.startswith(forbidden)]

@@ -166,7 +166,7 @@ dev.env
 bundles/
 captures/
 workbench/
-noui-bundle.zip
+abcd-bundle.zip
 # Local orchestration state
 .omc/
 .tabby-local/

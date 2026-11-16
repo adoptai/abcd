@@ -40,8 +40,8 @@ Usage:
     form still works; `push-plugin` is `abcd plugin push`)
 
 `deploy-default` publishes to the platform-wide default ("Built-in") tier -- every
-org sees it, and the endpoint is gated to @adopt.ai principals. It is how the NoUI
-harness skill ships (see harness-skills/noui/ and .github/workflows/deploy-skill.yml).
+org sees it, and the endpoint is gated to @adopt.ai principals. It is how the abcd
+harness skill (NoUI included) ships (see harness-skills/abcd/ and .github/workflows/deploy-abcd-skill.yml).
 """
 
 from __future__ import annotations

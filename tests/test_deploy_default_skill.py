@@ -13,7 +13,6 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 SHARED = REPO / "scripts" / "deploy_default_skill.py"
-NOUI_WRAPPER = REPO / "harness-skills" / "noui" / "deploy_default_skill.py"
 GATE_MD = (
     REPO
     / "cli"
@@ -25,7 +24,6 @@ GATE_MD = (
     / "SKILL.md"
 )
 WORKFLOW = REPO / ".github" / "workflows" / "deploy-abcd-skill.yml"
-NOUI_WORKFLOW = REPO / ".github" / "workflows" / "deploy-skill.yml"
 
 
 def _run(script: Path, **env: str) -> subprocess.CompletedProcess[str]:
@@ -84,22 +82,6 @@ def test_skill_without_frontmatter_is_refused(tmp_path: Path) -> None:
     assert r.returncode != 0 and "frontmatter" in r.stderr
 
 
-def test_noui_wrapper_keeps_its_defaults(tmp_path: Path) -> None:
-    built = REPO / "harness-skills" / "noui" / "noui-bundle.zip"
-    made = not built.exists()
-    if made:
-        with zipfile.ZipFile(built, "w") as z:
-            z.writestr("x.txt", "x")
-    try:
-        r = _run(NOUI_WRAPPER)
-    finally:
-        if made:
-            built.unlink()
-    assert r.returncode == 0, r.stderr
-    assert "skill='noui'" in r.stdout and "noui-bundle.zip" in r.stdout
-    assert "DRY RUN OK" in r.stdout
-
-
 # -- workflow ------------------------------------------------------------------------------
 
 
@@ -155,7 +137,11 @@ def test_workflow_jobs() -> None:
     assert "vars.ADOPT_BASE_URL" in dep_text
 
 
-def test_noui_workflow_triggers_are_untouched() -> None:
-    doc = yaml.safe_load(NOUI_WORKFLOW.read_text())
-    on = doc[True]
-    assert set(on) == {"pull_request", "workflow_dispatch"}  # manual-only: no push, no release
+def test_separate_noui_skill_and_workflow_are_gone() -> None:
+    assert not (REPO / "harness-skills" / "noui").exists()
+    assert not (REPO / ".github" / "workflows" / "deploy-skill.yml").exists()
+
+
+def test_workflow_triggers_cover_the_noui_toolkit() -> None:
+    # cli/** includes cli/noui/**, which ships inside abcd-bundle.zip
+    assert "cli/**" in _wf()["on"]["pull_request"]["paths"]
