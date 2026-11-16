@@ -706,12 +706,15 @@ def _cmd_logs(ctx: Context) -> Result:
         except HarnessAPIError as e:
             errors[label] = str(e)
 
-    turn_ids = _turn_ids(run, transcript)
+    all_turn_ids = _turn_ids(run, transcript)
+    # Number turns over the whole conversation so `--turn` never rewrites another turn's file.
+    numbered = list(enumerate(all_turn_ids, 1))
     if a.turn:
-        turn_ids = [t for t in turn_ids if t == a.turn] or [a.turn]
+        numbered = [(n, t) for n, t in numbered if t == a.turn] or [(len(all_turn_ids) + 1, a.turn)]
+    turn_ids = [t for _, t in numbered]
     ws = run.get("workstream_id") or _transcript_workstream(transcript)
     segments: list[list[dict[str, Any]]] = []
-    for seq, turn_id in enumerate(turn_ids, 1):
+    for seq, turn_id in numbered:
         label = f"turn-{seq:03d}"
         events, err = consume_turn(
             client, turn_id, conv, ws, out_dir / f"{label}.ndjson", live=False

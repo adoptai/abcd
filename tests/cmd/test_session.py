@@ -217,6 +217,31 @@ def test_logs_writes_files_and_summarises(
     assert bff.sent("STREAM", "t1")[0]["workstream_id"] == "ws-1"
 
 
+def test_logs_turn_flag_keeps_the_turn_number(
+    bff: FakeBFF, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """`--turn t2` writes turn-002.* and leaves turn-001.* (turn 1's log) alone."""
+    _seed_logs(bff)
+    bff.on(
+        "GET",
+        f"{_BASE}/conversations/c1/transcript",
+        {
+            "events": [
+                {"kind": "user_message", "text": "go", "turn_id": "t1", "workstream_id": "ws-1"},
+                {"kind": "user_message", "text": "more", "turn_id": "t2", "workstream_id": "ws-1"},
+            ]
+        },
+    )
+    bff.streams["t2"] = [blk("tool_use", name="bash"), env_("harness_turn_complete")]
+    out = tmp_path / "logs"
+    assert run(capsys, "session", "logs", "c1", "--out", str(out))[0] == 0
+    first = (out / "turn-001.ndjson").read_text()
+    code, doc, _ = run(capsys, "session", "logs", "c1", "--out", str(out), "--turn", "t2")
+    assert code == 0 and doc["data"]["turns"] == ["t2"]
+    assert (out / "turn-001.ndjson").read_text() == first
+    assert (out / "turn-002.ndjson").exists()
+
+
 def test_logs_without_trace_skips_traces_and_defaults_to_workspace_dir(
     bff: FakeBFF, capsys: pytest.CaptureFixture[str], ws_root: Path
 ) -> None:
