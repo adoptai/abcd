@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import fnmatch
 import hashlib
 import hmac
 import io
@@ -37,6 +38,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import yaml
 
+from tests.integration import fake_agent as fa
 from tests.integration.fake_agent import (
     APPROVAL_RE,
     BUILDER_DATA_RE,
@@ -282,6 +284,9 @@ class FakeBFFState:
         self.turn_requests: list[dict[str, Any]] = []  # POST /turns bodies (credentials kept out)
         self.escalations: dict[str, dict[str, Any]] = {}
         self.pipeline_escalations: dict[str, dict[str, Any]] = {}
+        self.policies: dict[str, dict[str, Any]] = {}  # /v1/org/policies (org_policy rows)
+        self.policy_holds = 0
+        self.escalations_meta: dict[str, dict[str, Any]] = {}  # policy-... id -> policy, tool
         # pipelines, vault
         self.pipelines: dict[str, dict[str, Any]] = {}
         self.pipeline_runs: dict[str, list[dict[str, Any]]] = {}
@@ -1093,6 +1098,7 @@ def _run_turn(st: FakeBFFState, conv: dict[str, Any], message: str, process: dic
         events += script.events(ctx)
     elif not BUILDER_DATA_RE.search(message):
         events += list(DEFAULT_STEPS)
+    events = _apply_policies(st, conv, events)
     events = absorb_events(conv, events, st)
     for ev in events:
         blk = (ev.get("data") or {}).get("block") or {}
@@ -1124,6 +1130,70 @@ def _run_turn(st: FakeBFFState, conv: dict[str, Any], message: str, process: dic
     conv["turns"].append(turn_id)
     conv["updated_at"] = now()
     return st.turns[turn_id]
+
+
+def _rule_matches(rule: dict[str, Any], tool_name: str) -> bool:
+    for cond in rule.get("when") or []:
+        if cond.get("field") != "tool_name":
+            return False
+        op, val = cond.get("op"), cond.get("value")
+        ok = (
+            (op == "eq" and tool_name == val)
+            or (op == "in" and tool_name in (val or []))
+            or (op == "matches_glob" and fnmatch.fnmatch(tool_name, str(val)))
+        )
+        if not ok:
+            return False
+    return True
+
+
+def _apply_policies(st: FakeBFFState, conv: dict[str, Any], events: list[Event]) -> list[Event]:
+    """pre_tool_use: an active policy bound to the conversation's workstream (or the org) holds
+    a matching tool call. The tool never runs; the turn carries the escalation card instead
+    (``policy-...``), a deny becomes a refusal text. Only the policy, rule and bindings the
+    real workflows service understands are modelled (tool_name eq/in/matches_glob)."""
+    out: list[Event] = []
+    for ev in events:
+        blk = (ev.get("data") or {}).get("block") or {}
+        if blk.get("type") != "tool_use":
+            out.append(ev)
+            continue
+        hit = None
+        for pol in st.policies.values():
+            if pol["status"] != "active" or pol.get("is_deleted"):
+                continue
+            bound = any(
+                "pre_tool_use" in (b.get("hooks") or [])
+                and (
+                    b["scope_kind"] == "org"
+                    or (b["scope_kind"] == "workstream" and b["scope_id"] == conv["workstream_id"])
+                )
+                for b in pol["bindings"]
+            )
+            if not bound:
+                continue
+            for rule in pol["rules_json"].get("rules") or []:
+                if _rule_matches(rule, str(blk.get("name"))):
+                    hit = (pol, rule["then"])
+                    break
+            if hit:
+                break
+        if hit is None:
+            out.append(ev)
+            continue
+        pol, then = hit
+        if then["action"] == "escalate":
+            st.policy_holds += 1
+            bid = f"policy-{pol['id'][:8]}-{st.policy_holds}"
+            out.append(fa.builder(bid, title=f"Approve {blk.get('name')}?",
+                                  assignee=(then.get("params") or {}).get("assignee"),
+                                  builder_kind="escalation"))  # fmt: skip
+            st.escalations_meta[bid] = {"policy_id": pol["id"], "tool": blk.get("name")}
+        elif then["action"] == "deny":
+            out.append(fa.text(f"Blocked by policy {pol['name']}."))
+        else:  # notify: the call goes through
+            out.append(ev)
+    return out
 
 
 @route("POST", BASE + "/turns")
@@ -1375,6 +1445,12 @@ def decide_escalation(rq: Req) -> Any:
     esc.update(status="resolved", decision=decision, note=str(body.get("note") or ""),
                decided_by=rq.user_id)  # fmt: skip
     conv["builders"].setdefault(bid, {})["status"] = "resolved"
+    if bid in rq.st.escalations_meta:
+        # the platform starts the follow-up turn itself (turn id policy-decision-<key>)
+        word = "approved" if decision == "approve" else "rejected"
+        follow = _run_turn(rq.st, conv, f"[policy decision] {bid} was {word}",
+                           rq.st.processes.get(conv["process_id"] or ""), rq)  # fmt: skip
+        follow["policy_decision"] = bid
     return {"recorded": True}
 
 
@@ -1415,6 +1491,141 @@ def list_agent_escalations(rq: Req) -> Any:
     per = rq.qint("per_page", 25, 1, 100)
     return {"data": rows[(page - 1) * per : page * per],
             "pagination": {"page": page, "per_page": per, "total": len(rows)}}  # fmt: skip
+
+
+# =============================================================================================
+# Org policies (adoptwebui backend/app/routes/policy.py, /v1/org/policies)
+# =============================================================================================
+_POLICY_OPS = {"eq", "neq", "in", "not_in", "contains", "not_contains", "gt", "gte", "lt", "lte",
+               "matches_glob", "exists"}  # fmt: skip
+_POLICY_ACTIONS = {"allow", "deny", "escalate", "notify"}
+_POLICY_HOOKS = {"pre_tool_use", "post_tool_use", "turn_start", "turn_end", "escalation_route",
+                 "notification_route"}  # fmt: skip
+
+
+def _policy_rule_errors(rules: Any) -> list[str]:
+    """The closed grammar of adoptai-workflows policies/models.py (extra keys are rejected)."""
+    if not isinstance(rules, dict):
+        return ["rules_json must be an object"]
+    errors = [
+        f"unknown key {k!r}" for k in rules if k not in ("version", "default_action", "rules")
+    ]
+    if rules.get("default_action", "allow") not in _POLICY_ACTIONS:
+        errors.append("default_action: invalid")
+    for i, rule in enumerate(rules.get("rules") or []):
+        if not isinstance(rule, dict) or not rule.get("id"):
+            errors.append(f"rules[{i}].id is required")
+            continue
+        if not rule.get("when"):
+            errors.append(f"rules[{i}].when needs at least one condition")
+        for c in rule.get("when") or []:
+            if not isinstance(c, dict) or not c.get("field") or c.get("op") not in _POLICY_OPS:
+                errors.append(f"rules[{i}].when: field and a valid op are required")
+        then = rule.get("then")
+        if not isinstance(then, dict) or then.get("action") not in _POLICY_ACTIONS:
+            errors.append(f"rules[{i}].then.action: invalid")
+    return errors
+
+
+def _policy_bindings(rq: Req, pid: str, raw: Any) -> list[dict[str, Any]]:
+    out = []
+    for b in raw or []:
+        kind = (b or {}).get("scope_kind")
+        if kind not in ("org", "workstream", "process"):
+            raise HTTPError(422, [{"loc": ["body", "bindings", "scope_kind"],
+                                   "msg": "Input should be 'org', 'workstream' or 'process'",
+                                   "type": "literal_error"}])  # fmt: skip
+        if kind != "org" and not str(b.get("scope_id") or "").strip():
+            raise HTTPError(422, f"scope_id is required when scope_kind is '{kind}'")
+        hooks = b.get("hooks")
+        if hooks is not None and not set(hooks) <= _POLICY_HOOKS:
+            raise HTTPError(422, "unknown hook")
+        out.append({"id": uuid.uuid4().hex, "org_id": rq.tenant, "policy_id": pid,
+                    "scope_kind": kind, "scope_id": b.get("scope_id"), "hooks": hooks,
+                    "created_at": now()})  # fmt: skip
+    return out
+
+
+def _policy_view(p: dict[str, Any], with_bindings: bool = True) -> dict[str, Any]:
+    d = {k: v for k, v in p.items() if k not in ("bindings", "is_deleted")}
+    d["binding_count"] = len(p["bindings"])
+    if with_bindings:
+        d["bindings"] = list(p["bindings"])
+    return d
+
+
+def _live_policy(rq: Req, pid: str) -> dict[str, Any]:
+    p = rq.st.policies.get(pid)
+    if p is None or p.get("is_deleted") or p["org_id"] != rq.tenant:
+        raise HTTPError(404, "Policy not found")
+    return p
+
+
+@route("GET", "/v1/org/policies")
+def list_policies(rq: Req) -> Any:
+    kind, sid = rq.q("scope_kind"), rq.q("scope_id")
+    rows = [
+        p for p in rq.st.policies.values() if not p.get("is_deleted") and p["org_id"] == rq.tenant
+    ]
+    scoped = bool(kind and sid)  # only forwarded when both are given (real route)
+    if scoped:
+        rows = [p for p in rows if any(b["scope_kind"] == kind and b["scope_id"] == sid
+                                       for b in p["bindings"])]  # fmt: skip
+    rows.sort(key=lambda p: p["created_at"], reverse=True)
+    items = [_policy_view(p, with_bindings=scoped) for p in rows]
+    return {"items": items, "total": len(items)}
+
+
+@route("POST", "/v1/org/policies", auth="admin")
+def create_policy(rq: Req) -> Any:
+    body = rq.json()
+    for f in ("name", "rules_json"):
+        if f not in body:
+            raise missing(f)
+    errors = _policy_rule_errors(body["rules_json"])
+    if errors:
+        raise HTTPError(422, {"message": "Policy rules failed validation", "errors": errors})
+    pid = str(uuid.uuid4())
+    p = {"id": pid, "org_id": rq.tenant, "name": body["name"],
+         "description": body.get("description"), "rules_json": body["rules_json"],
+         "status": "draft", "created_by_user_id": rq.user_id, "created_at": now(),
+         "updated_at": now(), "bindings": _policy_bindings(rq, pid, body.get("bindings"))}  # fmt: skip
+    rq.st.policies[pid] = p
+    return Raw(201, json.dumps(_policy_view(p)).encode(), "application/json")
+
+
+@route("GET", "/v1/org/policies/{pid}")
+def get_policy(rq: Req) -> Any:
+    return _policy_view(_live_policy(rq, rq.params["pid"]))
+
+
+@route("PUT", "/v1/org/policies/{pid}", auth="admin")
+def update_policy(rq: Req) -> Any:
+    p = _live_policy(rq, rq.params["pid"])
+    body = rq.json()
+    new_status = body.get("status")
+    if new_status is not None and new_status not in ("draft", "active", "disabled"):
+        raise HTTPError(422, "status must be draft|active|disabled")
+    rules = body.get("rules_json") if body.get("rules_json") is not None else p["rules_json"]
+    if new_status == "active" or (new_status is None and p["status"] == "active"):
+        errors = _policy_rule_errors(rules)
+        if errors:
+            raise HTTPError(422, {"message": "Policy rules failed validation; cannot activate",
+                                  "errors": errors})  # fmt: skip
+    for k in ("name", "description", "rules_json", "status"):
+        if body.get(k) is not None:
+            p[k] = body[k]
+    if body.get("bindings") is not None:
+        p["bindings"] = _policy_bindings(rq, p["id"], body["bindings"])
+    p["updated_at"] = now()
+    return _policy_view(p)
+
+
+@route("DELETE", "/v1/org/policies/{pid}", auth="admin")
+def delete_policy(rq: Req) -> Any:
+    p = _live_policy(rq, rq.params["pid"])
+    p["is_deleted"] = True
+    return {"message": "Policy deleted"}
 
 
 # =============================================================================================

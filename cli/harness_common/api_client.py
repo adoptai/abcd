@@ -240,6 +240,44 @@ class HarnessAPIClient:
         """Soft-delete only -- the platform has no hard delete for processes."""
         return self._request("DELETE", f"/v1/org/processes/{process_id}")
 
+    # -- Org policies (escalation / allow / deny rules) ---------------------
+    #
+    # /v1/org/policies (adoptwebui backend/app/routes/policy.py). Reads are open to any org
+    # member; create/update/delete need an Admin PAT (403 otherwise). A new policy always starts
+    # as a draft; PUT {"status": "active"} activates it (the rules are validated again).
+
+    def list_policies(
+        self, scope_kind: str | None = None, scope_id: str | None = None
+    ) -> dict[str, Any]:
+        params = {"scope_kind": scope_kind, "scope_id": scope_id} if scope_kind and scope_id else {}
+        return self._request("GET", "/v1/org/policies", params=params)
+
+    def get_policy(self, policy_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/org/policies/{policy_id}")
+
+    def create_policy(
+        self,
+        name: str,
+        rules_json: dict[str, Any],
+        bindings: list[dict[str, Any]] | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/org/policies",
+            json={
+                "name": name,
+                "description": description,
+                "rules_json": rules_json,
+                "bindings": bindings or [],
+            },
+        )
+
+    def update_policy(self, policy_id: str, **fields: Any) -> dict[str, Any]:
+        """PUT a policy. Only the fields passed change (name, description, rules_json,
+        status draft|active|disabled, bindings)."""
+        return self._request("PUT", f"/v1/org/policies/{policy_id}", json=fields)
+
     # -- Conversations (Agents-tab chat history) ---------------------------
     #
     # Both routes are strictly owner-scoped by created_by_user_id -- NOT

@@ -213,6 +213,16 @@ clones. Once everything is merged they run with no change.
 | `GET /v1/end-user/agent-harness/builders/{bid}/capabilities` | jwt |
 | `GET /v1/end-user/agent-escalations` | jwt |
 
+### Org policies
+
+| Route | Auth |
+|---|---|
+| `GET /v1/org/policies` | jwt |
+| `POST /v1/org/policies` | admin |
+| `GET /v1/org/policies/{pid}` | jwt |
+| `PUT /v1/org/policies/{pid}` | admin |
+| `DELETE /v1/org/policies/{pid}` | admin |
+
 ### Runs
 
 | Route | Auth |

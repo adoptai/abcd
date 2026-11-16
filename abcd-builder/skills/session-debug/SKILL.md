@@ -101,6 +101,28 @@ abcd hitl approve-release <conversation_id> --release <agent>@v<n> --sha <sha12>
   only from a user other than the one the PAT authenticates as, in a workstream-shared run.
 - Boundary-detection HITLs stay blocking during evals; do not tune them away.
 
+## Step 2b - org escalation policies (a policy hold to test `hitl decide` with)
+
+A `policy-...` escalation comes from an org policy that holds a tool call. Admin PATs only for
+writes; a non-admin PAT can list and read.
+
+```bash
+abcd hitl policy list [--workstream <name|id>] [--status draft|active|disabled] --env <env> --json
+abcd hitl policy get <policy_id> --env <env> --json
+abcd hitl policy create --name abcd-test-<x> --workstream <name|id> --tool <tool_name> [--assignee admin|reviewer|member:<id>] [--action escalate|deny|notify] [--enable] --env <env> --dry-run --json
+abcd hitl policy enable <policy_id> --env <env> --json
+abcd hitl policy disable <policy_id> --env <env> --json
+```
+
+- A policy is created as a **draft**; `--enable` (or `policy enable`) activates it, and only then
+  does it hold calls. `--dry-run` prints the exact payload and sends nothing.
+- A scope is required: `--workstream` (repeatable; the name must exist) so a test policy never
+  touches other workstreams. `--org-wide` affects every workstream and needs `--yes`.
+- `--tool` is the tool name the rule matches (`ws_list`; one value may use `*` as a glob; repeat
+  it for several). `--rules-file <json>` takes a full rules document instead.
+- There is no delete: `policy disable` it when the test is done. Never edit a policy you did
+  not create; a policy applies to the whole workstream, not just your conversation.
+
 ## Step 3 - pipelines (test and admin use)
 
 ```bash

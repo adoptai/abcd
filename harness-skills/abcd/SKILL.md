@@ -249,7 +249,9 @@ abcd hitl list --conversation <conversation_id> --env <env> --json
 abcd hitl resolve <conversation_id> --builder-id <id> --value <field>=<value> --env <env> --json
 ```
 
-`hitl resolve` answers the test agent's own cards. A release approval stays the FDE's.
+`hitl resolve` answers the test agent's own cards. A release approval stays the FDE's, and so
+does `abcd hitl policy` (org policies change what every member's agent may do): never create,
+enable or disable one from this chat.
 
 **(i) Commit.** When there is a repo workspace, commit the skill (and agent bundle) on
 `cloud/$ADOPT_CONVERSATION_ID` and push it as described under "Code changes". With no repo,

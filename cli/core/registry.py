@@ -101,6 +101,7 @@ class Group:
         self.specs: dict[str, CommandSpec] = {}
         self._parser: argparse.ArgumentParser | None = None
         self._sub: Any = None
+        self._nested: dict[str, Any] = {}  # sub-group word -> its subparsers action
 
     def command(
         self,
@@ -115,11 +116,21 @@ class Group:
     ) -> argparse.ArgumentParser:
         """Register ``abcd <group> <name>`` and return its leaf parser for extra arguments.
 
+        ``name`` may hold two words (``"policy list"``): the first becomes a sub-group of this
+        group (``abcd hitl policy list``).
+
         ``passthrough=True``: leading global flags are read, then every remaining token goes
         verbatim to the handler as ``ctx.args.rest`` (used to forward to another CLI).
         """
         spec = CommandSpec(
-            (self.name, name), handler, help, writes, legacy_name, tuple(aliases), None, passthrough
+            (self.name, *name.split()),
+            handler,
+            help,
+            writes,
+            legacy_name,
+            tuple(aliases),
+            None,
+            passthrough,
         )
         if name in self.specs:
             raise ValueError(f"command already registered: {spec.name}")
@@ -205,7 +216,14 @@ class Registry:
                 root_sub = self._ensure_root()
                 group._parser = root_sub.add_parser(group.name, help=group.help)
                 group._sub = group._parser.add_subparsers(dest="_subcommand", required=True)
-            parser = group._sub.add_parser(
+            host = group._sub
+            if len(spec.path) == 3:
+                word = spec.path[1]
+                if word not in group._nested:
+                    mid = group._sub.add_parser(word, help=f"{group.name} {word} commands")
+                    group._nested[word] = mid.add_subparsers(dest="_subsubcommand", required=True)
+                host = group._nested[word]
+            parser = host.add_parser(
                 spec.path[-1], help=spec.help, description=spec.help, aliases=list(spec.aliases)
             )
         add_global_flags(parser, writes=spec.writes)
