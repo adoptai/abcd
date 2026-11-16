@@ -105,6 +105,29 @@ def test_agent_diff_and_pull_round_trip(tmp_path, monkeypatch, capsys) -> None:
     assert code == 1 and "also client workstream" in error(doc)  # the pulled bundle now lists it
 
 
+def test_agent_pull_then_push_resolves_workstreams_the_builder_does_not_register(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """`pull` names a workstream from the org listing; `diff` and `push` must resolve it too."""
+    env = build_env(tmp_path, monkeypatch)
+    env.client.org_skills["tax-calc"] = {"body": SKILL_MD, "aux": {}, "plugin": None}
+    assert env.run("agent", "push", AGENT, "--yes", capsys=capsys)[0] == 0
+    pid = env.client.find_process_by_name(AGENT)["id"]
+    env.client.assigned[pid] = ["ws-client", "ws-extra"]
+    monkeypatch.setattr(
+        env.client,
+        "list_workstreams",
+        lambda: {"workstreams": [{"id": "ws-extra", "name": "extra-ws"}]},
+    )
+    assert env.run("agent", "pull", AGENT, capsys=capsys)[0] == 0
+    assert "extra-ws" in (env.ws / f"harness/agents/{AGENT}/process.yaml").read_text()
+    code, doc = env.run("agent", "diff", AGENT, capsys=capsys)
+    assert code == 0 and doc["data"]["in_sync"] is True
+    code, doc = env.run("agent", "push", AGENT, "--yes", capsys=capsys)
+    assert code == 0, error(doc)
+    assert env.client.assigned[pid] == ["ws-client", "ws-extra"]
+
+
 def test_agent_unknown_names(tmp_path, monkeypatch, capsys) -> None:
     env = build_env(tmp_path, monkeypatch)
     assert env.run("agent", "diff", "nope", capsys=capsys)[0] == 2

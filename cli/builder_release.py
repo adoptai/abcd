@@ -865,8 +865,9 @@ def deploy_live(
             if bad:
                 raise PlatformError(f"{name}: live object differs after upload: {bad}")
         live_id = recorded_process_ids(w, bundle.name)[0]
-        sync = sync_process(client, bundle, w.name_to_id, process_id=live_id)
-        bad = verify_process(client, bundle, w.name_to_id, sync.process_id)
+        names = w.names_for(bundle)
+        sync = sync_process(client, bundle, names, process_id=live_id)
+        bad = verify_process(client, bundle, names, sync.process_id)
         if bad:
             raise PlatformError(f"{bundle.name}: live process differs after the patch in {bad}")
     except (PlatformError, HarnessAPIError) as e:

@@ -144,6 +144,25 @@ class Work:
     def name_to_id(self) -> dict[str, str]:
         return dict(self.cfg.get("workstreams", {}))
 
+    def names_for(self, bundle: ab.AgentBundle) -> dict[str, str]:
+        """``name_to_id`` plus, for bundle names the Builder does not register, the
+        org's own workstreams by name (what ``agent pull`` writes for them)."""
+        out = self.name_to_id
+        wanted = {*bundle.workstreams, *bundle.write_workstreams} - {ab.ALL_WORKSTREAMS}
+        missing = wanted - set(out)
+        if missing:
+            listing = self.client.list_workstreams()
+            items = (
+                listing.get("workstreams", listing.get("items", []))
+                if isinstance(listing, dict)
+                else listing
+            )
+            for item in items or []:
+                name = item.get("name") if isinstance(item, dict) else None
+                if name in missing and item.get("id"):
+                    out[str(name)] = str(item["id"])
+        return out
+
     def note(self, *parts: Any) -> None:
         self.ctx.log(*parts)
 
@@ -769,8 +788,9 @@ def _cmd_push(ctx: Context) -> Result:
     if missing:
         raise RefusedError(f"the platform doesn't have {missing}; release them first")
     live_id, _ = recorded_process_ids(w, a.agent)
-    sync = sync_process(w.client, bundle, w.name_to_id, process_id=live_id)
-    bad = verify_process(w.client, bundle, w.name_to_id, sync.process_id)
+    names = w.names_for(bundle)
+    sync = sync_process(w.client, bundle, names, process_id=live_id)
+    bad = verify_process(w.client, bundle, names, sync.process_id)
     if bad:
         raise PlatformError(f"{a.agent}: platform differs from the bundle in {bad}")
     bws.set_agent_process_ids(w.ws, a.agent, live_process_id=sync.process_id)
@@ -806,7 +826,7 @@ def _cmd_diff(ctx: Context) -> Result:
     diffs = ab.diff_bundle_vs_platform(
         bundle,
         proc,
-        w.name_to_id,
+        w.names_for(bundle),
         assigned_workstream_ids=w.client.get_process_workstreams(pid).get("workstream_ids") or [],
         write_grants=w.client.get_write_workstreams(pid),
     )
@@ -848,7 +868,7 @@ def _cmd_pull(ctx: Context) -> Result:
         changed = [
             x.field
             for x in ab.diff_bundle_vs_platform(
-                local, proc, w.name_to_id, assigned_workstream_ids=ws_ids, write_grants=grants
+                local, proc, w.names_for(local), assigned_workstream_ids=ws_ids, write_grants=grants
             )
         ]
     data = {"agent": a.agent, "process_id": pid, "changed": changed, "dry_run": ctx.dry_run}
