@@ -416,7 +416,7 @@ const CLOUD_ROWS = [
   ['Git credentials', 'The FDE\'s own git and gh login', 'SANDBOX_GITHUB_TOKEN: a fine-grained token limited to this client\'s workspace repo, passed to git through a credential helper and never put in a remote URL'],
   ['Pull requests and releases', 'gh', 'The GitHub REST API; gh is not assumed to be in the sandbox image'],
   ['Platform endpoint', 'ADOPT_WEBUI_ENDPOINT in .env', 'ADOPT_APP_BASE_URL, unless SANDBOX_ABCD_WEBUI_ENDPOINT overrides it'],
-  ['NoUI capture and replay', 'Yes', 'Only in a turn where the harness Tabby broker is configured; the NoUI part of the abcd skill checks this, the rest of abcd works without it'],
+  ['NoUI capture and replay', 'Yes', 'Only where the harness Tabby broker is configured; it is bound to the conversation\'s own org, so from the home-org runner capture stays local or runs in a client-org turn. The rest of abcd works without it'],
   ['Who pays for the model', 'The FDE\'s subscription', 'Platform tokens'],
   ['Used for', 'Authoring, NoUI capture, local evals, review, gap work, releases', 'Scheduled work, and steps 2 to 10 of the loop from a chat when the FDE has no machine'],
 ];
@@ -918,7 +918,7 @@ function pOverview() {
 function pLoop() {
   const s = LOOP[state.step];
   return `<h1>The builder loop</h1>
-  <p class="lead">Every agent goes through the same 10 steps. The Builder runs steps 1 to 7 itself until the gate metrics pass. Steps 8 to 10 move that exact version through staging to live. Every step runs in the active workspace (<code>--env</code> picks another), on your machine or in the cloud. In the cloud, steps 2 to 10 run; step 1's NoUI capture and replay need the harness Tabby broker.</p>
+  <p class="lead">Every agent goes through the same 10 steps. The Builder runs steps 1 to 7 itself until the gate metrics pass. Steps 8 to 10 move that exact version through staging to live. Every step runs in the active workspace (<code>--env</code> picks another), on your machine or in the cloud. In the cloud, steps 2 to 10 run; step 1's NoUI capture and replay need the harness Tabby broker, which is bound to the conversation's own org, so from the home-org runner they stay local or run in a client-org turn.</p>
   <div class="legend"><span><span class="sw" style="background:var(--surface)"></span>Runs on your subscription (platform tokens when run in the cloud)</span><span><span class="sw" style="background:var(--sunken)"></span>Runs on platform tokens</span></div>
   <div class="loop">${LOOP.map((x, i) => `<button class="${x.where === 'platform' ? 'plat' : ''} ${i === state.step ? 'on' : ''}" data-step="${i}"><span class="n">${x.n}</span>${x.name}</button>`).join('')}</div>
   <div class="card">

@@ -296,7 +296,7 @@ The same abcd code, the same workspace repo, and the same commands run in both p
 | Git credentials | The FDE's own `git` and `gh` login | `SANDBOX_GITHUB_TOKEN`: a fine-grained token limited to this client's workspace repo, passed to `git` through a credential helper and never put in a remote URL. Or `SANDBOX_GITHUB_DEPLOY_KEY`: a repo-scoped write deploy key, written to a 0600 file under the sandbox home and used through `GIT_SSH_COMMAND` (git only; pull requests and releases are flagged) |
 | Platform endpoint | `ADOPT_WEBUI_ENDPOINT` in `.env` | `ADOPT_APP_BASE_URL`, unless `SANDBOX_ABCD_WEBUI_ENDPOINT` overrides it |
 | Who pays for the model | The FDE's subscription | Platform tokens |
-| NoUI capture and replay | Yes | Only in a turn where the harness Tabby broker is configured (it is minted for that conversation's org and user); the NoUI part of the `abcd` skill checks this and the rest of abcd works without it |
+| NoUI capture and replay | Yes | Only where the harness Tabby broker is configured. The broker is minted for that conversation's org and user, so a capture in the Builder home org records and installs into the home org, not the client org: capture for a client in a turn in the client org, or locally. The rest of abcd works without the broker |
 | Used for | Authoring, NoUI capture, local evals, review, gap work, releases | Scheduled work, and steps 2 to 10 of the loop from a chat when the FDE has no machine |
 
 **The `abcd` harness skill** (`harness-skills/abcd/`) carries NoUI as well (see above):
@@ -404,7 +404,7 @@ Every step runs in the active workspace (`--env` to pick another), locally or in
 | 9 | Test the staged agent, blind | `abcd test-staged` | skills read, `POST /turns` | Platform |
 | 10 | Publish the new version | `abcd release` | skills upload, process patch, Doc Store upload | Platform |
 
-In the cloud, "Subscription" steps run on platform tokens instead, and step 1's NoUI capture and replay need the harness Tabby broker (section 6).
+In the cloud, "Subscription" steps run on platform tokens instead, and step 1's NoUI capture and replay need the harness Tabby broker, which is bound to the conversation's own org: from the home-org runner they stay local or run in a client-org turn (section 6).
 
 **`abcd <group> <command>` is the installed `abcd` CLI** (section 17). The existing scripts keep working as `python cli/<script>.py`, and WDL is reachable as `abcd wdl <script>`.
 

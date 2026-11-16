@@ -50,7 +50,7 @@ runs locally.
      export PYTHONPATH=/workspace/abcd   # also prefix every later abcd command with it
    fi
    ln -sfn /workspace/abcd/cli/noui /workspace/noui
-   pip install -q -e /workspace/noui
+   pip install -q -e /workspace/noui || echo "NoUI toolkit install failed: NoUI capture is unavailable this turn; the rest of abcd still works"
    abcd --version || python /workspace/abcd/cli/abcd.py --version
    # the slim image may lack git and ssh; bootstrap clones with them
    command -v git > /dev/null && command -v ssh > /dev/null \
@@ -299,6 +299,7 @@ Step 0 of this skill already staged the toolkit at `/workspace/noui` (a link to
 ```bash
 set -e
 test -f /workspace/noui/scripts/capture_record.py || { echo "run Step 0 first"; exit 1; }
+python -c "import noui_core" || { echo "NoUI toolkit not installed (see Step 0 output)"; exit 1; }
 cd /workspace/noui
 python - <<'PY'
 import os
