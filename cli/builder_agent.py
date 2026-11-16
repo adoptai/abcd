@@ -147,20 +147,21 @@ class Work:
     def names_for(self, bundle: ab.AgentBundle) -> dict[str, str]:
         """``name_to_id`` plus, for bundle names the Builder does not register, the
         org's own workstreams by name (what ``agent pull`` writes for them)."""
-        out = self.name_to_id
+        out = dict(self.name_to_id)  # a copy: org workstreams never join the Builder's own map
         wanted = {*bundle.workstreams, *bundle.write_workstreams} - {ab.ALL_WORKSTREAMS}
-        missing = wanted - set(out)
-        if missing:
-            listing = self.client.list_workstreams()
+        for name in sorted(wanted - set(out)):
+            # Search by name, one at a time: the listing is paged, so a scan of page one
+            # would miss workstreams past the first 20.
+            listing = self.client.list_workstreams(search=name)
             items = (
                 listing.get("workstreams", listing.get("items", []))
                 if isinstance(listing, dict)
                 else listing
             )
             for item in items or []:
-                name = item.get("name") if isinstance(item, dict) else None
-                if name in missing and item.get("id"):
-                    out[str(name)] = str(item["id"])
+                if isinstance(item, dict) and item.get("name") == name and item.get("id"):
+                    out[name] = str(item["id"])
+                    break
         return out
 
     def note(self, *parts: Any) -> None:

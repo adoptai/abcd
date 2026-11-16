@@ -224,8 +224,9 @@ class FakeClient:
     def workstream_exists(self, workstream_id: str) -> bool:
         return workstream_id in self.live_workstreams
 
-    def list_workstreams(self) -> dict[str, Any]:
-        return {"workstreams": [{"id": i, "name": i} for i in sorted(self.live_workstreams)]}
+    def list_workstreams(self, search: str | None = None) -> dict[str, Any]:
+        ids = sorted(i for i in self.live_workstreams if search is None or search in i)
+        return {"workstreams": [{"id": i, "name": i} for i in ids]}
 
     # conversations and identity
     def pat_identity(self) -> PatIdentity:

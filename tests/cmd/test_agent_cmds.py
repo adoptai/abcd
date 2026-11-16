@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from cli.builder_common import workspace as bws
 from cli.builder_common.docstore import DocStore, DocStoreArtifacts
 from cli.builder_common.errors import RefusedError, UsageError
 from cli.harness_common.api_client import HarnessAPIError
@@ -117,7 +118,13 @@ def test_agent_pull_then_push_resolves_workstreams_the_builder_does_not_register
     monkeypatch.setattr(
         env.client,
         "list_workstreams",
-        lambda: {"workstreams": [{"id": "ws-extra", "name": "extra-ws"}]},
+        lambda search=None: {
+            "workstreams": [
+                w
+                for w in [{"id": "ws-extra", "name": "extra-ws"}]
+                if search is None or search in w["name"]
+            ]
+        },
     )
     assert env.run("agent", "pull", AGENT, capsys=capsys)[0] == 0
     assert "extra-ws" in (env.ws / f"harness/agents/{AGENT}/process.yaml").read_text()
@@ -126,6 +133,8 @@ def test_agent_pull_then_push_resolves_workstreams_the_builder_does_not_register
     code, doc = env.run("agent", "push", AGENT, "--yes", capsys=capsys)
     assert code == 0, error(doc)
     assert env.client.assigned[pid] == ["ws-client", "ws-extra"]
+    # the org workstream resolved for this push never joins builder.json's own map
+    assert "extra-ws" not in (bws.load_builder_config(env.ws).get("workstreams") or {})
 
 
 def test_agent_unknown_names(tmp_path, monkeypatch, capsys) -> None:
