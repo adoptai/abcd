@@ -282,7 +282,10 @@ def pending_from_transcript(events: list[dict[str, Any]]) -> dict[str, Any]:
     """Pending HITL items of a conversation from its durable transcript events.
 
     A builder card is pending until a later ``user_message`` carries ``<builder_data>`` with its
-    ``builder_id``; a question is pending until any later user message.
+    ``builder_id``; a question is pending until any later user message. A policy hold
+    (``policy-<id>``) is decided through ``/escalations/{id}/decide``, not a chat answer: the
+    platform then posts the follow-up ``user_message`` with turn id ``policy-decision-<id>``
+    (observed live 2026-11-16), which resolves that card.
     """
     builders: dict[str, dict[str, Any]] = {}
     questions: list[dict[str, Any]] = []
@@ -299,6 +302,9 @@ def pending_from_transcript(events: list[dict[str, Any]]) -> dict[str, Any]:
         elif kind == "user_message":
             msg = _text_of(e.get("text"))
             questions = []
+            turn_id = str(e.get("turn_id") or "")
+            if turn_id.startswith("policy-decision-"):
+                builders.pop("policy-" + turn_id[len("policy-decision-") :], None)
             for m in re.finditer(r"<builder_data>(.*?)</builder_data>", msg, re.S):
                 try:
                     answered = json.loads(m.group(1)).get("builder_id")

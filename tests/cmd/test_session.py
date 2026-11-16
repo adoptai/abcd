@@ -320,3 +320,17 @@ def test_outputs_use_the_platforms_artifact_fields(
     assert code == 0
     assert doc["data"]["outputs"][0]["path"] == "reports/q3/out.csv"
     assert (out / "reports" / "q3" / "out.csv").read_bytes() == b"x\n"
+
+
+def test_a_decided_policy_hold_is_no_longer_pending() -> None:
+    """Live 2026-11-16: `hitl decide` resolves a policy hold without a <builder_data> answer;
+    the platform's follow-up user_message (turn id policy-decision-<id>) is the resolution."""
+    from cli.builder_session import pending_from_transcript
+
+    hold = {"kind": "builder", "builder_id": "policy-abc", "title": "Policy hold", "blocks": []}
+    other = {"kind": "builder", "builder_id": "b-2", "title": "Other card", "blocks": []}
+    before = pending_from_transcript([hold, other])
+    assert {b["builder_id"] for b in before["builders"]} == {"policy-abc", "b-2"}
+    follow_up = {"kind": "user_message", "turn_id": "policy-decision-abc", "text": "APPROVED"}
+    after = pending_from_transcript([hold, other, follow_up])
+    assert [b["builder_id"] for b in after["builders"]] == ["b-2"]
