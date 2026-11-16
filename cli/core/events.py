@@ -61,7 +61,7 @@ _PAIR = re.compile(
 )
 _TO_EOL = re.compile(r"""(?:(?!\\[nrt])[^\n"\\])*+""")
 _MAX_STR = 500
-_INTERNAL_ARGS = {"_spec", "_command", "_subcommand"}
+_INTERNAL_ARGS = {"_spec", "_command", "_subcommand", "_subsubcommand"}
 
 Sink = Callable[[dict[str, Any]], None]
 _sinks: list[Sink] = []

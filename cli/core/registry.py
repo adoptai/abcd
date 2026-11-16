@@ -122,8 +122,11 @@ class Group:
         ``passthrough=True``: leading global flags are read, then every remaining token goes
         verbatim to the handler as ``ctx.args.rest`` (used to forward to another CLI).
         """
+        words = name.split()
+        if not 1 <= len(words) <= 2:
+            raise ValueError(f"command name must be one or two words: {name!r}")
         spec = CommandSpec(
-            (self.name, *name.split()),
+            (self.name, *words),
             handler,
             help,
             writes,

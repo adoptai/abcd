@@ -450,3 +450,15 @@ def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
         abcd_main.main(["--version"])
     assert exc.value.code == 0
     assert capsys.readouterr().out.startswith("abcd ")
+
+
+def test_two_word_command_names_nest_and_longer_names_are_refused() -> None:
+    reg = Registry()
+    g = reg.group("hitl", "HITL")
+    g.command("policy list", lambda ctx: Result.done({}, ""), help="list")
+    spec = reg.resolve(["hitl", "policy", "list"])
+    assert spec is not None and spec.name == "hitl policy list"
+    reg.build().parse_args(["hitl", "policy", "list"])
+    with pytest.raises(ValueError):
+        g.command("a b c", lambda ctx: Result.done({}, ""), help="x")
+    assert "_subsubcommand" in events._INTERNAL_ARGS
