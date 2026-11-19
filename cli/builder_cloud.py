@@ -36,6 +36,7 @@ PLATFORM_ONLY_ENV = "cloud"
 # Hooks for tests: a fake PAT exchange and a git runner. None means the real ones.
 EXCHANGE_PAT: cloud.ExchangePat | None = None
 EXCHANGE_CLAIMS: cloud.ExchangeClaims | None = None
+VERIFY_BEARER: cloud.VerifyBearer | None = None
 RUN_GIT: cloud.RunGit | None = None
 
 NIGHTLY_STEPS: tuple[tuple[str, tuple[str, ...], bool], ...] = (
@@ -93,12 +94,15 @@ def _cmd_bootstrap_platform_only(ctx: Context) -> Result:
     if ctx.dry_run_notice(f"would write a platform-only workspace {root / 'workspaces' / env}"):
         return Result.done({"dry_run": True, "platform_only": True, "env": env})
     try:
-        res = cloud.bootstrap_platform_only(root, env, exchange_pat=EXCHANGE_PAT)
+        res = cloud.bootstrap_platform_only(
+            root, env, exchange_pat=EXCHANGE_PAT, verify_bearer=VERIFY_BEARER
+        )
     except cloud.MissingVariablesError as exc:
         return Result(exc.code, {"missing": exc.missing}, None, str(exc))
     text = (
         f"Platform-only workspace {res.env} ready at {res.workspace_dir} (no repo cloned); "
-        f"PAT verified. Pass --env {res.env} to the skill / agent / session commands."
+        f"{'bearer token' if os.environ.get(cloud.VAR_BEARER, '').strip() else 'PAT'} verified. "
+        f"Pass --env {res.env} to the skill / agent / session commands."
     )
     return Result.done(res.to_dict(), text)
 
@@ -113,16 +117,43 @@ def _cmd_bootstrap(ctx: Context) -> Result:
         return Result.done({"dry_run": True, "workspace_file": str(wfile)})
     try:
         res = cloud.bootstrap(
-            wfile, root, exchange_pat=EXCHANGE_PAT, run_git=RUN_GIT, replace=a.replace
+            wfile,
+            root,
+            exchange_pat=EXCHANGE_PAT,
+            run_git=RUN_GIT,
+            verify_bearer=VERIFY_BEARER,
+            replace=a.replace,
         )
     except cloud.MissingVariablesError as exc:
         return Result(exc.code, {"missing": exc.missing}, None, str(exc))
     text = (
         f"Workspace {res.env} ready at {res.workspace_dir} (ref {res.ref}); "
-        f"PAT verified; git via {res.git_auth.replace('_', ' ')}."
+        f"credentials verified; git via {res.git_auth.replace('_', ' ')}."
     )
     text += "".join(f"\nFLAG: {f}" for f in res.flags)
     return Result.done(res.to_dict(), text)
+
+
+AGENT_SUB_PREFIX = "agent:abcd:"
+
+
+def _bearer_kind(claims: Mapping[str, Any]) -> str:
+    return "agent" if str(claims.get("sub") or "").startswith(AGENT_SUB_PREFIX) else "bearer"
+
+
+def identity_line(identity: Mapping[str, Any]) -> str | None:
+    """``identity: platform agent token (sub=agent:abcd:…)``: only sub, tenant and roles, and an
+    agent token's conversation id is cut off (C4)."""
+    if not identity.get("ok"):
+        return None
+    sub = str(identity.get("sub") or "")
+    tenant = identity.get("tenant_id") or "?"
+    roles = identity.get("roles")
+    if identity.get("kind") == "agent":
+        return f"identity: platform agent token (sub={AGENT_SUB_PREFIX}\u2026), tenant {tenant}, roles {roles}"
+    if identity.get("kind") == "bearer":
+        return f"identity: bearer token (sub={sub[:40]}), tenant {tenant}, roles {roles}"
+    return f"identity: personal access token (PAT), tenant {tenant}, roles {roles}"
 
 
 def _present(environ: Mapping[str, str], *names: str) -> bool:
@@ -134,12 +165,16 @@ def doctor_report(
     *,
     environ: Mapping[str, str] | None = None,
     exchange: cloud.ExchangeClaims | None = None,
+    verify_bearer: cloud.VerifyBearer | None = None,
 ) -> dict[str, Any]:
     """What a cloud run has, by variable NAME only (never a value)."""
     env = os.environ if environ is None else environ
+    bearer = (env.get(cloud.VAR_BEARER) or "").strip()
+    # A bearer (the agent token) replaces the PAT pair: those two stop being required.
     groups: tuple[tuple[str, tuple[str, ...], bool], ...] = (
-        (cloud.VAR_PAT_CLIENT_ID, (cloud.VAR_PAT_CLIENT_ID,), True),
-        (cloud.VAR_PAT_SECRET, (cloud.VAR_PAT_SECRET,), True),
+        (cloud.VAR_BEARER, (cloud.VAR_BEARER,), False),
+        (cloud.VAR_PAT_CLIENT_ID, (cloud.VAR_PAT_CLIENT_ID,), not bearer),
+        (cloud.VAR_PAT_SECRET, (cloud.VAR_PAT_SECRET,), not bearer),
         (
             f"{cloud.VAR_WEBUI_ENDPOINT} or {cloud.VAR_APP_BASE_URL}",
             (cloud.VAR_WEBUI_ENDPOINT, cloud.VAR_APP_BASE_URL),
@@ -167,17 +202,34 @@ def doctor_report(
         pass
     platform_ready = all(v["present"] for v in variables if v["needed_for"] == "platform")
     pat: dict[str, Any] = {"checked": False}
+    identity: dict[str, Any] = {"kind": "none", "checked": False}
     if platform_ready:
-        endpoint = env.get(cloud.VAR_WEBUI_ENDPOINT) or env.get(cloud.VAR_APP_BASE_URL) or ""
+        endpoint = (
+            (env.get(cloud.VAR_WEBUI_ENDPOINT) or env.get(cloud.VAR_APP_BASE_URL) or "")
+            .strip()
+            .rstrip("/")
+        )
         try:
-            claims = (exchange or EXCHANGE_CLAIMS or cloud.exchange_pat_claims_http)(
-                endpoint.strip().rstrip("/"),
-                (env.get(cloud.VAR_PAT_CLIENT_ID) or "").strip(),
-                (env.get(cloud.VAR_PAT_SECRET) or "").strip(),
-            )
-            pat = {"checked": True, "ok": True, **claims}
+            if bearer:
+                claims = (verify_bearer or VERIFY_BEARER or cloud.verify_bearer_http)(
+                    endpoint, bearer
+                )
+                identity = {"kind": _bearer_kind(claims), "checked": True, "ok": True, **claims}
+            else:
+                claims = (exchange or EXCHANGE_CLAIMS or cloud.exchange_pat_claims_http)(
+                    endpoint,
+                    (env.get(cloud.VAR_PAT_CLIENT_ID) or "").strip(),
+                    (env.get(cloud.VAR_PAT_SECRET) or "").strip(),
+                )
+                pat = {"checked": True, "ok": True, **claims}
+                identity = {"kind": "pat", "checked": True, "ok": True, **claims}
         except Exception as e:  # report, never raise: doctor is a diagnosis
-            pat = {"checked": True, "ok": False, "error": str(e)[:200]}
+            failed = {"checked": True, "ok": False, "error": str(e)[:200]}
+            if bearer:
+                identity = {"kind": "bearer", **failed}
+            else:
+                pat = failed
+                identity = {"kind": "pat", **failed}
     return {
         "variables": variables,
         "pointer_file": str(pointer) if pointer else None,
@@ -186,6 +238,7 @@ def doctor_report(
         "platform_ready": platform_ready,
         "repo_ready": bool(pointer) and all(v["present"] for v in variables),
         "pat": pat,
+        "identity": identity,
     }
 
 
@@ -200,8 +253,16 @@ def _cmd_doctor(ctx: Context) -> Result:
         "  bootstrapped workspace(s): " + (", ".join(rep["bootstrapped_workspaces"]) or "none")
     )
     pat = rep["pat"]
-    if pat.get("ok"):
+    ident = rep["identity"]
+    if ident.get("kind") in ("agent", "bearer"):
+        line = identity_line(ident)
+        if line:
+            lines.append(f"  {line}")
+        else:
+            lines.append(f"  bearer check: FAILED ({ident.get('error')})")
+    elif pat.get("ok"):
         lines.append(f"  PAT exchange: ok, tenant {pat['tenant_id'] or '?'}, roles {pat['roles']}")
+        lines.append(f"  {identity_line(ident)}")
     elif pat.get("checked"):
         lines.append(f"  PAT exchange: FAILED ({pat['error']})")
     else:
@@ -209,7 +270,7 @@ def _cmd_doctor(ctx: Context) -> Result:
     if not rep["pointer_file"]:
         lines.append("  next: " + NO_POINTER_MESSAGE)
     text = "Cloud doctor:\n" + "\n".join(lines)
-    ok = bool(pat.get("ok"))
+    ok = bool(ident.get("ok"))
     return Result(0 if ok else 1, rep, text, None if ok else "platform is not ready (see above)")
 
 

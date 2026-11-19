@@ -29,12 +29,19 @@ from typing import Any
 from cli.builder_common import deploykey
 from cli.builder_common.cloudmode import write_marker
 from cli.builder_common.errors import PlatformError, UsageError
+from cli.builder_common.workspace import (
+    builder_json_path,
+    default_builder_config,
+    save_builder_config,
+)
 
 WORKSPACE_FILE_NAME = "abcd-workspace.json"
 
 # Variable names as the sandbox sees them (after the platform strips SANDBOX_).
 VAR_PAT_CLIENT_ID = "ABCD_PAT_CLIENT_ID"
 VAR_PAT_SECRET = "ABCD_PAT_SECRET"
+#: A platform-issued bearer (the harness injects an agent token); wins over the PAT (C4).
+VAR_BEARER = "ADOPT_HARNESS_BEARER_TOKEN"
 VAR_GITHUB_TOKEN = "GITHUB_TOKEN"
 VAR_GITHUB_DEPLOY_KEY = deploykey.VAR_DEPLOY_KEY
 VAR_GIT_CREDENTIAL = f"{VAR_GITHUB_TOKEN} or {VAR_GITHUB_DEPLOY_KEY}"
@@ -51,6 +58,7 @@ _REPO_SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*
 _SAFE_ENV = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 ExchangePat = Callable[[str, str, str], None]
+VerifyBearer = Callable[[str, str], dict[str, Any]]
 RunGit = Callable[[list[str], Path, Mapping[str, str]], None]
 
 
@@ -89,6 +97,7 @@ class CloudWorkspace:
 class CloudEnv:
     pat_client_id: str = ""
     pat_secret: str = ""
+    bearer_token: str = field(default="", repr=False)
     github_token: str = ""
     github_deploy_key: str = field(default="", repr=False)
     webui_endpoint: str = ""
@@ -153,9 +162,10 @@ def collect_environment(environ: Mapping[str, str]) -> CloudEnv:
         return (environ.get(name) or "").strip()
 
     missing: list[str] = []
-    for name in (VAR_PAT_CLIENT_ID, VAR_PAT_SECRET):
-        if not get(name):
-            missing.append(name)
+    if not get(VAR_BEARER):  # a bearer replaces the PAT pair
+        for name in (VAR_PAT_CLIENT_ID, VAR_PAT_SECRET):
+            if not get(name):
+                missing.append(name)
     if not get(VAR_GITHUB_TOKEN) and not get(VAR_GITHUB_DEPLOY_KEY):
         missing.append(VAR_GIT_CREDENTIAL)
     endpoint = get(VAR_WEBUI_ENDPOINT) or get(VAR_APP_BASE_URL)
@@ -168,6 +178,7 @@ def collect_environment(environ: Mapping[str, str]) -> CloudEnv:
     return CloudEnv(
         pat_client_id=get(VAR_PAT_CLIENT_ID),
         pat_secret=get(VAR_PAT_SECRET),
+        bearer_token=get(VAR_BEARER),
         github_token=get(VAR_GITHUB_TOKEN),
         github_deploy_key=get(VAR_GITHUB_DEPLOY_KEY),
         webui_endpoint=endpoint.rstrip("/"),
@@ -262,16 +273,17 @@ def clone_workspace(
     runner(["checkout", "-q", "--detach", "FETCH_HEAD"], dest, env)
 
 
-def write_env_file(path: Path, endpoint: str, client_id: str, secret: str) -> None:
-    """Write the workspace ``.env`` with mode 0600 (created private, never widened)."""
+def write_env_file(path: Path, endpoint: str, client_id: str = "", secret: str = "") -> None:
+    """Write the workspace ``.env`` with mode 0600 (created private, never widened).
+
+    With no PAT (a bearer run) only the endpoint is written: the bearer stays in the process
+    environment and is never copied to disk."""
     for value in (endpoint, client_id, secret):
         if any(c in value for c in "\r\n\0"):
             raise UsageError("refusing to write a .env value containing a line break")
-    body = (
-        f"ADOPT_WEBUI_ENDPOINT={endpoint}\n"
-        f"ADOPT_HARNESS_PAT_CLIENT_ID={client_id}\n"
-        f"ADOPT_HARNESS_PAT_SECRET={secret}\n"
-    )
+    body = f"ADOPT_WEBUI_ENDPOINT={endpoint}\n"
+    if client_id and secret:
+        body += f"ADOPT_HARNESS_PAT_CLIENT_ID={client_id}\nADOPT_HARNESS_PAT_SECRET={secret}\n"
     path.parent.mkdir(parents=True, exist_ok=True)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
@@ -311,12 +323,11 @@ def exchange_pat_http(endpoint: str, client_id: str, secret: str) -> None:
     _exchange_token(endpoint, client_id, secret)
 
 
-def exchange_pat_claims_http(endpoint: str, client_id: str, secret: str) -> dict[str, Any]:
-    """PAT exchange for ``cloud doctor``: only the tenant and roles claims of the JWT, never the
-    token itself (the payload is read without verifying it; it is a display value)."""
+def decode_claims(token: str) -> dict[str, Any]:
+    """The ``sub``, tenant and roles claims of a JWT, read WITHOUT verifying it (a display value
+    for ``cloud doctor``; nothing else of the token is ever returned)."""
     import base64
 
-    token = _exchange_token(endpoint, client_id, secret)
     try:
         payload = token.split(".")[1]
         claims = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
@@ -326,9 +337,35 @@ def exchange_pat_claims_http(endpoint: str, client_id: str, secret: str) -> dict
         claims = {}
     roles = claims.get("roles")
     return {
+        "sub": str(claims.get("sub") or ""),
         "tenant_id": str(claims.get("tenantId") or claims.get("tenant_id") or ""),
         "roles": [str(r) for r in roles] if isinstance(roles, list) else [],
     }
+
+
+def exchange_pat_claims_http(endpoint: str, client_id: str, secret: str) -> dict[str, Any]:
+    """PAT exchange for ``cloud doctor``: only the tenant and roles claims of the JWT, never the
+    token itself (the payload is read without verifying it; it is a display value)."""
+    claims = decode_claims(_exchange_token(endpoint, client_id, secret))
+    return {"tenant_id": claims["tenant_id"], "roles": claims["roles"], "sub": claims["sub"]}
+
+
+def verify_bearer_http(endpoint: str, token: str) -> dict[str, Any]:
+    """Check a bearer with ``GET /v1/end-user/agent-harness/me`` (on the agent token's allow-list)
+    and return its claims (``sub``, ``tenant_id``, ``roles``). Raises ``PlatformError``."""
+    import requests
+
+    try:
+        resp = requests.get(
+            f"{endpoint.rstrip('/')}/v1/end-user/agent-harness/me",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+    except requests.RequestException as e:
+        raise PlatformError(f"bearer check could not reach {endpoint}: {type(e).__name__}") from e
+    if resp.status_code != 200:
+        raise PlatformError(f"the bearer token was refused by {endpoint} (HTTP {resp.status_code})")
+    return decode_claims(token)
 
 
 ExchangeClaims = Callable[[str, str, str], dict[str, Any]]
@@ -361,7 +398,9 @@ def collect_platform_environment(environ: Mapping[str, str]) -> CloudEnv:
     def get(name: str) -> str:
         return (environ.get(name) or "").strip()
 
-    missing = [n for n in (VAR_PAT_CLIENT_ID, VAR_PAT_SECRET) if not get(n)]
+    missing = (
+        [] if get(VAR_BEARER) else [n for n in (VAR_PAT_CLIENT_ID, VAR_PAT_SECRET) if not get(n)]
+    )
     endpoint = get(VAR_WEBUI_ENDPOINT) or get(VAR_APP_BASE_URL)
     if not endpoint:
         missing.append(f"{VAR_WEBUI_ENDPOINT} or {VAR_APP_BASE_URL}")
@@ -370,9 +409,24 @@ def collect_platform_environment(environ: Mapping[str, str]) -> CloudEnv:
     return CloudEnv(
         pat_client_id=get(VAR_PAT_CLIENT_ID),
         pat_secret=get(VAR_PAT_SECRET),
+        bearer_token=get(VAR_BEARER),
         webui_endpoint=endpoint.rstrip("/"),
         conversation_id=get(VAR_CONVERSATION_ID),
     )
+
+
+def _pat_pair(env: CloudEnv) -> tuple[str, str]:
+    """The PAT to write to ``.env``: none when a bearer is in use (the bearer wins)."""
+    return ("", "") if env.bearer_token else (env.pat_client_id, env.pat_secret)
+
+
+def _check_credentials(
+    env: CloudEnv, exchange_pat: ExchangePat | None, verify_bearer: VerifyBearer | None
+) -> None:
+    if env.bearer_token:
+        (verify_bearer or verify_bearer_http)(env.webui_endpoint, env.bearer_token)
+    else:
+        (exchange_pat or exchange_pat_http)(env.webui_endpoint, env.pat_client_id, env.pat_secret)
 
 
 def bootstrap_platform_only(
@@ -381,6 +435,7 @@ def bootstrap_platform_only(
     *,
     environ: Mapping[str, str] | None = None,
     exchange_pat: ExchangePat | None = None,
+    verify_bearer: VerifyBearer | None = None,
 ) -> PlatformOnlyResult:
     """A minimal workspace for platform commands (``skill push``, ``agent create``, sessions)
     when there is no workstream repo or ``abcd-workspace.json``: ``workspaces/<env>/`` with
@@ -396,14 +451,13 @@ def bootstrap_platform_only(
         env_json.write_text(
             json.dumps({"env_id": env, "name": env, "platform_only": True}, indent=2)
         )
+    # `agent new|push` read builder.json (no repo, no tables: just the endpoint)
+    if not builder_json_path(dest).exists():
+        save_builder_config(dest, default_builder_config(webui_endpoint=cloud_env.webui_endpoint))
     env_file = dest / ".env"
-    write_env_file(
-        env_file, cloud_env.webui_endpoint, cloud_env.pat_client_id, cloud_env.pat_secret
-    )
+    write_env_file(env_file, cloud_env.webui_endpoint, *_pat_pair(cloud_env))
     write_marker(dest, cloud_env.conversation_id)
-    (exchange_pat or exchange_pat_http)(
-        cloud_env.webui_endpoint, cloud_env.pat_client_id, cloud_env.pat_secret
-    )
+    _check_credentials(cloud_env, exchange_pat, verify_bearer)
     return PlatformOnlyResult(
         env=env,
         workspace_dir=dest,
@@ -420,6 +474,7 @@ def bootstrap(
     environ: Mapping[str, str] | None = None,
     exchange_pat: ExchangePat | None = None,
     run_git: RunGit | None = None,
+    verify_bearer: VerifyBearer | None = None,
     replace: bool = False,
     home: Path | None = None,
 ) -> BootstrapResult:
@@ -463,16 +518,12 @@ def bootstrap(
     with exclude.open("a") as fh:
         fh.write("\n.env\n")
     env_file = dest / ".env"
-    write_env_file(
-        env_file, cloud_env.webui_endpoint, cloud_env.pat_client_id, cloud_env.pat_secret
-    )
+    write_env_file(env_file, cloud_env.webui_endpoint, *_pat_pair(cloud_env))
     # The marker every later command reads: this is a cloud run, and this is its conversation.
     write_marker(dest, cloud_env.conversation_id)
     with exclude.open("a") as fh:
         fh.write(".builder/\n")
-    (exchange_pat or exchange_pat_http)(
-        cloud_env.webui_endpoint, cloud_env.pat_client_id, cloud_env.pat_secret
-    )
+    _check_credentials(cloud_env, exchange_pat, verify_bearer)
     return BootstrapResult(
         env=ws.env,
         repo=ws.repo,

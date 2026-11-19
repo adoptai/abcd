@@ -246,3 +246,52 @@ def test_doc_store_files_never_rewrites() -> None:
         docs.put("unknown-store/x.txt", b"x")
     with pytest.raises(Exception, match="not found"):
         docs.get("builder-ops/missing.txt")
+
+
+def test_agent_new_fills_skills_workstreams_and_instructions_disabled(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    from cli.builder_common import agent_bundle as ab
+
+    env = build_env(tmp_path, monkeypatch)
+    code, doc = env.run(
+        "agent", "new", "acme-draft", "--display-name", "Draft", "--skill", "tax-calc",
+        "--skill", "other-skill", "--workstream", "acme-client", "--instructions",
+        "Step 1: read. Step 2: ask a person.", capsys=capsys,
+    )  # fmt: skip
+    assert code == 0, error(doc)
+    d = env.ws / "harness/agents/acme-draft"
+    bundle = ab.load_bundle(d)
+    assert bundle.components == (("skill", "org", "tax-calc"), ("skill", "org", "other-skill"))
+    assert bundle.workstreams == ("acme-client",) and bundle.is_enabled is False
+    assert (d / "instructions.md").read_text().strip() == "Step 1: read. Step 2: ask a person."
+    assert (d / "release.yaml").is_file()
+    ab.validate(bundle)
+
+
+def test_skill_new_scaffolds_a_pushable_draft_without_a_repo(tmp_path, monkeypatch, capsys) -> None:
+    import cli.abcd as abcd_main
+
+    ws = tmp_path / "workspaces"
+    (ws / "cloud").mkdir(parents=True)
+    (ws / "cloud" / "env.json").write_text('{"env_id": "cloud", "platform_only": true}')
+    monkeypatch.setenv("ABCD_WORKSPACES_DIR", str(ws))
+    assert abcd_main.main(["skill", "new", "invoice-triage", "--description", "Sort: invoices",
+                           "--env", "cloud", "--json"]) == 0  # fmt: skip
+    doc = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    skill_dir = ws / "cloud/harness/skills/invoice-triage"
+    assert doc["data"]["dir"] == str(skill_dir)
+    text = (skill_dir / "SKILL.md").read_text()
+    assert text.startswith("---\nname: invoice-triage\n") and '"Sort: invoices"' in text
+    assert not (ws / "cloud/.git").exists()
+    # the dry-run of the real push accepts it (the colon in the description is quoted)
+    assert abcd_main.main(["skill", "push", str(skill_dir), "--dry-run", "--env", "cloud",
+                           "--json"]) == 0  # fmt: skip
+    capsys.readouterr()
+    # never overwrites, rejects a bad slug, honours --dir
+    assert abcd_main.main(["skill", "new", "invoice-triage", "--env", "cloud", "--json"]) == 1
+    assert abcd_main.main(["skill", "new", "Bad_Name", "--env", "cloud", "--json"]) == 2
+    other = tmp_path / "scratch" / "x"
+    assert abcd_main.main(["skill", "new", "x-skill", "--dir", str(other), "--env", "cloud",
+                           "--json"]) == 0  # fmt: skip
+    assert (other / "SKILL.md").is_file()

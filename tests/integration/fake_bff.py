@@ -106,6 +106,27 @@ def decode_jwt(token: str) -> dict[str, Any] | None:
     return claims
 
 
+AGENT_ISS = "adopt-agent"
+
+
+def make_agent_token(
+    conversation_id: str = "conv-1", org_id: str = ORG_ID, ttl: int = 24 * 3600
+) -> str:
+    """A platform agent token as the platform mints it (contract C3): issuer ``adopt-agent``,
+    ``sub = userId = agent:abcd:<conversation>``, ``roles=["Admin"]``, 24 h. The fake enforces the
+    parts of the hardening that matter to abcd: processes it creates are forced disabled, it can't
+    enable one, and it can't DELETE anything."""
+    iat = int(time.time())
+    who = f"agent:abcd:{conversation_id}"
+    return make_jwt(
+        {
+            "iss": AGENT_ISS, "kid": "adopt-agent-1", "tenantId": org_id, "sub": who,
+            "userId": who, "roles": ["Admin"], "conv": conversation_id,
+            "jti": secrets.token_hex(8), "iat": iat, "exp": iat + ttl,
+        }
+    )  # fmt: skip
+
+
 class HTTPError(Exception):
     def __init__(self, status: int, detail: Any) -> None:
         super().__init__(f"{status}: {detail}")
@@ -874,6 +895,8 @@ def create_process(rq: Req) -> Any:
         if not body.get(f):
             raise missing(f)
     st = rq.st
+    if rq.claims.get("iss") == AGENT_ISS:
+        body["is_enabled"] = False  # D3: agent-created processes always start disabled
     if any(p["name"] == body["name"] and not p.get("deleted") for p in st.processes.values()):
         raise HTTPError(409, f"A process named '{body['name']}' already exists")
     flow = body.get("compiled_flow")
@@ -900,6 +923,8 @@ def get_process(rq: Req) -> Any:
 def patch_process(rq: Req) -> Any:
     p = _live_process(rq.st, rq.params["pid"])
     body = rq.json()
+    if rq.claims.get("iss") == AGENT_ISS and body.get("is_enabled") is True:
+        raise HTTPError(403, "An agent token cannot enable a process")
     for k in ("display_name", "description", "components", "agent_instructions", "is_enabled",
               "compiled_flow"):  # fmt: skip
         if k in body and (body[k] is not None or k in ("description", "agent_instructions")):
@@ -2529,6 +2554,9 @@ class _Handler(BaseHTTPRequestHandler):
                 "method": self.command, "path": url.path,
                 "query": {k: v[0] for k, v in parse_qs(url.query).items()}, "status": status,
                 "has_auth": "authorization" in headers,
+                "token_iss": (
+                    decode_jwt(headers.get("authorization", "")[7:]) or {}
+                ).get("iss"),  # the issuer claim only, never the token
                 "x_workflows_secret": "x-workflows-secret" in headers,
                 "body_keys": _body_keys(body, headers.get("content-type", "")),
             }  # fmt: skip
@@ -2577,6 +2605,8 @@ class _Handler(BaseHTTPRequestHandler):
                 if claims is None or not claims.get("tenantId"):
                     raise HTTPError(401, "Not authenticated")
                 rq.claims = claims
+                if claims.get("iss") == AGENT_ISS and self.command == "DELETE":
+                    raise HTTPError(403, "An agent token cannot delete")
                 if auth == "admin" and not rq.is_admin:
                     raise HTTPError(403, "Admin role required")
                 if auth == "adopt" and not rq.email.endswith("@adopt.ai"):

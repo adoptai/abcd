@@ -330,3 +330,120 @@ def test_bootstrap_sets_a_local_git_identity(
     cfg = {a[1]: a[2] for a, _, _ in git.calls if a[0] == "config" and len(a) == 3}
     assert cfg["user.name"] == cloud.COMMIT_NAME
     assert cfg["user.email"] == cloud.COMMIT_EMAIL
+
+
+# -- C4: a platform bearer (the agent token) replaces the PAT ---------------------------------
+
+
+def _fake_jwt(
+    sub: str = "agent:abcd:conv-1", tenant: str = "tenant-x", roles: Any = ("Admin",)
+) -> str:
+    import base64
+
+    def b64(obj: Mapping[str, Any]) -> str:
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+
+    claims = {
+        "sub": sub,
+        "tenantId": tenant,
+        "roles": list(roles),
+        "jti": "j-1",
+        "conv": "secret-conv",
+    }
+    return f"{b64({'alg': 'HS256'})}.{b64(claims)}.sig"
+
+
+BEARER = _fake_jwt()
+
+
+def test_bearer_replaces_the_pat_requirement() -> None:
+    env = {"ADOPT_HARNESS_BEARER_TOKEN": BEARER, "ADOPT_APP_BASE_URL": "https://app.example.test"}
+    plat = cloud.collect_platform_environment(env)
+    assert plat.bearer_token == BEARER and plat.pat_client_id == ""
+    full = cloud.collect_environment({**env, "GITHUB_TOKEN": TOKEN, "ADOPT_CONVERSATION_ID": "c"})
+    assert full.bearer_token == BEARER and BEARER not in repr(full)
+    # still names the genuinely missing ones: the endpoint, and with no bearer the PAT pair
+    with pytest.raises(cloud.MissingVariablesError) as exc:
+        cloud.collect_platform_environment({"ADOPT_HARNESS_BEARER_TOKEN": BEARER})
+    assert exc.value.missing == ["ABCD_WEBUI_ENDPOINT or ADOPT_APP_BASE_URL"]
+    with pytest.raises(cloud.MissingVariablesError) as exc:
+        cloud.collect_platform_environment({"ADOPT_APP_BASE_URL": "https://x.test"})
+    assert exc.value.missing == ["ABCD_PAT_CLIENT_ID", "ABCD_PAT_SECRET"]
+
+
+def test_platform_only_with_a_bearer_writes_no_pat_and_never_the_token(tmp_path: Path) -> None:
+    seen: list[tuple[str, str]] = []
+    pats: list[Any] = []
+    res = cloud.bootstrap_platform_only(
+        tmp_path,
+        "cloud",
+        environ={
+            "ADOPT_HARNESS_BEARER_TOKEN": BEARER,
+            "ADOPT_APP_BASE_URL": "https://app.example.test/",
+            "ADOPT_CONVERSATION_ID": "conv-1",
+        },
+        exchange_pat=lambda *a: pats.append(a),
+        verify_bearer=lambda e, t: seen.append((e, t)) or {},
+    )
+    assert seen == [("https://app.example.test", BEARER)] and pats == []
+    text = res.env_file.read_text()
+    assert text == "ADOPT_WEBUI_ENDPOINT=https://app.example.test\n"
+    assert BEARER not in text and BEARER not in json.dumps(res.to_dict())
+    assert stat.S_IMODE(res.env_file.stat().st_mode) == 0o600
+    assert (res.workspace_dir / ".builder" / "cloud.json").is_file()
+
+
+def test_bearer_wins_over_a_pat_and_a_refused_bearer_is_a_platform_error(tmp_path: Path) -> None:
+    env = {**_env(), "ADOPT_HARNESS_BEARER_TOKEN": BEARER}
+    res = cloud.bootstrap_platform_only(
+        tmp_path / "a", "cloud", environ=env,
+        exchange_pat=lambda *a: pytest.fail("PAT must not be used"),
+        verify_bearer=lambda e, t: {},
+    )  # fmt: skip
+    assert "PAT_SECRET" not in res.env_file.read_text()
+
+    def refuse(endpoint: str, token: str) -> dict[str, Any]:
+        raise PlatformError("the bearer token was refused (HTTP 401)")
+
+    with pytest.raises(PlatformError):
+        cloud.bootstrap_platform_only(tmp_path / "b", "cloud", environ=env, verify_bearer=refuse)
+
+
+def test_repo_bootstrap_with_a_bearer_needs_no_pat(ws_file: Path, tmp_path: Path) -> None:
+    res = cloud.bootstrap(
+        ws_file,
+        tmp_path / "abcd",
+        environ=_env(ABCD_PAT_CLIENT_ID="", ABCD_PAT_SECRET="", ADOPT_HARNESS_BEARER_TOKEN=BEARER),
+        exchange_pat=lambda *a: pytest.fail("PAT must not be used"),
+        verify_bearer=lambda e, t: {},
+        run_git=GitRecorder(),
+    )
+    assert res.env_file.read_text() == "ADOPT_WEBUI_ENDPOINT=https://app.example.test\n"
+
+
+def test_decode_claims_returns_only_sub_tenant_and_roles() -> None:
+    assert cloud.decode_claims(BEARER) == {
+        "sub": "agent:abcd:conv-1", "tenant_id": "tenant-x", "roles": ["Admin"],
+    }  # fmt: skip
+    assert cloud.decode_claims("not-a-jwt") == {"sub": "", "tenant_id": "", "roles": []}
+
+
+def test_verify_bearer_http_checks_me_and_reports_claims(monkeypatch: pytest.MonkeyPatch) -> None:
+    import requests
+
+    calls: list[tuple[str, dict[str, str]]] = []
+
+    class Resp:
+        def __init__(self, code: int) -> None:
+            self.status_code = code
+
+    def fake_get(url: str, headers: dict[str, str], timeout: int) -> Resp:
+        calls.append((url, headers))
+        return Resp(200 if headers["Authorization"] == f"Bearer {BEARER}" else 401)
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    claims = cloud.verify_bearer_http("https://app.example.test/", BEARER)
+    assert claims["sub"] == "agent:abcd:conv-1"
+    assert calls[0][0] == "https://app.example.test/v1/end-user/agent-harness/me"
+    with pytest.raises(PlatformError, match="401"):
+        cloud.verify_bearer_http("https://app.example.test", "other")

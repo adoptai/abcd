@@ -496,3 +496,109 @@ def test_vault_variables_alone_authenticate_the_harness_client(
             {"client_id": "client-id-1", "secret": "s3cr3t-value-xyz"},
         )
     ]
+
+
+# -- C4: bearer-only cloud runs ---------------------------------------------------------------
+
+import base64 as _b64  # noqa: E402
+
+
+def _jwt(sub: str, tenant: str = "tenant-9", roles: tuple[str, ...] = ("Admin",)) -> str:
+    def enc(o: Mapping[str, Any]) -> str:
+        return _b64.urlsafe_b64encode(json.dumps(o).encode()).rstrip(b"=").decode()
+
+    return f"{enc({'alg': 'HS256'})}.{enc({'sub': sub, 'tenantId': tenant, 'roles': list(roles), 'conv': 'conv-secret-77'})}.sig"
+
+
+def _bearer_only(monkeypatch: pytest.MonkeyPatch, token: str) -> None:
+    for k in (*PLATFORM_VARS, "GITHUB_TOKEN", "GITHUB_DEPLOY_KEY", "ADOPT_APP_BASE_URL"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("ADOPT_HARNESS_BEARER_TOKEN", token)
+    monkeypatch.setenv("ABCD_WEBUI_ENDPOINT", "https://bff.test")
+
+
+def test_doctor_with_an_agent_token_reports_the_platform_identity_without_a_pat(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv(bc.WORKSPACE_FILE_ENV, raising=False)
+    token = _jwt("agent:abcd:conv-secret-77")
+    _bearer_only(monkeypatch, token)
+    monkeypatch.setattr(bc, "EXCHANGE_CLAIMS", lambda *a: pytest.fail("no PAT exchange"))
+    seen: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        bc, "VERIFY_BEARER", lambda e, t: seen.append((e, t)) or bc.cloud.decode_claims(t)
+    )
+    code, doc = run("cloud", "doctor")
+    assert code == 0, doc
+    data = doc["data"]
+    assert seen == [("https://bff.test", token)]
+    assert data["platform_ready"] is True
+    needed = {v["name"]: v["needed_for"] for v in data["variables"]}
+    assert needed["ABCD_PAT_CLIENT_ID"] == "repo" and needed["ADOPT_HARNESS_BEARER_TOKEN"] == "repo"
+    assert data["identity"] == {
+        "kind": "agent", "checked": True, "ok": True, "sub": "agent:abcd:conv-secret-77",
+        "tenant_id": "tenant-9", "roles": ["Admin"],
+    }  # fmt: skip
+    blob = json.dumps(doc, ensure_ascii=False)
+    assert token not in blob and "https://bff.test" not in blob
+    assert abcd_main.main(["cloud", "doctor", "--env", "acme"]) == 0
+    text = capsys.readouterr().out
+    assert "identity: platform agent token (sub=agent:abcd:…)" in text
+    assert "conv-secret-77" not in text and token not in text
+
+
+def test_doctor_with_a_bearer_that_is_refused_fails_without_raising(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _bearer_only(monkeypatch, _jwt("agent:abcd:c"))
+
+    def refuse(e: str, t: str) -> dict[str, Any]:
+        raise RuntimeError("the bearer token was refused (HTTP 401)")
+
+    monkeypatch.setattr(bc, "VERIFY_BEARER", refuse)
+    code, doc = run("cloud", "doctor")
+    assert code == 1 and doc["data"]["identity"]["ok"] is False
+    assert "401" in doc["data"]["identity"]["error"]
+
+
+def test_doctor_names_a_plain_bearer_and_the_pat_identity_line(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    _bearer_only(monkeypatch, _jwt("user-123"))
+    monkeypatch.setattr(bc, "VERIFY_BEARER", lambda e, t: bc.cloud.decode_claims(t))
+    code, doc = run("cloud", "doctor")
+    assert code == 0 and doc["data"]["identity"]["kind"] == "bearer"
+    assert bc.identity_line(doc["data"]["identity"]) == (
+        "identity: bearer token (sub=user-123), tenant tenant-9, roles ['Admin']"
+    )
+    for k in ("ADOPT_HARNESS_BEARER_TOKEN",):
+        monkeypatch.delenv(k)
+    for k, v in PLATFORM_VARS.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setattr(bc, "EXCHANGE_CLAIMS", lambda *a: {"tenant_id": "t1", "roles": ["Admin"]})
+    code, doc = run("cloud", "doctor")
+    assert code == 0 and doc["data"]["identity"]["kind"] == "pat"
+    assert bc.identity_line(doc["data"]["identity"]).startswith(
+        "identity: personal access token (PAT)"
+    )
+
+
+def test_platform_only_bootstrap_command_works_with_a_bearer_and_no_pat(
+    ops: OpsEnv, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    token = _jwt("agent:abcd:conv-1")
+    _bearer_only(monkeypatch, token)
+    monkeypatch.setattr(bc, "EXCHANGE_PAT", lambda *a: pytest.fail("no PAT exchange"))
+    monkeypatch.setattr(bc, "VERIFY_BEARER", lambda e, t: {})
+    root = tmp_path / "abcd-root"
+    code = abcd_main.main(
+        ["cloud", "bootstrap", "--platform-only", "--abcd-root", str(root), "--json"]
+    )
+    out = capsys.readouterr().out
+    assert code == 0, out
+    dest = root / "workspaces" / "cloud"
+    assert (dest / ".env").read_text() == "ADOPT_WEBUI_ENDPOINT=https://bff.test\n"
+    assert token not in out

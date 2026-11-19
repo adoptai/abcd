@@ -101,6 +101,20 @@ def cloud_mode(ws: Path | None = None) -> bool:
     return _env_set() or find_marker(ws) is not None
 
 
+ENABLE_HINT = (
+    "A person turns it on: in the Adopt app open Studio > Agents, pick the agent and switch it "
+    "to Enabled (or an FDE runs `abcd agent update <process_id> --enable` from a local, "
+    "non-cloud workspace)."
+)
+
+
+def enable_refusal(what: str) -> str:
+    """Why a cloud run may not enable an agent (D3): enabling is a human's act."""
+    return (
+        f"{what}: in a cloud run agents are created and kept DISABLED, never enabled. {ENABLE_HINT}"
+    )
+
+
 def write_marker(ws: Path, conversation_id: str) -> Path:
     path = Path(ws) / MARKER_REL
     path.parent.mkdir(parents=True, exist_ok=True)

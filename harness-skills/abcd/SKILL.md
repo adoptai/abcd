@@ -1,6 +1,6 @@
 ---
 name: abcd
-description: "Run abcd, the Adopt Builder CLI, inside this sandbox: drive a client's Builder workspace (status, drift audits, evals, staging, test-staged, releases, explainers, training kits), build, publish or push a skill or agent to the org and test it in a session, and capture a website into a skill (NoUI): record a login and a workflow through the signed-in user's cloud Tabby session via a VNC link, compile, generalize, replay, install. Use when an FDE asks to run abcd, a nightly or weekly Builder run, any `abcd ...` command, to build / publish / push a skill or agent to the org, or to test it in a session; or says \"create a skill / app template for <site>\", \"onboard <site> into Tabby\", \"record a login and a workflow\", \"turn this website into a tool\", \"noui capture/compile\". Installs abcd (NoUI included) from the bundled zip, clones the client's workspace repo when there is one, and checks the platform token."
+description: "Run abcd, the Adopt Builder CLI, inside this sandbox: drive a client's Builder workspace (status, drift audits, evals, staging, test-staged, releases, explainers, training kits), build, publish or push a skill or agent to the org and test it in a session, guide builders with cards and forms, and capture a website into a skill (NoUI): record a login and a workflow through the signed-in user's cloud Tabby session via a VNC link, compile, generalize, replay, install. Use when an FDE asks to run abcd, a nightly or weekly Builder run, any `abcd ...` command, to build / publish / push a skill or agent to the org, or to test it in a session; or says \"I want to build a skill / an agent\"; or says \"create a skill / app template for <site>\", \"onboard <site> into Tabby\", \"record a login and a workflow\", \"turn this website into a tool\", \"noui capture/compile\". Installs abcd (NoUI included) from the bundled zip, clones the client's workspace repo when there is one, and checks the platform token."
 ---
 
 # abcd (Agent Harness edition)
@@ -29,6 +29,187 @@ runs locally.
 5. Use `--json` on every abcd command and read the exit code: 0 done, 1 refused or a check
    failed, 2 usage error, 3 platform or network error. Report a refusal as it is; do not
    work around it.
+
+## Guided building (start here when the user wants to build)
+
+Use this section when you are the builder agent and the chat has just started, or when the user
+says they want to build a skill or an agent. The user is an org admin or manager who may never
+have seen a terminal: collect everything with cards and forms, run every `abcd` command yourself,
+and never ask them to type one. Run Step 0 and `abcd cloud bootstrap --platform-only --json`
+silently first (see "Build and publish a skill or agent" (a)); with a platform agent token
+(`ADOPT_HARNESS_BEARER_TOKEN`) no PAT is needed, and `abcd cloud doctor --json` says
+`identity: platform agent token`. Use `--env cloud` on every command below.
+
+The card tools are `render_<component>` (for example `render_action_card`) and `render_builder`.
+Each payload below is the exact shape of that tool's input. End your turn after every card that
+waits for the user: their click or answer arrives as the next message.
+
+**Rules for guided building**
+
+- Agents you push stay **disabled**. You cannot enable one, and abcd refuses `--enable` in this
+  chat. Say where a person turns it on (Studio, Agents, switch it to Enabled).
+- Publishing needs the user's own answer to the "Publish to the org?" card. A click or message from
+  them is the approval; never write one for them, and never push before it.
+- Never print or ask for a token, never compose a link: show only links a command printed.
+- Name drafts for what they do. A test object is named `test-<name>` and never replaces a live one.
+
+### 1. Start: three tiles
+
+Send these three cards in one turn, then end the turn. The user's click sends the card's `value`
+as a message.
+
+```json render_action_card
+{"type": "action-card", "eyebrow": "Build", "title": "Skill from a website (record it)", "description": "Record yourself doing the task once in a browser; I turn it into a skill.", "action": {"label": "Start", "kind": "message", "value": "Build a skill from a website by recording it"}}
+```
+
+```json render_action_card
+{"type": "action-card", "eyebrow": "Build", "title": "Skill from an API or docs", "description": "Describe the API or paste the docs; I write and test the skill.", "action": {"label": "Start", "kind": "message", "value": "Build a skill from an API or docs"}}
+```
+
+```json render_action_card
+{"type": "action-card", "eyebrow": "Build", "title": "Agent from a process description", "description": "Describe the steps, the checks and who approves; I draft the agent.", "action": {"label": "Start", "kind": "message", "value": "Build an agent from a process description"}}
+```
+
+If the page already gave a starter such as "I want to build a new skill", show the tiles anyway
+unless it named an existing skill ("Improve the skill <name>"): then fetch it with
+`abcd skill verify <name> --env cloud --json` and go to step 3 with `--replace` in mind.
+
+- Tile 1 ("record it"): go to "Capture a website into a skill (NoUI)" below and follow it as
+  written, literal script invocations included. When it has installed the skill, continue at step 4.
+- Tiles 2 and 3: step 2.
+
+### 2. Scope: one form
+
+Send one `render_builder` form (`builder_kind: "form"`), then end the turn. Omit `step_id`: no
+process step is bound to this chat. The `workstream` field is a picker over the org's workstreams
+with the inline "Create new" form, so the user creates a workstream without leaving the card.
+Leave `default_value` unset (it takes an id, never a name).
+
+```json render_builder
+{"title": "What are we building?", "builder_kind": "form", "submit_label": "Start drafting", "blocks": [{"id": "scope", "title": "Scope", "description": "A few lines are enough; I ask again if something is unclear.", "fields": [
+  {"name": "name", "label": "Name", "field_type": "text", "required": true, "placeholder": "invoice-triage", "description": "Lowercase letters, digits and dashes."},
+  {"name": "goal", "label": "What should it do?", "field_type": "textarea", "required": true},
+  {"name": "inputs_outputs", "label": "What goes in and what comes out?", "field_type": "textarea", "required": true},
+  {"name": "workstream", "label": "Workstream it will run in", "field_type": "entity_picker", "source": "workstreams", "allow_create": true, "create_fields": [{"name": "name", "label": "Workstream name", "field_type": "text", "required": true}], "required": true}
+]}]}
+```
+
+For tile 3 (an agent) add these fields to the same block; fill `options` for `skills` from
+`abcd skill list --env cloud --json` (every option needs `value` and `label`):
+
+```json render_builder
+{"title": "Describe the process", "builder_kind": "form", "submit_label": "Draft the agent", "blocks": [{"id": "process", "title": "Process", "fields": [
+  {"name": "steps", "label": "Steps, in order", "field_type": "textarea", "required": true},
+  {"name": "gates", "label": "Where must a person approve or answer?", "field_type": "textarea"},
+  {"name": "skills", "label": "Skills it should use", "field_type": "multi_select", "options": [{"value": "invoice-triage", "label": "invoice-triage"}]}
+]}]}
+```
+
+The submitted values arrive in the next message. A workstream the user created in the picker
+exists already: read its name with `abcd workstream list --env cloud --json`.
+
+### 3. Draft: write it, show it, no repo needed
+
+Show progress with one `render_workflow_stepper` and re-send it with the same `id` after each
+phase (update in place):
+
+```json render_workflow_stepper
+{"type": "workflow-stepper", "id": "build-progress", "title": "Building invoice-triage", "active_step": "draft", "steps": [
+  {"id": "scope", "title": "Scope", "status": "done"},
+  {"id": "draft", "title": "Draft", "status": "active"},
+  {"id": "test", "title": "Test", "status": "pending"},
+  {"id": "publish", "title": "Publish", "status": "pending"}
+]}
+```
+
+**Skill.** Scaffold into the scratch workspace, then edit `SKILL.md` (quote every frontmatter
+value that has a colon):
+
+```bash
+cd /workspace/abcd
+abcd skill new <name> --description "<one line>" --env cloud --json   # workspaces/cloud/harness/skills/<name>/
+abcd skill audit workspaces/cloud/harness/skills/<name>
+abcd skill push workspaces/cloud/harness/skills/<name> --env cloud --dry-run --json
+```
+
+**Agent.** Scaffold the bundle with its skills and workstream, then refine `instructions.md`
+(steps, gates and rules in general terms; never a case id or a name):
+
+```bash
+abcd agent new <name> --display-name "<Name>" --description "<one line>" \
+    --skill <skill-name> --workstream "<workstream name>" \
+    --instructions "<the steps and gates>" --env cloud --json
+```
+
+An agent can only use skills that are already in the org: push a new skill first (step 5).
+
+Show the draft as a `render_key_value_list`: the text of `SKILL.md` or `instructions.md` goes in a
+`code` item, the rest in plain items.
+
+```json render_key_value_list
+{"type": "key-value-list", "title": "Draft: invoice-triage", "groups": [{"label": "Overview", "items": [{"key": "Name", "value": "invoice-triage"}, {"key": "Runs in", "value": "Accounts payable"}, {"key": "Audit", "value": "0 findings"}]}, {"label": "Instructions", "items": [{"key": "SKILL.md", "value": "Sort each invoice into approve, hold or reject using the rules in references/rules.md.", "type": "code"}]}]}
+```
+
+`render_document_preview` is only for a PDF or Excel file the user gave you or you produced (a
+sample output), never for the draft text:
+
+```json render_document_preview
+{"type": "document-preview", "title": "Sample output", "documentType": "pdf", "source": {"filename": "sample-output.pdf"}, "pages": [{"label": "Page 1", "content": "Summary of the triage result."}]}
+```
+
+### 4. Test in a session
+
+A session needs an **enabled** agent assigned to the workstream, and you cannot enable one.
+
+- Testing a skill: if an enabled agent on that workstream lists it, run
+  `abcd session start --workstream <workstream> --process <agent> --message "<a short task that
+  needs the skill>" --env cloud --json`, then `abcd session logs <conversation_id> --env cloud --json`.
+- Nothing enabled yet (always true for an agent you just drafted): do not test. Say so on the
+  result card and tell the user that once a person enables the agent you can run the test.
+
+Report the outcome as a `render_status_card`, then ask what next with a `render_decision_card`
+(fix and retest, publish as it is, or stop):
+
+```json render_status_card
+{"type": "status-card", "title": "Test run: invoice-triage", "subtitle": "Session on Accounts payable", "status": "warning", "fields": [{"label": "Result", "value": "2 of 3 invoices sorted", "highlight": true}, {"label": "Problem", "value": "The third invoice had no total"}]}
+```
+
+```json render_decision_card
+{"type": "decision-card", "id": "after-test", "decision_type": "Test", "title": "One invoice was not sorted", "question": "The skill stopped on an invoice with no total. Fix it and run the test again?", "options": [{"id": "fix", "label": "Fix and retest", "recommended": true}, {"id": "publish", "label": "Publish as it is"}, {"id": "stop", "label": "Stop here"}]}
+```
+
+On "Fix and retest" change the draft, run `abcd skill push <dir> --env cloud --dry-run --json`
+again, and repeat this step.
+
+### 5. Publish: ask, then push
+
+Ask first. Name the object and whether it replaces something (`abcd skill list --search <name>
+--env cloud --json`: an `org` hit means `--replace`; a `default` hit means pick another name).
+
+```json render_decision_card
+{"type": "decision-card", "id": "publish", "decision_type": "Publish", "title": "Publish to the org?", "question": "invoice-triage is a new skill. It becomes available to every agent in the org. An agent you publish stays disabled until a person enables it.", "options": [{"id": "publish", "label": "Publish", "recommended": true}, {"id": "revise", "label": "Keep editing"}, {"id": "cancel", "label": "Cancel"}]}
+```
+
+Only after the user answers "Publish" (their own message):
+
+```bash
+abcd skill push workspaces/cloud/harness/skills/<name> --env cloud [--replace] --json
+abcd skill verify <name> --env cloud --json
+# an agent, after its skills are published:
+abcd agent push <name> --yes --env cloud --json    # created DISABLED; prints how a person enables it
+```
+
+`agent push` in this chat creates or updates an agent only while it is not enabled, and always
+leaves it disabled; it refuses to touch an enabled live agent (that goes through `abcd release`).
+Finish with a `render_status_card` that says what was published, that an agent is **disabled**
+and where a person enables it (the `enable_hint` the command printed), and what to try next. Show
+a `render_download_card` only for a file a command gave you a link to.
+
+```json render_status_card
+{"type": "status-card", "title": "Published: invoice-triage", "subtitle": "Skill in the org", "status": "success", "fields": [{"label": "Type", "value": "Skill"}, {"label": "Next step", "value": "Attach it to an agent, or ask me to draft one", "highlight": true}]}
+```
+
+---
 
 ## Step 0: install abcd (do this first, silently)
 
@@ -138,7 +319,8 @@ acting on the active workspace, which may belong to another client.
   approvals are made by a human locally), and so are `--approved-by`, `--by` and `--vetted-by` on
   the other commands: the actor is always the cloud identity. `abcd rollback` needs its own
   approval (`action="rollback"`, naming the target version and its sha; a release approval does
-  not count); `abcd agent push` without `--staged` is refused.
+  not count); `abcd agent push` without `--staged` only creates or updates an agent that is not enabled, and
+leaves it disabled; it is refused for an enabled live agent.
 - **Testing only, until a service-account PAT exists:** `ABCD_ALLOW_SAME_IDENTITY_APPROVAL=1`
   (arrives from vault secret `SANDBOX_ABCD_ALLOW_SAME_IDENTITY_APPROVAL`) accepts an approval
   authored by the runner's own identity and a private, non-shared conversation. It still needs
@@ -181,8 +363,9 @@ abcd cloud doctor --json                         # variables by name, PAT tenant
 ```
 
 `--platform-only` builds `workspaces/cloud/` (default `--env cloud`; pass `--env <name>` to pick
-another) from `ABCD_PAT_CLIENT_ID`, `ABCD_PAT_SECRET` and `ABCD_WEBUI_ENDPOINT` (or
-`ADOPT_APP_BASE_URL`), and checks the PAT. Use `--env cloud` (or your name) on every later
+another) from `ADOPT_HARNESS_BEARER_TOKEN` (the platform agent token, when the platform injects one) or
+else `ABCD_PAT_CLIENT_ID` and `ABCD_PAT_SECRET`, plus `ABCD_WEBUI_ENDPOINT` (or
+`ADOPT_APP_BASE_URL`), and checks the credential. Use `--env cloud` (or your name) on every later
 command. If it names missing variables, tell the FDE which vault secrets (`SANDBOX_<NAME>`) to
 add, and stop. Never `cat` the `.env`.
 
@@ -230,14 +413,17 @@ abcd skill list --search <name> --env <env> --json   # a gated-step skill must s
 ```bash
 abcd workstream ensure abcd-test-<name> --env <env> --json    # or the workstream the FDE names
 abcd agent create test-<name> "TEST <name>" --component skill:<name> \
-    --instructions "<short>" --enable --env <env> --json
+    --instructions "<short>" --env <env> --json
 abcd agent set-workstreams <process_id> <workstream_id> --env <env> --json
 ```
 
 Without `--enable` the agent is created as a Draft. A process must be enabled and assigned to
-the workstream before a session can use it. With a bundle in a repo workspace
+the workstream before a session can use it. In this chat `--enable` is refused (agents stay
+disabled; a person enables them in Studio), so a test session needs an agent a person already
+enabled. With a bundle in a repo workspace
 (`harness/agents/<agent>/`), `abcd agent push <agent> --staged` is the staged path; plain
-`abcd agent push` is refused in the cloud.
+`abcd agent push` only creates or updates an agent that is not enabled, and leaves it disabled
+(it is refused for an enabled live agent).
 
 **(h) Test session.**
 

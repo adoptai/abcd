@@ -26,7 +26,7 @@ import base64
 import shutil
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -34,7 +34,7 @@ from cli.builder_common import agent_bundle as ab
 from cli.builder_common import browser_gate as bg
 from cli.builder_common import repo
 from cli.builder_common import workspace as bws
-from cli.builder_common.cloudmode import cloud_mode
+from cli.builder_common.cloudmode import ENABLE_HINT, cloud_mode
 from cli.builder_common.datasets import recorded_workstream_ids
 from cli.builder_common.docstore import DocStore, DocStoreArtifacts
 from cli.builder_common.drift import compare_skill, fetch_live_skill
@@ -42,7 +42,7 @@ from cli.builder_common.errors import PlatformError, RefusedError, UsageError
 from cli.builder_common.evals.bff_driver import BffHarnessDriver
 from cli.builder_common.evals.protocols import ArtifactStore, HarnessDriver
 from cli.builder_common.identity import current_user
-from cli.builder_common.orgdb import OrgDBClient
+from cli.builder_common.orgdb import OrgDBClient, OrgDBError
 from cli.builder_common.platform import BuilderPlatformClient
 from cli.builder_common.staging import STAGED_AGENT_SUFFIX, staged_name
 from cli.builder_common.versions import (
@@ -577,7 +577,14 @@ def missing_components(client: Any, bundle: ab.AgentBundle) -> list[str]:
 
 
 def agent_row(w: Work, agent: str) -> dict[str, Any]:
-    rows = w.svc.rows.find_rows(T_AGENTS, "agent_key", agent)
+    try:
+        rows = w.svc.rows.find_rows(T_AGENTS, "agent_key", agent)
+    except OrgDBError as e:
+        # A platform-only workspace (guided building, no `builder setup`) has no bld_* tables: the
+        # live push then relies on builder.json and the name lookup. Writes still raise.
+        if "does not exist" not in str(e):
+            raise
+        return {}
     return rows[0] if rows else {}
 
 
@@ -764,16 +771,41 @@ def _cmd_new(ctx: Context) -> Result:
         "# Never put a case id, a name or an expected value here.\n"
         'blind: "Process the files in this workstream and produce the work product."\n'
     )
+    if a.skill or a.workstream or a.instructions:
+        _fill_skeleton(d, a)
     paths = [str(p.relative_to(ws)) for p in sorted(d.iterdir())]
     return Result.done({"agent": a.agent, "files": paths}, f"Created {', '.join(paths)}")
 
 
+def _fill_skeleton(d: Path, a: Any) -> None:
+    """``agent new --skill/--workstream/--instructions``: fill the fresh bundle in one step, so a
+    draft needs no hand-edited YAML. The bundle is always written disabled (``is_enabled: false``)."""
+    bundle = ab.load_bundle(d)
+    comps = tuple(("skill", "org", s) for s in a.skill or [])
+    ws_names = tuple(dict.fromkeys(a.workstream or []))
+    ab.write_bundle(
+        replace(
+            bundle,
+            components=comps or bundle.components,
+            workstreams=ws_names or bundle.workstreams,
+            instructions=a.instructions if a.instructions else bundle.instructions,
+            is_enabled=False,
+        ),
+        d,
+    )
+
+
+def _cloud_live_refusal(name: str) -> str:
+    return (
+        f"`agent push` would patch the ENABLED live process {name}; in a cloud run live changes "
+        "go through `abcd release` (which needs a human's approval), never a direct push"
+    )
+
+
 def _staged_flag_check(ctx: Context, staged: bool) -> None:
-    if not staged and cloud_mode(ctx.env_dir):
-        raise RefusedError(
-            "`agent push` without --staged patches the LIVE process; in a cloud run live changes "
-            "go through `abcd release` (which needs a human's approval), never a direct push"
-        )
+    # In a cloud run a plain push is allowed only for an agent that is not live (new or still
+    # disabled): it is created and kept disabled (see `_cmd_push`). It still needs --yes: that is
+    # the builder's confirmation card, answered by a person.
     if not staged and not ctx.yes:
         raise RefusedError(
             "`agent push` without --staged patches the LIVE process and skips the release gate; "
@@ -805,22 +837,35 @@ def _cmd_push(ctx: Context) -> Result:
             else f"Pushed {info['staged_name']} ({info['process_id']}) as {info['version_id']}"
         )
         return Result.done(info, text)
-    if ctx.dry_run_notice(f"would create or patch the live process {bundle.name}"):
-        return Result.done({"agent": a.agent, "dry_run": True}, "")
+    in_cloud = cloud_mode(ctx.env_dir)
+    if in_cloud:
+        # Cloud runs create and keep agents DISABLED (D3): a person enables them. Never enable here.
+        bundle = replace(bundle, is_enabled=False)
+    if ctx.dry_run_notice(
+        f"would create or patch the live process {bundle.name}"
+        + (" (disabled)" if in_cloud else "")
+    ):
+        return Result.done({"agent": a.agent, "dry_run": True, "is_enabled": not in_cloud}, "")
     missing = missing_components(w.client, bundle)
     if missing:
         raise RefusedError(f"the platform doesn't have {missing}; release them first")
     live_id, _ = recorded_process_ids(w, a.agent)
+    if in_cloud:
+        existing = find_process_id(w, bundle.name, live_id)
+        if existing and w.client.get_process(existing).get("is_enabled"):
+            raise RefusedError(_cloud_live_refusal(bundle.name))
     names = w.names_for(bundle)
     sync = sync_process(w.client, bundle, names, process_id=live_id)
     bad = verify_process(w.client, bundle, names, sync.process_id)
     if bad:
         raise PlatformError(f"{a.agent}: platform differs from the bundle in {bad}")
     bws.set_agent_process_ids(w.ws, a.agent, live_process_id=sync.process_id)
-    return Result.done(
-        {"agent": a.agent, **sync.to_dict()},
-        f"{'Created' if sync.created else 'Patched'} live process {sync.process_id}",
-    )
+    text = f"{'Created' if sync.created else 'Patched'} live process {sync.process_id}"
+    data: dict[str, Any] = {"agent": a.agent, **sync.to_dict()}
+    if in_cloud:
+        data.update(is_enabled=False, enable_hint=ENABLE_HINT)
+        text += f" (disabled). {ENABLE_HINT}"
+    return Result.done(data, text)
 
 
 def _platform_process(w: Work, agent: str, staged: bool) -> tuple[str, dict[str, Any]]:
@@ -909,6 +954,17 @@ def register(registry: Registry) -> None:
     p.add_argument("agent")
     p.add_argument("--display-name")
     p.add_argument("--description")
+    p.add_argument(
+        "--skill",
+        action="append",
+        help="An org skill the agent uses (repeatable); written to process.yaml components",
+    )
+    p.add_argument(
+        "--workstream",
+        action="append",
+        help="A workstream NAME the agent runs in (repeatable); written to process.yaml",
+    )
+    p.add_argument("--instructions", help="The agent's instructions (written to instructions.md)")
 
     p = g.command(
         "push",

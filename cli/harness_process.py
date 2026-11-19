@@ -43,6 +43,8 @@ from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cli.builder_common.cloudmode import cloud_mode, enable_refusal
+from cli.builder_common.errors import RefusedError
 from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import HarnessAPIError, get_harness_client_for_env
 
@@ -269,6 +271,8 @@ def _cmd_get(ctx: Context) -> int:
 
 def _cmd_create(ctx: Context) -> int:
     a = ctx.args
+    if a.enable and cloud_mode(ctx.env_dir):
+        raise RefusedError(enable_refusal("`agent create --enable`"))
     if ctx.dry_run_notice(f"would create process '{a.name}' ({a.display_name})"):
         return 0
     return cmd_create(
@@ -278,6 +282,8 @@ def _cmd_create(ctx: Context) -> int:
 
 def _cmd_update(ctx: Context) -> int:
     a = ctx.args
+    if a.enable and cloud_mode(ctx.env_dir):
+        raise RefusedError(enable_refusal("`agent update --enable`"))
     if ctx.dry_run_notice(f"would update process {a.process_id}"):
         return 0
     return cmd_update(

@@ -62,6 +62,7 @@ import yaml
 
 from cli.builder_common.cloudmode import cloud_mode
 from cli.builder_common.errors import RefusedError, UsageError
+from cli.core.output import Result
 from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import HarnessAPIError, get_harness_client_for_env
 from cli.harness_common.secret_scan import Finding, scan_bytes
@@ -649,6 +650,38 @@ def _cmd_push(ctx: Context) -> int:
     )
 
 
+def skill_template(name: str, description: str) -> str:
+    """A starter ``SKILL.md``: quoted frontmatter and the sections the audit looks for."""
+    desc = description.strip() or f"Describe what {name} does and when to use it."
+    return (
+        f"---\nname: {name}\ndescription: {json.dumps(desc)}\n---\n\n"
+        f"# {name}\n\n"
+        "## When to use\n\nName the requests that should load this skill.\n\n"
+        "## Steps\n\n1. State the first action and the tool or file it uses.\n"
+        "2. State each next action in order.\n\n"
+        "## Output\n\nSay what the user gets back and where it is written.\n"
+    )
+
+
+def _cmd_new(ctx: Context) -> Result:
+    """``abcd skill new``: a draft skill directory with no git repo and no workspace repo."""
+    a = ctx.args
+    if not _SLUG_RE.match(a.name):
+        raise UsageError(f"skill name {a.name!r} must match ^[a-z0-9][a-z0-9-]*$")
+    target = Path(a.dir) if a.dir else ctx.env_dir / "harness" / "skills" / a.name
+    skill_md = target / "SKILL.md"
+    if skill_md.exists():
+        raise RefusedError(f"{skill_md} already exists")
+    if ctx.dry_run_notice(f"would write {skill_md}"):
+        return Result.done({"name": a.name, "dir": str(target), "dry_run": True}, "")
+    target.mkdir(parents=True, exist_ok=True)
+    skill_md.write_text(skill_template(a.name, a.description or ""), encoding="utf-8")
+    return Result.done(
+        {"name": a.name, "dir": str(target), "files": ["SKILL.md"]},
+        f"Created {skill_md}; edit it, then `abcd skill push {target} --dry-run`",
+    )
+
+
 def _cmd_verify(ctx: Context) -> int:
     return verify(ctx.args.skill_name, None, ctx.env_arg)
 
@@ -705,6 +738,16 @@ def register(registry: Registry) -> None:
         legacy_name="audit",
     )
     p.add_argument("skill_dir", type=Path, help="Local directory containing SKILL.md (+ aux files)")
+
+    p = skill.command(
+        "new",
+        _cmd_new,
+        help="Scaffold a draft skill directory (no git repo needed)",
+        writes=True,
+    )
+    p.add_argument("name", help="Skill slug: ^[a-z0-9][a-z0-9-]*$")
+    p.add_argument("--description", help="One-line description for the frontmatter")
+    p.add_argument("--dir", help="Where to write it (default: <workspace>/harness/skills/<name>)")
 
     p = skill.command(
         "push",
