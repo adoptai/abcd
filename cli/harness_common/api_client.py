@@ -181,6 +181,11 @@ class HarnessAPIClient:
             )
             for row in rows:
                 props = row.get("custom_properties") or {}
+                if isinstance(props, str):  # some backends return JSON columns as text
+                    try:
+                        props = json.loads(props)
+                    except ValueError:
+                        props = {}
                 if isinstance(props, dict) and props.get("system") == "builder":
                     return dict(row)
             if len(rows) < 100:

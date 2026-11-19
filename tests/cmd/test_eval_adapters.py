@@ -277,3 +277,21 @@ def test_workstream_exists_is_a_by_id_read(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(HarnessAPIError):
         client.workstream_exists("boom")
     assert all(m == "GET" and p.startswith("/v1/org/workstreams/") for m, p in seen)
+
+
+def test_find_builder_workstream_pages_and_reads_the_marker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Found by the custom_properties marker (dict or JSON text), across pages, never by name."""
+    from cli.harness_common.api_client import HarnessAPIClient
+
+    client = HarnessAPIClient("t", "https://bff.invalid")
+    page1 = [{"id": f"w{i}", "name": "Builder" if i == 0 else f"ws{i}"} for i in range(100)]
+    page2 = [{"id": "wb", "name": "Builder 2", "custom_properties": '{"system": "builder"}'}]
+
+    def fake_request(method: str, path: str, **kw: Any) -> dict[str, Any]:
+        return {"items": page1 if kw["params"]["page"] == 1 else page2}
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    found = client.find_builder_workstream()
+    assert found is not None and found["id"] == "wb"

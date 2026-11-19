@@ -165,13 +165,14 @@ sample output), never for the draft text:
 ### 4. Test in a session
 
 A session needs an enabled agent assigned to its workstream. Drafts are tested in the **Builder
-workstream**, the one marked as the Builder's own (abcd finds it; never create one):
+workstream**, the one marked as the Builder's own (abcd finds it; never create one). Use its id
+from the push output (`workstream_id`): its name is not always "Builder".
 
 ```bash
 # an agent draft: created disabled and assigned ONLY to the Builder workstream
 abcd agent push <name> --yes --env cloud --json          # = --test-in-builder, the default here
 abcd agent update <process_id> --enable --env cloud --json   # allowed: Builder alone
-abcd session start --workstream Builder --process <name> \
+abcd session start --workstream <workstream_id from the push output> --process <name> \
     --message "<a short task>" --env cloud --json
 abcd session logs <conversation_id> --env cloud --json
 ```
