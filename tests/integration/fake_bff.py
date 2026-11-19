@@ -114,8 +114,9 @@ def make_agent_token(
 ) -> str:
     """A platform agent token as the platform mints it (contract C3): issuer ``adopt-agent``,
     ``sub = userId = agent:abcd:<conversation>``, ``roles=["Admin"]``, 24 h. The fake enforces the
-    parts of the hardening that matter to abcd: processes it creates are forced disabled, it can't
-    enable one, and it can't DELETE anything."""
+    parts of the hardening that matter to abcd: processes it creates start disabled; it may enable
+    one only while it is assigned to the Builder workstream alone (assigning it anywhere else
+    disables it again); and it can't DELETE anything."""
     iat = int(time.time())
     who = f"agent:abcd:{conversation_id}"
     return make_jwt(
@@ -345,6 +346,12 @@ class FakeBFFState:
         }  # fmt: skip
         self.workstreams[ws["id"]] = ws
         self._default_store_for(ws)
+        return ws
+
+    def add_builder_workstream(self, name: str = "Builder") -> dict[str, Any]:
+        """The org's Builder workstream, as ``ensure_builder`` creates it (marker in the props)."""
+        ws = self.add_workstream(name)
+        ws["custom_properties"] = {"system": "builder"}
         return ws
 
     def _default_store_for(self, ws: dict[str, Any]) -> None:
@@ -924,7 +931,14 @@ def patch_process(rq: Req) -> Any:
     p = _live_process(rq.st, rq.params["pid"])
     body = rq.json()
     if rq.claims.get("iss") == AGENT_ISS and body.get("is_enabled") is True:
-        raise HTTPError(403, "An agent token cannot enable a process")
+        # Allowed only for a draft the agent made itself, assigned to the Builder workstream alone.
+        ids = rq.st.process_ws.get(p["id"], [])
+        if not str(p.get("created_by", "")).startswith("agent:abcd:") or not _builder_only(
+            rq.st, ids
+        ):
+            raise HTTPError(
+                403, "An agent token may enable a process only in the Builder workstream alone"
+            )
     for k in ("display_name", "description", "components", "agent_instructions", "is_enabled",
               "compiled_flow"):  # fmt: skip
         if k in body and (body[k] is not None or k in ("description", "agent_instructions")):
@@ -938,6 +952,15 @@ def delete_process(rq: Req) -> Any:
     p["deleted"] = True
     rq.st.process_ws[p["id"]] = []
     return 204, None
+
+
+def _builder_only(st: FakeBFFState, ids: list[Any]) -> bool:
+    """True when ``ids`` is exactly one workstream and it is the org's Builder workstream."""
+    if len(set(map(str, ids))) != 1:
+        return False
+    ws = st.workstreams.get(str(next(iter(ids))))
+    props = (ws or {}).get("custom_properties") or {}
+    return bool(ws) and not ws["is_deleted"] and props.get("system") == "builder"
 
 
 @route("GET", "/v1/org/processes/{pid}/workstreams")
@@ -956,6 +979,9 @@ def set_process_ws(rq: Req) -> Any:
     if unknown:
         raise HTTPError(400, f"Unknown workstream ids: {unknown}")
     rq.st.process_ws[rq.params["pid"]] = sorted(set(map(str, ids)))
+    proc = rq.st.processes[rq.params["pid"]]
+    if rq.claims.get("iss") == AGENT_ISS and not _builder_only(rq.st, ids):
+        proc["is_enabled"] = False  # assigning beyond the Builder workstream disables it
     return {"workstream_ids": rq.st.process_ws[rq.params["pid"]]}
 
 

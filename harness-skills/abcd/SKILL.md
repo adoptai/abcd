@@ -46,8 +46,11 @@ waits for the user: their click or answer arrives as the next message.
 
 **Rules for guided building**
 
-- Agents you push stay **disabled**. You cannot enable one, and abcd refuses `--enable` in this
-  chat. Say where a person turns it on (Studio, Agents, switch it to Enabled).
+- Agents are tested in the **Builder workstream** and published **disabled**. In this chat abcd
+  enables an agent only while its one workstream is the Builder workstream (a test draft);
+  `abcd agent push --publish` assigns it to the real workstream, and the platform then disables
+  it. You never enable an agent for real use: say where a person does (Studio, Agents, switch it
+  to Enabled).
 - Publishing needs the user's own answer to the "Publish to the org?" card. A click or message from
   them is the approval; never write one for them, and never push before it.
 - Never print or ask for a token, never compose a link: show only links a command printed.
@@ -141,7 +144,9 @@ abcd agent new <name> --display-name "<Name>" --description "<one line>" \
     --instructions "<the steps and gates>" --env cloud --json
 ```
 
-An agent can only use skills that are already in the org: push a new skill first (step 5).
+The bundle names the workstream the agent will finally run in (the one from the scope form).
+That is where it goes at publish time; the test happens in the Builder workstream (step 4). An
+agent can only use skills that are already in the org: push a new skill first (step 5).
 
 Show the draft as a `render_key_value_list`: the text of `SKILL.md` or `instructions.md` goes in a
 `code` item, the rest in plain items.
@@ -159,13 +164,26 @@ sample output), never for the draft text:
 
 ### 4. Test in a session
 
-A session needs an **enabled** agent assigned to the workstream, and you cannot enable one.
+A session needs an enabled agent assigned to its workstream. Drafts are tested in the **Builder
+workstream**, the one marked as the Builder's own (abcd finds it; never create one):
 
-- Testing a skill: if an enabled agent on that workstream lists it, run
-  `abcd session start --workstream <workstream> --process <agent> --message "<a short task that
-  needs the skill>" --env cloud --json`, then `abcd session logs <conversation_id> --env cloud --json`.
-- Nothing enabled yet (always true for an agent you just drafted): do not test. Say so on the
-  result card and tell the user that once a person enables the agent you can run the test.
+```bash
+# an agent draft: created disabled and assigned ONLY to the Builder workstream
+abcd agent push <name> --yes --env cloud --json          # = --test-in-builder, the default here
+abcd agent update <process_id> --enable --env cloud --json   # allowed: Builder alone
+abcd session start --workstream Builder --process <name> \
+    --message "<a short task>" --env cloud --json
+abcd session logs <conversation_id> --env cloud --json
+```
+
+- Testing a skill: the skill is not in the org yet, so first say that a clearly named test copy
+  goes in and wait for a yes. Then push it as `--name test-<name>` (`abcd skill push <dir> --name
+  test-<name> --env cloud --json`), draft a test agent (`abcd agent new test-<name> --skill
+  test-<name> --env cloud`), and run the commands above for `test-<name>`. Tell the user the test
+  copy exists.
+- Pending cards from the test agent are answered with `abcd hitl resolve` as usual.
+- If `abcd agent update --enable` is refused, the agent is assigned somewhere other than the
+  Builder workstream: do not work around it; re-run `abcd agent push <name> --yes --env cloud`.
 
 Report the outcome as a `render_status_card`, then ask what next with a `render_decision_card`
 (fix and retest, publish as it is, or stop):
@@ -187,7 +205,7 @@ Ask first. Name the object and whether it replaces something (`abcd skill list -
 --env cloud --json`: an `org` hit means `--replace`; a `default` hit means pick another name).
 
 ```json render_decision_card
-{"type": "decision-card", "id": "publish", "decision_type": "Publish", "title": "Publish to the org?", "question": "invoice-triage is a new skill. It becomes available to every agent in the org. An agent you publish stays disabled until a person enables it.", "options": [{"id": "publish", "label": "Publish", "recommended": true}, {"id": "revise", "label": "Keep editing"}, {"id": "cancel", "label": "Cancel"}]}
+{"type": "decision-card", "id": "publish", "decision_type": "Publish", "title": "Publish to the org?", "question": "invoice-triage is a new skill. It becomes available to every agent in the org. An agent you publish is assigned to its workstream but stays disabled until a person enables it.", "options": [{"id": "publish", "label": "Publish", "recommended": true}, {"id": "revise", "label": "Keep editing"}, {"id": "cancel", "label": "Cancel"}]}
 ```
 
 Only after the user answers "Publish" (their own message):
@@ -195,14 +213,14 @@ Only after the user answers "Publish" (their own message):
 ```bash
 abcd skill push workspaces/cloud/harness/skills/<name> --env cloud [--replace] --json
 abcd skill verify <name> --env cloud --json
-# an agent, after its skills are published:
-abcd agent push <name> --yes --env cloud --json    # created DISABLED; prints how a person enables it
+# an agent, after its skills are published: assign it to the workstream chosen in the scope form
+abcd agent push <name> --yes --publish --env cloud --json   # the platform disables it; prints how a person enables it
 ```
 
-`agent push` in this chat creates or updates an agent only while it is not enabled, and always
-leaves it disabled; it refuses to touch an enabled live agent (that goes through `abcd release`).
-Finish with a `render_status_card` that says what was published, that an agent is **disabled**
-and where a person enables it (the `enable_hint` the command printed), and what to try next. Show
+`agent push --publish` assigns the bundle's own workstreams and the platform disables the agent
+until a person enables it. It refuses to touch an agent that is enabled outside the Builder
+workstream (a live agent changes through `abcd release`). Finish with a `render_status_card` that says what was published, that an agent is **disabled**
+(assigned to its workstream, waiting for a person) and where a person enables it (the `enable_hint` the command printed), and what to try next. Show
 a `render_download_card` only for a file a command gave you a link to.
 
 ```json render_status_card
@@ -319,8 +337,8 @@ acting on the active workspace, which may belong to another client.
   approvals are made by a human locally), and so are `--approved-by`, `--by` and `--vetted-by` on
   the other commands: the actor is always the cloud identity. `abcd rollback` needs its own
   approval (`action="rollback"`, naming the target version and its sha; a release approval does
-  not count); `abcd agent push` without `--staged` only creates or updates an agent that is not enabled, and
-leaves it disabled; it is refused for an enabled live agent.
+  not count); `abcd agent push` without `--staged` is, in this chat, a test draft in the Builder workstream
+(or `--publish`: the real workstreams, disabled); it is refused for an agent enabled elsewhere.
 - **Testing only, until a service-account PAT exists:** `ABCD_ALLOW_SAME_IDENTITY_APPROVAL=1`
   (arrives from vault secret `SANDBOX_ABCD_ALLOW_SAME_IDENTITY_APPROVAL`) accepts an approval
   authored by the runner's own identity and a private, non-shared conversation. It still needs
@@ -418,12 +436,12 @@ abcd agent set-workstreams <process_id> <workstream_id> --env <env> --json
 ```
 
 Without `--enable` the agent is created as a Draft. A process must be enabled and assigned to
-the workstream before a session can use it. In this chat `--enable` is refused (agents stay
-disabled; a person enables them in Studio), so a test session needs an agent a person already
-enabled. With a bundle in a repo workspace
+the workstream before a session can use it. In this chat `--enable` is allowed only for an
+agent assigned to the Builder workstream alone (see "Guided building", step 4); for real use a
+person enables it in Studio. With a bundle in a repo workspace
 (`harness/agents/<agent>/`), `abcd agent push <agent> --staged` is the staged path; plain
-`abcd agent push` only creates or updates an agent that is not enabled, and leaves it disabled
-(it is refused for an enabled live agent).
+`abcd agent push` is a Builder-workstream test draft here (`--publish` assigns the real
+workstreams, disabled); it is refused for an agent enabled elsewhere.
 
 **(h) Test session.**
 

@@ -65,7 +65,15 @@ class FakeClient:
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.uploads: list[tuple[str, bool]] = []  # (skill name, replace)
         # workstream ids the platform still has (the ids bws.init_layout records below)
-        self.live_workstreams: set[str] = {"ws-client", "ws-staging", "ws-ds1", "ws-ds2", "ws-ds3"}
+        self.live_workstreams: set[str] = {
+            "ws-client",
+            "ws-staging",
+            "ws-ds1",
+            "ws-ds2",
+            "ws-ds3",
+            "ws-builder",
+        }
+        self.builder_ws_id: str | None = "ws-builder"  # the org's marked Builder workstream
         self._n = 0
 
     def writes(self) -> list[str]:
@@ -220,6 +228,9 @@ class FakeClient:
         self._log("set_write_workstreams", pid, list(ids), prefix)
         self.grants[pid] = {"workstream_ids": list(ids), "folder_prefix": prefix}
         return {}
+
+    def find_builder_workstream(self) -> dict[str, Any] | None:
+        return {"id": self.builder_ws_id, "name": "Builder"} if self.builder_ws_id else None
 
     def workstream_exists(self, workstream_id: str) -> bool:
         return workstream_id in self.live_workstreams

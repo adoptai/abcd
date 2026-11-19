@@ -109,10 +109,21 @@ ENABLE_HINT = (
 
 
 def enable_refusal(what: str) -> str:
-    """Why a cloud run may not enable an agent (D3): enabling is a human's act."""
+    """Why a cloud run may not enable an agent (D3): enabling for real use is a human's act."""
     return (
-        f"{what}: in a cloud run agents are created and kept DISABLED, never enabled. {ENABLE_HINT}"
+        f"{what}: in a cloud run an agent may be enabled only while it is assigned to the "
+        f"Builder workstream and nothing else (a test draft; `abcd agent push` does that). "
+        f"{ENABLE_HINT}"
     )
+
+
+def builder_only(client: Any, process_id: str) -> tuple[bool, str | None]:
+    """``(assigned to exactly the Builder workstream, Builder workstream id)``."""
+    builder = client.find_builder_workstream()
+    if not builder:
+        return False, None
+    have = client.get_process_workstreams(process_id).get("workstream_ids") or []
+    return sorted(map(str, have)) == [str(builder["id"])], str(builder["id"])
 
 
 def write_marker(ws: Path, conversation_id: str) -> Path:

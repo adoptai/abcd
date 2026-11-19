@@ -157,8 +157,15 @@ def test_publish_is_gated_by_a_decision_card_and_agents_stay_disabled() -> None:
     assert len(publish) == 1 and publish[0]["title"] == "Publish to the org?"
     guided = section("## Guided building")
     assert "abcd skill push" in guided and "abcd agent push" in guided
-    assert "DISABLED" in guided and "--enable" in guided and "cannot enable" in guided
-    assert guided.index("Publish to the org?") < guided.index("abcd skill push workspaces/cloud")
+    # tested in the Builder workstream, published with --publish, a person enables it
+    assert "Builder workstream" in guided and "--publish" in guided
+    assert "--test-in-builder" in guided and "agent update <process_id> --enable" in guided
+    assert "never enable an agent for real use" in guided.replace("\n", " ")
+    card = guided.index('"id": "publish"')
+    assert card < guided.index(
+        "abcd agent push <name> --yes --publish"
+    )  # publish only after the card
+    assert card < guided.rindex("abcd skill push workspaces/cloud")  # the real push follows it
 
 
 def test_every_abcd_command_in_the_section_exists() -> None:

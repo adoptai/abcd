@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from cli.builder_common.cloudmode import cloud_mode, enable_refusal
+from cli.builder_common.cloudmode import builder_only, cloud_mode, enable_refusal
 from cli.builder_common.errors import RefusedError
 from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import HarnessAPIError, get_harness_client_for_env
@@ -272,6 +272,7 @@ def _cmd_get(ctx: Context) -> int:
 def _cmd_create(ctx: Context) -> int:
     a = ctx.args
     if a.enable and cloud_mode(ctx.env_dir):
+        # A new agent has no workstream yet, so it can't be a Builder-only test draft.
         raise RefusedError(enable_refusal("`agent create --enable`"))
     if ctx.dry_run_notice(f"would create process '{a.name}' ({a.display_name})"):
         return 0
@@ -283,7 +284,13 @@ def _cmd_create(ctx: Context) -> int:
 def _cmd_update(ctx: Context) -> int:
     a = ctx.args
     if a.enable and cloud_mode(ctx.env_dir):
-        raise RefusedError(enable_refusal("`agent update --enable`"))
+        # Allowed only for a test draft: assigned to the Builder workstream and nothing else.
+        try:
+            ok, _ = builder_only(get_harness_client_for_env(ctx.env_arg), a.process_id)
+        except (ValueError, HarnessAPIError) as e:
+            raise RefusedError(f"cannot check the agent's workstreams before enabling: {e}") from e
+        if not ok:
+            raise RefusedError(enable_refusal("`agent update --enable`"))
     if ctx.dry_run_notice(f"would update process {a.process_id}"):
         return 0
     return cmd_update(

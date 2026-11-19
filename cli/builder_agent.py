@@ -34,7 +34,7 @@ from cli.builder_common import agent_bundle as ab
 from cli.builder_common import browser_gate as bg
 from cli.builder_common import repo
 from cli.builder_common import workspace as bws
-from cli.builder_common.cloudmode import ENABLE_HINT, cloud_mode
+from cli.builder_common.cloudmode import ENABLE_HINT, builder_only, cloud_mode
 from cli.builder_common.datasets import recorded_workstream_ids
 from cli.builder_common.docstore import DocStore, DocStoreArtifacts
 from cli.builder_common.drift import compare_skill, fetch_live_skill
@@ -795,6 +795,9 @@ def _fill_skeleton(d: Path, a: Any) -> None:
     )
 
 
+BUILDER_KEY = "builder-workstream"  # name_to_id key for the Builder workstream id
+
+
 def _cloud_live_refusal(name: str) -> str:
     return (
         f"`agent push` would patch the ENABLED live process {name}; in a cloud run live changes "
@@ -838,23 +841,56 @@ def _cmd_push(ctx: Context) -> Result:
         )
         return Result.done(info, text)
     in_cloud = cloud_mode(ctx.env_dir)
+    if (a.test_in_builder or a.publish) and not in_cloud:
+        raise UsageError("--test-in-builder and --publish are for cloud runs (the Builder chat)")
+    if a.test_in_builder and a.publish:
+        raise UsageError("pass --test-in-builder or --publish, not both")
+    publish = in_cloud and a.publish
+    test_mode = in_cloud and not publish  # the default in a cloud run
     if in_cloud:
-        # Cloud runs create and keep agents DISABLED (D3): a person enables them. Never enable here.
+        # Cloud runs never enable an agent for real use (D3). A draft is created disabled and
+        # assigned ONLY to the Builder workstream, where it may be enabled and tested; publishing
+        # assigns the bundle's own workstreams, which makes the platform disable it again.
         bundle = replace(bundle, is_enabled=False)
-    if ctx.dry_run_notice(
-        f"would create or patch the live process {bundle.name}"
-        + (" (disabled)" if in_cloud else "")
-    ):
-        return Result.done({"agent": a.agent, "dry_run": True, "is_enabled": not in_cloud}, "")
+        if publish and not bundle.workstreams:
+            raise UsageError(
+                f"{a.agent}: process.yaml names no workstream to publish to "
+                "(`abcd agent new --workstream <name>`)"
+            )
+    mode = "publish" if publish else "test-in-builder" if test_mode else "live"
+    where = {"publish": "disabled", "test-in-builder": "Builder workstream only"}.get(mode, mode)
+    if ctx.dry_run_notice(f"would create or patch the process {bundle.name} ({where})"):
+        return Result.done(
+            {"agent": a.agent, "dry_run": True, "mode": mode, "is_enabled": not in_cloud}, ""
+        )
     missing = missing_components(w.client, bundle)
     if missing:
         raise RefusedError(f"the platform doesn't have {missing}; release them first")
     live_id, _ = recorded_process_ids(w, a.agent)
-    if in_cloud:
-        existing = find_process_id(w, bundle.name, live_id)
-        if existing and w.client.get_process(existing).get("is_enabled"):
-            raise RefusedError(_cloud_live_refusal(bundle.name))
     names = w.names_for(bundle)
+    builder_id: str | None = None
+    if in_cloud:
+        builder = w.client.find_builder_workstream()
+        if test_mode:
+            if not builder:
+                raise RefusedError(
+                    "this org has no Builder workstream to test in; start from Studio's "
+                    '"Build with AI" so it is created'
+                )
+            builder_id = str(builder["id"])
+            names = {**names, BUILDER_KEY: builder_id}
+            bundle = replace(
+                bundle, workstreams=(BUILDER_KEY,), write_workstreams=(), write_folder_prefix=""
+            )
+        existing = find_process_id(w, bundle.name, live_id)
+        if existing:
+            cur = w.client.get_process(existing)
+            if cur.get("is_enabled"):
+                only, _bid = builder_only(w.client, existing)
+                if not only:
+                    raise RefusedError(_cloud_live_refusal(bundle.name))
+                if test_mode:  # a Builder-only test draft that is already enabled stays enabled
+                    bundle = replace(bundle, is_enabled=True)
     sync = sync_process(w.client, bundle, names, process_id=live_id)
     bad = verify_process(w.client, bundle, names, sync.process_id)
     if bad:
@@ -863,8 +899,18 @@ def _cmd_push(ctx: Context) -> Result:
     text = f"{'Created' if sync.created else 'Patched'} live process {sync.process_id}"
     data: dict[str, Any] = {"agent": a.agent, **sync.to_dict()}
     if in_cloud:
-        data.update(is_enabled=False, enable_hint=ENABLE_HINT)
-        text += f" (disabled). {ENABLE_HINT}"
+        enabled = bool(w.client.get_process(sync.process_id).get("is_enabled"))
+        data.update(mode=mode, is_enabled=enabled)
+        if test_mode:
+            data["workstream_id"] = builder_id
+            data["next"] = f"abcd agent update {sync.process_id} --enable  (Builder-only: allowed)"
+            text += (
+                f" in the Builder workstream only ({'enabled' if enabled else 'disabled'}); "
+                f"enable it with `abcd agent update {sync.process_id} --enable` to test it"
+            )
+        else:
+            data["enable_hint"] = ENABLE_HINT
+            text += f" ({'enabled' if enabled else 'disabled'}). {ENABLE_HINT}"
     return Result.done(data, text)
 
 
@@ -975,6 +1021,18 @@ def register(registry: Registry) -> None:
     p.add_argument("agent")
     p.add_argument("--staged", action="store_true", help="Push the <agent>-staged shadow")
     p.add_argument("--take", action="store_true", help="Take the staged lock from another FDE")
+    p.add_argument(
+        "--test-in-builder",
+        action="store_true",
+        help="Cloud: assign ONLY to the Builder workstream, where it may be enabled and tested "
+        "(the default in a cloud run)",
+    )
+    p.add_argument(
+        "--publish",
+        action="store_true",
+        help="Cloud: assign the bundle's own workstreams; the platform disables it until a "
+        "person enables it",
+    )
 
     p = g.command("pull", _cmd_pull, help="Write the live process into the bundle", writes=True)
     p.add_argument("agent")

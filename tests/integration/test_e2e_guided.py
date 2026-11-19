@@ -7,13 +7,12 @@ delete) are what the fake BFF enforces for that issuer.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
 import requests
-import yaml
 
+from tests.integration import fake_agent as fa
 from tests.integration.conftest import run_inproc
 from tests.integration.fake_bff import FakeBFFServer, make_agent_token
 
@@ -83,55 +82,101 @@ def test_guided_skill_push_with_the_bearer_only(
     assert sent and {r["token_iss"] for r in sent} == {"adopt-agent"}
 
 
-def test_cloud_agent_push_creates_it_disabled_and_nothing_can_enable_it(
-    agent_env: str, bff: FakeBFFServer, ws_dir: Path
-) -> None:
+def _setup_agent(bff: FakeBFFServer, ws_dir: Path) -> None:
+    """Skill pushed, a target workstream, and a draft agent bundle that names that target."""
     assert _cli("skill", "new", "guided-demo").code == 0
     skill_dir = ws_dir / "cloud" / "harness" / "skills" / "guided-demo"
     assert _cli("skill", "push", str(skill_dir)).code == 0
     assert _cli("workstream", "ensure", "guided-ops").code == 0
-
     new = _cli(
         "agent", "new", "guided-agent", "--display-name", "Guided agent", "--skill", "guided-demo",
         "--workstream", "guided-ops", "--instructions", "Triage each invoice; ask a person to approve.",
     )  # fmt: skip
     assert new.code == 0, new.text
-    # even a bundle that says is_enabled: true is created disabled in a cloud run
-    pyaml = ws_dir / "cloud" / "harness" / "agents" / "guided-agent" / "process.yaml"
-    doc = yaml.safe_load(pyaml.read_text())
-    doc["is_enabled"] = True
-    pyaml.write_text(yaml.safe_dump(doc, sort_keys=False))
 
+
+def _proc(bff: FakeBFFServer) -> dict:
+    (proc,) = [p for p in bff.state.processes.values() if p["name"] == "guided-agent"]
+    return proc
+
+
+def test_draft_is_tested_in_the_builder_workstream_then_published_disabled(
+    agent_env: str, bff: FakeBFFServer, ws_dir: Path
+) -> None:
+    builder = bff.state.add_builder_workstream()
+    _setup_agent(bff, ws_dir)
+    (target,) = [w["id"] for w in bff.state.workstreams.values() if w["name"] == "guided-ops"]
+
+    # 1. draft: created disabled, assigned ONLY to the Builder workstream
     pushed = _cli("agent", "push", "guided-agent", "--yes")
     assert pushed.code == 0, pushed.text
-    data = pushed.json["data"]
-    assert data["is_enabled"] is False and "Enabled" in data["enable_hint"]
-    (proc,) = [p for p in bff.state.processes.values() if p["name"] == "guided-agent"]
-    assert proc["is_enabled"] is False
-    assert proc["created_by"] == f"agent:abcd:{CONV}"
+    proc = _proc(bff)
+    assert pushed.json["data"]["mode"] == "test-in-builder"
+    assert proc["is_enabled"] is False and proc["created_by"] == f"agent:abcd:{CONV}"
     assert [c["ref"] for c in proc["components"]] == ["guided-demo"]
-    (ws_id,) = [w["id"] for w in bff.state.workstreams.values() if w["name"] == "guided-ops"]
-    assert bff.state.process_ws[proc["id"]] == [ws_id]
+    assert bff.state.process_ws[proc["id"]] == [builder["id"]]
 
-    # pushing again keeps it disabled
-    again = _cli("agent", "push", "guided-agent", "--yes")
-    assert again.code == 0 and proc["is_enabled"] is False
+    # 2. enable it for the test (allowed: Builder alone), then run a session in the Builder
+    assert _cli("agent", "update", proc["id"], "--enable").code == 0
+    assert proc["is_enabled"] is True
+    bff.state.script([fa.text("Sorted 3 invoices.")], process="guided-agent")
+    session = _cli(
+        "session", "start", "--workstream", "Builder", "--process", "guided-agent",
+        "--message", "triage the sample invoices",
+    )  # fmt: skip
+    assert session.code == 0, session.text
+    assert bff.state.turn_requests[-1]["workstream_id"] == builder["id"]
 
-    # abcd refuses to enable, and so would the platform
-    assert _cli("agent", "update", proc["id"], "--enable").code == 1
-    assert _cli("agent", "create", "other-agent", "Other", "--enable").code == 1
+    # 3. publish: assign the target workstream; the platform disables it (a person enables it)
+    published = _cli("agent", "push", "guided-agent", "--yes", "--publish")
+    assert published.code == 0, published.text
+    assert bff.state.process_ws[proc["id"]] == [target]
     assert proc["is_enabled"] is False
-    r = requests.patch(
-        f"{bff.url}/v1/org/processes/{proc['id']}",
-        json={"is_enabled": True},
+    assert published.json["data"]["is_enabled"] is False
+    assert "Studio" in published.json["data"]["enable_hint"]
+    assert bff.forbidden_calls() == []
+
+
+def test_enabling_with_a_non_builder_assignment_is_refused_by_abcd_and_the_platform(
+    agent_env: str, bff: FakeBFFServer, ws_dir: Path
+) -> None:
+    builder = bff.state.add_builder_workstream()
+    _setup_agent(bff, ws_dir)
+    assert _cli("agent", "push", "guided-agent", "--yes", "--publish").code == 0
+    proc = _proc(bff)
+    assert proc["is_enabled"] is False
+    assert _cli("agent", "update", proc["id"], "--enable").code == 1  # abcd checks first
+    assert _cli("agent", "create", "other-agent", "Other", "--enable").code == 1
+    auth = {"Authorization": f"Bearer {agent_env}"}
+    url = f"{bff.url}/v1/org/processes/{proc['id']}"
+    # the platform says no too, with a raw call that skips abcd's check
+    assert (
+        requests.patch(url, json={"is_enabled": True}, headers=auth, timeout=10).status_code == 403
+    )
+    # Builder plus another workstream is not Builder-alone either
+    target = bff.state.process_ws[proc["id"]][0]
+    bff.state.process_ws[proc["id"]] = sorted([builder["id"], target])
+    assert (
+        requests.patch(url, json={"is_enabled": True}, headers=auth, timeout=10).status_code == 403
+    )
+    assert proc["is_enabled"] is False
+    # deletes stay forbidden under the agent token
+    assert requests.delete(url, headers=auth, timeout=10).status_code == 403
+
+
+def test_the_platform_disables_an_enabled_draft_when_it_is_assigned_beyond_the_builder(
+    agent_env: str, bff: FakeBFFServer, ws_dir: Path
+) -> None:
+    builder = bff.state.add_builder_workstream()
+    _setup_agent(bff, ws_dir)
+    assert _cli("agent", "push", "guided-agent", "--yes").code == 0
+    proc = _proc(bff)
+    assert _cli("agent", "update", proc["id"], "--enable").code == 0 and proc["is_enabled"]
+    (target,) = [w["id"] for w in bff.state.workstreams.values() if w["name"] == "guided-ops"]
+    r = requests.put(
+        f"{bff.url}/v1/org/processes/{proc['id']}/workstreams",
+        json={"workstream_ids": [builder["id"], target]},
         headers={"Authorization": f"Bearer {agent_env}"},
         timeout=10,
     )
-    assert r.status_code == 403 and proc["is_enabled"] is False
-    r = requests.delete(
-        f"{bff.url}/v1/org/processes/{proc['id']}",
-        headers={"Authorization": f"Bearer {agent_env}"},
-        timeout=10,
-    )
-    assert r.status_code == 403
-    assert json.loads(json.dumps(proc["is_enabled"])) is False
+    assert r.status_code == 200 and proc["is_enabled"] is False

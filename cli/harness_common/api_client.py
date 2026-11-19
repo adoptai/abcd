@@ -166,6 +166,27 @@ class HarnessAPIClient:
         params = {"search": search} if search else {}
         return self._request("GET", "/v1/org/workstreams", params=params)
 
+    def find_builder_workstream(self) -> dict[str, Any] | None:
+        """The org's Builder workstream: the one marked ``custom_properties.system == "builder"``
+        (found by the marker, never by name: a customer's own "Builder" can exist)."""
+        page = 1
+        while True:
+            data = self._request(
+                "GET", "/v1/org/workstreams", params={"page": page, "page_size": 100}
+            )
+            rows = (
+                data
+                if isinstance(data, list)
+                else (data.get("workstreams") or data.get("items") or [])
+            )
+            for row in rows:
+                props = row.get("custom_properties") or {}
+                if isinstance(props, dict) and props.get("system") == "builder":
+                    return dict(row)
+            if len(rows) < 100:
+                return None
+            page += 1
+
     def get_workstream(self, workstream_id: str) -> dict[str, Any]:
         return self._request("GET", f"/v1/org/workstreams/{workstream_id}")
 
