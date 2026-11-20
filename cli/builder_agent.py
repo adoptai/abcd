@@ -585,6 +585,11 @@ def agent_row(w: Work, agent: str) -> dict[str, Any]:
         if "does not exist" not in str(e):
             raise
         return {}
+    except HarnessAPIError as e:
+        # An agent token (the Builder's guided flow) is refused on /v1/org-db/*: no tables to read.
+        if e.status_code != 403:
+            raise
+        return {}
     return rows[0] if rows else {}
 
 

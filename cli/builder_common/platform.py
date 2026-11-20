@@ -234,7 +234,14 @@ class BuilderPlatformClient(HarnessAPIClient):
         return None
 
     def get_write_workstreams(self, process_id: str) -> dict[str, Any]:
-        return self._request("GET", f"/v1/org/processes/{process_id}/write-workstreams")
+        try:
+            return self._request("GET", f"/v1/org/processes/{process_id}/write-workstreams")
+        except HarnessAPIError as e:
+            # An agent token (the Builder's guided flow) has no write-grant route: it can
+            # grant none, so there are none to read.
+            if e.status_code == 403 and "Agent tokens" in e.body:
+                return {}
+            raise
 
     def set_write_workstreams(
         self, process_id: str, workstream_ids: list[str], folder_prefix: str = ""
