@@ -6,9 +6,9 @@ and hand control back to the FDE after the turn completes.
 This never auto-continues to a next turn. It prints what the turn actually
 did (stop_reason, tool calls, errors) and exits. You decide what happens
 next:
-    - looks wrong  -> go fix the local SKILL.md, `harness_skill.py push
+    - looks wrong  -> go fix the local SKILL.md, `abcd skill push
                        --replace`, before touching this conversation again
-    - looks right  -> `harness_run.py continue <run_id> --message "..."` to
+    - looks right  -> `abcd run continue <run_id> --message "..."` to
                        post the next turn on the same conversation
 
 Every turn's raw NDJSON stream + trace + temporal-history is persisted under
@@ -17,20 +17,25 @@ loses history -- resuming later just posts the next turn, it doesn't replay
 anything.
 
 Usage:
-    python cli/harness_run.py start --workstream NAME --message "..." \\
+    abcd run start --workstream NAME --message "..." \\
         [--model MODEL] [--process PROCESS_ID] [--env ENV]
-    python cli/harness_run.py continue RUN_ID --message "..." [--env ENV]
+    abcd run continue RUN_ID --message "..." [--env ENV]
+    (the old `python cli/harness_run.py start|continue ...` form still works)
 """
 
-import argparse
+from __future__ import annotations
+
 import json
 import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cli.builder_common.errors import UsageError
+from cli.core.registry import Registry, legacy_main
 from cli.harness_common.api_client import (
     UNSCOPED_WORKSTREAM_ID,
     HarnessAPIError,
@@ -39,24 +44,44 @@ from cli.harness_common.api_client import (
 from cli.harness_common.stream import stream_and_persist
 from cli.harness_common.workspace import load_run, load_workstreams_cache, run_dir, save_run
 
-_DEFAULT_MODEL = "claude-sonnet-4-6"
+if TYPE_CHECKING:
+    from cli.core.context import Context
+
+# No default model: omitting it makes the BFF use the org's own default (`abcd session models`
+# lists the allowed ones; the cheapest is usually a Haiku).
 
 
 def _resolve_workstream_id(workstream: str, env: str | None) -> str:
-    """Accept either a cached workstream *name* (from `harness_workstream.py
-    ensure`) or a raw workstream_id -- whichever wasn't found in the cache is
-    assumed to already be a real id."""
+    """A cached workstream *name* (from `abcd workstream ensure`), a name the BFF knows, or a
+    raw workstream_id (whatever is neither is assumed to already be a real id)."""
     cache = load_workstreams_cache(env)
     if workstream in cache:
         return cache[workstream]["workstream_id"]
-    return workstream
+    try:
+        from cli.builder_session import resolve_workstream
+
+        return resolve_workstream(get_harness_client_for_env(env), workstream, env)
+    except ValueError:
+        return workstream
+
+
+def _resolve_process_id(process: str | None, env: str | None) -> str | None:
+    """``--process`` takes an id, a name or a display name (like ``session start``)."""
+    if not process:
+        return None
+    try:
+        from cli.builder_session import resolve_process
+
+        return str(resolve_process(get_harness_client_for_env(env), process)["id"])
+    except (ValueError, HarnessAPIError, UsageError):
+        return process
 
 
 def _post_turn(
     run_id: str,
     conversation_id: str,
     message: str,
-    model: str,
+    model: str | None,
     workstream_id: str | None,
     process_id: str | None,
     env: str | None,
@@ -74,6 +99,7 @@ def _post_turn(
         "workstream_id": workstream_id,
         "process_id": process_id,
     }
+    payload = {k: v for k, v in payload.items() if v is not None}
     print(f"\n▶️  Starting turn (conversation={conversation_id})...")
     try:
         start_resp = client.start_turn(payload)
@@ -104,7 +130,9 @@ def _post_turn(
     print("—" * 60)
     try:
         terminal = stream_and_persist(
-            client.stream_turn(turn_id, conversation_id, workstream_id), ndjson_path
+            client.stream_turn(turn_id, conversation_id, workstream_id),
+            ndjson_path,
+            turn_id=turn_id,
         )
     except HarnessAPIError as e:
         print(f"\n❌ Stream failed: {e}")
@@ -143,7 +171,8 @@ def _post_turn(
     if stop_reason != "end_turn":
         print("   ⚠️  Non-clean stop_reason -- inspect the trace before continuing.")
     print("\n   Control is back with you. Next:")
-    print(f'     - keep going:  python cli/harness_run.py continue {run_id} --message "..."')
+    print(f'     - keep going:  abcd run continue {run_id} --message "..."')
+    print(f"     - inspect:     abcd session logs {conversation_id} --trace")
     print("     - pause to fix the skill, then push --replace before continuing")
 
     return 0 if stop_reason == "end_turn" else 2
@@ -152,13 +181,15 @@ def _post_turn(
 def start(
     workstream: str | None,
     message: str,
-    model: str,
+    model: str | None,
     process_id: str | None,
     env: str | None,
 ) -> int:
     run_id = uuid.uuid4().hex
     workstream_id = _resolve_workstream_id(workstream, env) if workstream else None
-    return _post_turn(run_id, run_id, message, model, workstream_id, process_id, env)
+    return _post_turn(
+        run_id, run_id, message, model, workstream_id, _resolve_process_id(process_id, env), env
+    )
 
 
 def continue_run(run_id: str, message: str, env: str | None) -> int:
@@ -173,45 +204,64 @@ def continue_run(run_id: str, message: str, env: str | None) -> int:
         run_id,
         run["conversation_id"],
         message,
-        run["model"],
+        run.get("model"),
         run.get("workstream_id"),
         run.get("process_id"),
         env,
     )
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
+def _cmd_start(ctx: Context) -> int:
+    a = ctx.args
+    if ctx.dry_run_notice(f"would start a run (workstream={a.workstream}, model={a.model})"):
+        return 0
+    return start(a.workstream, a.message, a.model, a.process_id, a.env)
 
-    start_p = sub.add_parser("start", help="Start a new run (new conversation)")
-    start_p.add_argument(
-        "--workstream",
-        help="Workstream name (from `harness_workstream.py ensure`) or a raw workstream_id",
+
+def _cmd_continue(ctx: Context) -> int:
+    a = ctx.args
+    if ctx.dry_run_notice(f"would post the next turn on run {a.run_id}"):
+        return 0
+    return continue_run(a.run_id, a.message, a.env)
+
+
+def register(registry: Registry) -> None:
+    """Register ``abcd run start|continue`` (and the flat ``harness_run.py`` CLI)."""
+    group = registry.group("run", "Start or continue a real agent-harness run")
+    p = group.command(
+        "start",
+        _cmd_start,
+        help="Start a new run (new conversation); `session start` is the structured --json variant",
+        writes=True,
+        legacy_name="start",
     )
-    start_p.add_argument("--message", required=True, help="User message for the first turn")
-    start_p.add_argument("--model", default=_DEFAULT_MODEL)
-    start_p.add_argument(
+    p.add_argument(
+        "--workstream",
+        help="Workstream name (from `abcd workstream ensure`) or a raw workstream_id",
+    )
+    p.add_argument("--message", required=True, help="User message for the first turn")
+    p.add_argument(
+        "--model", help="Model id (default: the org's default; see `abcd session models`)"
+    )
+    p.add_argument(
         "--process",
         dest="process_id",
-        help="Bind the turn to an org process id, for deterministic skill binding",
+        help="Bind the turn to an org process (agent): id or name, for deterministic skill binding",
     )
-    start_p.add_argument("--env", help="Environment to use (defaults to active env)")
+    p = group.command(
+        "continue",
+        _cmd_continue,
+        help="Post the next turn on an existing run",
+        writes=True,
+        legacy_name="continue",
+    )
+    p.add_argument("run_id")
+    p.add_argument("--message", required=True)
 
-    continue_p = sub.add_parser("continue", help="Post the next turn on an existing run")
-    continue_p.add_argument("run_id")
-    continue_p.add_argument("--message", required=True)
-    continue_p.add_argument("--env", help="Environment to use (defaults to active env)")
 
-    args = parser.parse_args()
-
-    if args.command == "start":
-        sys.exit(start(args.workstream, args.message, args.model, args.process_id, args.env))
-    elif args.command == "continue":
-        sys.exit(continue_run(args.run_id, args.message, args.env))
+def main(argv: list[str] | None = None) -> int:
+    return legacy_main("harness_run.py", register, __doc__, argv)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

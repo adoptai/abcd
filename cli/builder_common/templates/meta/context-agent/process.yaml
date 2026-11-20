@@ -1,0 +1,10 @@
+name: context-agent
+display_name: Context agent
+description: Walks the customer SME through context gaps and turns each answer into a reusable rule, with notes for case-specific explanations.
+components: []
+workstreams:
+- builder-sme-${client}
+write_workstreams:
+- builder-sme-${client}
+write_folder_prefix: answers
+is_enabled: true

@@ -38,9 +38,24 @@ def test_marketplace_lists_existing_plugins() -> None:
     assert {"abcd-builder", "adopt-skill-review"} <= set(names)
 
 
-def test_builder_has_the_four_skills() -> None:
+def test_builder_has_the_fourteen_skills() -> None:
     skills = sorted(p.parent.name for p in (ROOT / "abcd-builder" / "skills").glob("*/SKILL.md"))
-    assert skills == ["action-builder", "discover-and-plan", "pipeline-builder", "skill-builder"]
+    assert skills == [
+        "action-builder",
+        "agent-builder",
+        "build-plan",
+        "context-and-kg",
+        "context-gaps",
+        "dataset-builder",
+        "discover-and-plan",
+        "eval-runner",
+        "explain-and-train",
+        "pipeline-builder",
+        "release-manager",
+        "session-debug",
+        "skill-builder",
+        "workspace-setup",
+    ]
 
 
 def test_plugin_skills_are_valid_agent_skills() -> None:
@@ -53,11 +68,10 @@ def test_plugin_skills_are_valid_agent_skills() -> None:
                 assert (path.parent / link).exists(), f"{path}: broken link {link}"
 
 
-def test_exactly_one_skill_is_named_noui() -> None:
-    """noui shipped two skills both named `noui`; after the merge only the
-    harness edition keeps the name (the toolkit doc became cli/noui/README.md)."""
+def test_no_skill_is_named_noui() -> None:
+    """NoUI ships inside the `abcd` harness skill; no skill keeps the name `noui`."""
     named = [p.relative_to(ROOT).as_posix() for p in skill_files() if meta(p).get("name") == "noui"]
-    assert named == ["harness-skills/noui/SKILL.md"]
+    assert named == []
 
 
 def test_skill_names_are_unique() -> None:

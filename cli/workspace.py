@@ -3,6 +3,8 @@
 Workspace CLI - Hierarchical workspace management.
 
 Commands:
+    (abcd ws create|list|show|use|delete run the `env` commands below)
+
     env create    - Create a new environment
     env list      - List all environments
     env show      - Show environment details
@@ -46,23 +48,31 @@ Commands:
     pipeline checkout-all - Download all remote pipelines into local workspaces
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 # Add parent to path for imports
 CLI_DIR = Path(__file__).parent
 PROJECT_ROOT = CLI_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from cli.core.context import apply_workspaces_override
+from cli.core.output import Result
+from cli.core.registry import Registry
 from cli.wdl_common.api_client import AdoptAPIClient
 from cli.wdl_common.workspace_manager import (
     WORKSPACES_DIR,
     get_workspace_manager,
 )
+
+if TYPE_CHECKING:
+    from cli.core.context import Context
 
 _verbose = False
 
@@ -217,6 +227,65 @@ def cmd_env_delete(args: argparse.Namespace) -> int:
     else:
         print(f"❌ {message}")
         return 1
+
+
+def _ws_create(ctx: Context) -> int:
+    return cmd_env_create(ctx.args)
+
+
+def _ws_list(ctx: Context) -> Result:
+    code = cmd_env_list(ctx.args)
+    return Result(code, {"environments": get_workspace_manager().list_envs()}, "")
+
+
+def _ws_show(ctx: Context) -> Result:
+    code = cmd_env_show(ctx.args)
+    return Result(code, get_workspace_manager().get_env(ctx.args.id), "")
+
+
+def _ws_use(ctx: Context) -> int:
+    return cmd_env_use(ctx.args)
+
+
+def _ws_delete(ctx: Context) -> int:
+    """``abcd ws delete``: never prompts. ``--yes`` means force; without it, refuse."""
+    args = ctx.args
+    args.force = ctx.yes
+    if not ctx.dry_run and not ctx.yes:
+        print(
+            f"Refusing to delete environment '{args.id}' without --yes "
+            "(this removes its workspace directory).",
+            file=sys.stderr,
+        )
+        return 1
+    return cmd_env_delete(args)
+
+
+def register(registry: Registry) -> None:
+    """Register ``abcd ws list|use|show|create|delete`` (the ``workspace.py env`` commands)."""
+    group = registry.group("ws", "Workspaces (environments)")
+
+    p = group.command("create", _ws_create, help="Create environment", writes=True)
+    p.add_argument("--id", required=True, help="Environment ID (e.g., 'clientx-marketing')")
+    p.add_argument("--name", required=True, help="Human-readable name")
+    p.add_argument(
+        "--description", help="Description of what this env is for (helps agents validate requests)"
+    )
+    p.add_argument("--target", choices=["development", "staging", "production"], default="staging")
+    p.add_argument("--client", help="Client identifier")
+    p.add_argument("--domain", help="Primary business domain (e.g., 'marketing', 'inventory')")
+    p.add_argument("--use", action="store_true", help="Set as active")
+
+    group.command("list", _ws_list, help="List environments")
+
+    p = group.command("show", _ws_show, help="Show environment details")
+    p.add_argument("id", help="Environment ID")
+
+    p = group.command("use", _ws_use, help="Set active environment")
+    p.add_argument("id", help="Environment ID")
+
+    p = group.command("delete", _ws_delete, help="Delete an environment (needs --yes)", writes=True)
+    p.add_argument("id", help="Environment ID")
 
 
 def cmd_agent_create(args: argparse.Namespace) -> int:
@@ -2456,6 +2525,7 @@ def cmd_pipeline_checkout_all(args: argparse.Namespace) -> int:
 
 def main() -> int:
     """Main entry point."""
+    apply_workspaces_override()  # honours ABCD_WORKSPACES_DIR, like every abcd command
     parser = argparse.ArgumentParser(
         description="Hierarchical workspace management for ABCD",
         formatter_class=argparse.RawDescriptionHelpFormatter,

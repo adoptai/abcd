@@ -21,12 +21,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      # The suite needs only the light runtime set -- not the discovery stack
-      # (faiss / sentence-transformers) or playwright.
-      - name: Install test dependencies
+      # The core install (`abcd`, NoUI, harness) is all the suite needs -- not the `wdl`
+      # extra (faiss / sentence-transformers) or `ce` (playwright).
+      - name: Install abcd and test dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest httpx python-dotenv mcp PyYAML requests pydantic colorama
+          pip install -e . pytest
 
       - name: pytest
         run: python -m pytest -q

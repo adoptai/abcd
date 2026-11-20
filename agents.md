@@ -2,6 +2,10 @@
 
 This document provides comprehensive guidance for AI agents (like Cursor) working with the ABCD repository.
 
+> **`abcd` CLI:** the harness, NoUI, Tabby and workspace (`env`) commands are `abcd <group> <command>`
+> (`abcd --help`; every command takes `--env`, `--json`, `--yes`). Every WDL script below also runs as
+> `abcd wdl <script> ...` (`abcd wdl --list`); `python cli/<script>.py` keeps working in a checkout.
+
 ---
 
 ## ⛔ CRITICAL: ALWAYS USE CLI SCRIPTS
@@ -137,7 +141,7 @@ I'll create a new environment for [CLIENT]. I need:
 ### Step 2: Create Environment
 
 ```bash
-python cli/workspace.py env create \
+abcd ws create \
   --id <client-name>-<staging|prod> \
   --name "<Client Name> - <Target>" \
   --description "<description>" \
@@ -294,7 +298,7 @@ python cli/publish_wdl_action.py --workflow-id <action-id>
 ### Step 1: Check Active Environment
 
 ```bash
-python cli/workspace.py env list
+abcd ws list
 ```
 
 This shows all environments with their descriptions. The active one is marked with ✓.
@@ -323,10 +327,10 @@ Current environment: **marketing-clientx** - "Marketing automation for Client X"
 
 Would you like me to:
 1. **Proceed anyway** in the current environment
-2. **Switch to a different environment** (list available with `python cli/workspace.py env list`)
+2. **Switch to a different environment** (list available with `abcd ws list`)
 3. **Create a new environment** for this domain
 
-To switch environments: `python cli/workspace.py env use <env-id>`
+To switch environments: `abcd ws use <env-id>`
 ```
 
 ---
@@ -436,13 +440,13 @@ workspaces/
 
 ```bash
 # Check active environment
-python cli/workspace.py env list
+abcd ws list
 
 # Create additional environment
-python cli/workspace.py env create --id production --name "Production" --target production
+abcd ws create --id production --name "Production" --target production
 
 # Switch environment
-python cli/workspace.py env use production
+abcd ws use production
 
 # Create agent in active environment
 python cli/workspace.py agent create --id my-agent --name "My Agent"
@@ -699,7 +703,7 @@ User Request
     │
     ├─ "Create new environment" / "Work on [new client]"
     │   → Read: REMOTE_ACTION_WORKFLOW_PROMPT.md (Environment section)
-    │   → python cli/workspace.py env create --id <client>-prod --target production --use
+    │   → abcd ws create --id <client>-prod --target production --use
     │   → Edit workspaces/<env>/.env with credentials
     │
     ├─ "Create pipeline" / "Build data sync" / "ETL workflow"
@@ -743,7 +747,7 @@ User Request
 - Creating Uber Agents with sub-actions
 
 **CLI Access**:
-- `python cli/workspace.py env list` - List environments
+- `abcd ws list` - List environments
 - `python cli/workspace.py agent create --id my-agent` - Create agent
 - See `prompts/system/WORKSPACE_HIERARCHY_PROMPT.md` for full details
 
@@ -1259,7 +1263,7 @@ This ensures cached data from one client environment doesn't contaminate diagnos
 
 ```bash
 # 1. Verify you're in the correct environment
-python cli/workspace.py env list
+abcd ws list
 
 # 2. Run comprehensive scan (uses active environment)
 python cli/diagnose_and_fix.py --scan --format llm --output diagnostics/report.json
@@ -1743,7 +1747,7 @@ discovery = get_discovery()  # Uses active env automatically
 client = get_client()        # Uses active env automatically
 
 # ✅ CORRECT - Switch env before running script
-# python cli/workspace.py env use staging
+# abcd ws use staging
 # python cli/discover.py  # Now uses staging
 ```
 
@@ -1973,7 +1977,7 @@ No need to save a draft before testing. Save draft only after tests pass.
 | `tool names have invalid characters` | Title has spaces/special chars | Run `python cli/validate.py workflow-id --auto-fix --orchestrator` |
 | `Action not found` | action_id is lost/wrong | Run `python cli/reconnect.py workflow-id --search` |
 | `Session expired` | API session/cookie expired | Update `security_params.cookie` in `adopt_profile.json` |
-| `Empty WDL field` | Save failed partially | Run `python cli/save.py workflow-id` again |
+| `Empty WDL field` | Save failed partially | Run `python cli/save_wdl_draft.py workflow-id` again |
 
 ---
 

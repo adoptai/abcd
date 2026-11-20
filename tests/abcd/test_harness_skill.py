@@ -77,6 +77,8 @@ def test_vendored_audit_script_is_present() -> None:
         (("tests", "test_x.py"), True),
         (("scripts", "run.py"), False),
         ((".hidden", "x.md"), True),
+        (("recording_bundle.json",), True),
+        (("operations.json",), False),
     ],
 )
 def test_exclusions(parts: tuple[str, ...], excluded: bool) -> None:
@@ -102,10 +104,10 @@ def test_push_with_explicit_aux_uploads_only_those(tmp_path: Path, client: FakeC
         zf.writestr("pyproject.toml", "[project]\nname='x'\n")
     blob.write_bytes(buf.getvalue())
     assert (
-        hs.push(skill, None, False, False, True, None, aux_specs=[f"noui-bundle.zip={blob}"]) == 0
+        hs.push(skill, None, False, False, True, None, aux_specs=[f"abcd-bundle.zip={blob}"]) == 0
     )
     aux = client.calls[0][1]["aux_files"]
-    assert [a["path"] for a in aux] == ["noui-bundle.zip"]
+    assert [a["path"] for a in aux] == ["abcd-bundle.zip"]
 
 
 def make_plugin(root: Path, name: str = "acme-tools") -> Path:
@@ -162,16 +164,16 @@ def test_push_plugin_blocks_on_secret(tmp_path: Path, client: FakeClient) -> Non
 
 
 def test_deploy_default_dry_run_and_publish(tmp_path: Path, client: FakeClient) -> None:
-    skill = write_skill(tmp_path / "s", "noui")
-    bundle = tmp_path / "noui-bundle.zip"
+    skill = write_skill(tmp_path / "s", "abcd")
+    bundle = tmp_path / "abcd-bundle.zip"
     bundle.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
-    aux = [f"noui-bundle.zip={bundle}"]
+    aux = [f"abcd-bundle.zip={bundle}"]
     assert hs.deploy_default(skill, None, "abc123", 1, aux, True, None) == 0
     assert client.calls == []
     assert hs.deploy_default(skill, None, "abc123", 1, aux, False, None) == 0
     kind, kw = client.calls[0]
     assert kind == "upload_default_skill"
-    assert kw["skill_name"] == "noui" and kw["bundle_version"] == "abc123"
+    assert kw["skill_name"] == "abcd" and kw["bundle_version"] == "abc123"
     assert base64.b64decode(kw["aux_files"][0]["content_b64"]) == bundle.read_bytes()
 
 

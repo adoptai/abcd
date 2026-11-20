@@ -13,7 +13,7 @@ publishes what this skill produces. For APIs the Adopt platform already knows, u
 Run everything from the root of an abcd checkout, through the **workspace bridge**:
 
 ```bash
-python cli/noui_workspace.py [--env <env>] <noui-script> [args...]
+abcd noui <noui-script> [--env <env>] [args...]
 ```
 
 The bridge runs the NoUI toolkit (`cli/noui/`) with the workspace's configuration and
@@ -33,7 +33,7 @@ Never hand-write `operations.json`, `manifest.json`, `recording_bundle.json` or
 ## Step 0 — workspace and Tabby
 
 ```bash
-python cli/noui_workspace.py --env <env> doctor     # resolved config + Tabby reachability
+abcd noui doctor --env <env>     # resolved config + Tabby reachability
 ```
 
 `doctor` prints the auth mode the bridge pinned and why:
@@ -47,10 +47,10 @@ python cli/noui_workspace.py --env <env> doctor     # resolved config + Tabby re
 The WDL `ADOPT_CLIENT_ID/SECRET` are never passed to NoUI. Set `NOUI_TABBY_AUTH_MODE`
 explicitly to override the inference.
 
-No Tabby yet? `python cli/tabby_bootstrap.py up --env <env> --write-env` starts the API tier
+No Tabby yet? `abcd tabby up --env <env> --write-env` starts the API tier
 from the pinned `tabby/` submodule and writes agent credentials into the workspace. The API
 tier registers App Templates and profiles but **cannot record**: recording and `/execute`
-need browser workers — a cloud Tabby (`platform_jwt`) or `python cli/tabby_bootstrap.py full`.
+need browser workers — a cloud Tabby (`platform_jwt`) or `abcd tabby full`.
 
 ## Step 1 — agree on the goal (one line), then record
 
@@ -61,7 +61,7 @@ It is the most common cause of a useless recording.
 
 ```bash
 # Default: login + workflow in ONE session (one link, one sign-in).
-python cli/noui_workspace.py --env <env> capture_record --url https://app.example.com/login --name example
+abcd noui capture_record --env <env> --url https://app.example.com/login --name example
 ```
 
 - `--name` first checks for an existing App Template; reuse its profile instead of recording
@@ -77,7 +77,7 @@ finish the goal and click "Finish & export".
 ## Step 2 — import and confirm the KIND
 
 ```bash
-python cli/noui_workspace.py --env <env> capture_import <session_id> --as skill --execution-mode harness --name example
+abcd noui capture_import --env <env> <session_id> --as skill --execution-mode harness --name example
 ```
 
 The import splits a combined capture at the login boundary, registers the login as an App
@@ -98,7 +98,7 @@ Use `--execution-mode harness` for the Agent Harness (`call_web_api` / `call_web
 Something surprising? Inspect the bundle before anything else:
 
 ```bash
-python cli/noui_workspace.py --env <env> bundle_inspect ws:bundles/<name>-<session>.json
+abcd noui bundle_inspect --env <env> ws:bundles/<name>-<session>.json
 ```
 
 **Is the goal in there?** If the user asked for a download and no `download` operation was
@@ -110,12 +110,12 @@ The compile is a raw mirror of the recording: keepalives, telemetry, duplicates,
 lifted from URL paths. Clean it up — you decide, the script applies:
 
 ```bash
-python cli/noui_workspace.py --env <env> generalize draft ws:skills/<skill_id>
+abcd noui generalize --env <env> draft ws:skills/<skill_id>
 #   edit ws:skills/<skill_id>/generalize_plan.json — per operation: decision.action keep|drop,
 #   rename, description, params {<path param>: {rename?, description?}}
-python cli/noui_workspace.py --env <env> generalize show ws:skills/<skill_id>   # show the member
-python cli/noui_workspace.py --env <env> generalize confirm ws:skills/<skill_id> --by "<member>"
-python cli/noui_workspace.py --env <env> generalize apply ws:skills/<skill_id>
+abcd noui generalize --env <env> show ws:skills/<skill_id>   # show the member
+abcd noui generalize --env <env> confirm ws:skills/<skill_id> --by "<member>"
+abcd noui generalize --env <env> apply ws:skills/<skill_id>   # confirm is refused in a cloud run
 ```
 
 - The draft flags keepalive/telemetry/duplicates for `drop` and third-party hosts as
@@ -133,7 +133,7 @@ python cli/noui_workspace.py --env <env> generalize apply ws:skills/<skill_id>
 The saved bundle regenerates the skill (HAR-replay skills):
 
 ```bash
-python cli/noui_workspace.py --env <env> compile_workflow ws:bundles/<file>.json \
+abcd noui compile_workflow --env <env> ws:bundles/<file>.json \
     --as skill --execution-mode harness --profile-slug <slug> --name <app>
 ```
 
@@ -145,8 +145,20 @@ Autopilot (an agent drives an existing profile, no human VNC):
 ## Hand-off
 
 Once the plan is applied: `skill-builder` — replay/verify, install locally, push and run on
-the Agent Harness. `python cli/noui_workspace.py --env <env> list` shows every bundle, session
+the Agent Harness. `abcd noui list --env <env>` shows every bundle, session
 and compiled skill in the workspace, with kind, provenance and replay/approval state.
+
+**Wire it into an agent.** A compiled skill belongs to nothing until it is wired. Once the plan
+is applied (and, for a browser skill, the replay is approved — `skill-builder` step 1):
+
+```bash
+abcd wire all <skill_id> --agent <agent> --env <env>
+```
+
+That adds the skill to `harness/agents/<agent>/process.yaml`, writes its knowledge graph pages
+and edges to `proposed/`, and drafts a `goal_reached` check from the goal NoUI recorded,
+proposed in the build plan for an FDE to approve. The three parts are also available alone as
+`abcd wire skill`, `abcd wire kg` and `abcd wire goal-check`.
 
 ## References
 

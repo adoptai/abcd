@@ -46,6 +46,16 @@ def _show(skill_dir: Path) -> int:
     return 0
 
 
+def _in_cloud_run() -> bool:
+    """Standalone script: the same sandbox variables ``cli.builder_common.cloudmode`` reads."""
+    import os
+
+    return any(
+        os.environ.get(v, "").strip()
+        for v in ("ADOPT_CONVERSATION_ID", "ABCD_PAT_CLIENT_ID", "ADOPT_APP_BASE_URL")
+    )
+
+
 def main() -> int:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -75,6 +85,13 @@ def main() -> int:
         if args.cmd == "show":
             return _show(skill_dir)
         if args.cmd == "confirm":
+            if _in_cloud_run():
+                print(
+                    "Error: confirm records the member's own agreement; in a cloud run the agent "
+                    "does not confirm (a human sends it from the chat UI)",
+                    file=sys.stderr,
+                )
+                return 2
             print(f"Confirmed: {g.confirm_plan(skill_dir, confirmed_by=args.by)}")
             return 0
         summary = g.apply_plan(skill_dir)

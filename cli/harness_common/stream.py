@@ -90,11 +90,13 @@ def stream_and_persist(
     events: Iterator[dict[str, Any]],
     ndjson_path: Path,
     quiet: bool = False,
+    turn_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Consume a turn's NDJSON event iterator: print a live summary, persist the
     raw envelopes to ``ndjson_path``, and return the terminal event's data
-    (stop_reason etc.) once seen.
+    (stop_reason etc.) once seen. With ``turn_id``, terminal events that name another turn (the
+    BFF replays earlier turns of the conversation first) are ignored.
 
     Returns an empty dict if the stream ended without a terminal event
     (connection dropped, etc.) -- callers should treat that as "unknown, go
@@ -125,7 +127,9 @@ def stream_and_persist(
                     have_pending_text = False
                 print(line)
 
-            if name in _TERMINAL_EVENT_NAMES:
+            if name in _TERMINAL_EVENT_NAMES and (
+                turn_id is None or data.get("turn_id") in (None, turn_id)
+            ):
                 terminal_data = {"event_name": name, **data}
 
     if have_pending_text and not quiet:

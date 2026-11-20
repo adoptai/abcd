@@ -253,14 +253,14 @@ const LOOP_REUSE = [
   ['abcd ws pull', 'harness_process.py get, and the skill and plugin GETs in harness_common/api_client.py'],
   ['NoUI scenario', 'tabby_bootstrap.py, noui_workspace.py, the discover-and-plan and skill-builder skills'],
   ['Browser-skill gate', 'noui_core.verify.gate.check_installable, plus the platform\'s approval-token rule, reimplemented in abcd'],
-  ['Cloud packaging', 'The harness-skills/noui/build_bundle.py pattern'],
+  ['Cloud packaging', 'harness-skills/abcd/build_bundle.py (git-tracked files only)'],
 ];
 
 const ABCDCMDS = [
   { cmd: 'python cli/workspace.py env use <client>', what: 'Switches the active workspace, which is switching clients. Every command also takes --env.', status: 'branch', replaces: 'cli/workspace.py env create | list | use' },
   { cmd: 'abcd ws init | clone | status | pull | push-bundles | pull-bundles', what: 'init makes a workspace its own private repo and writes .gitignore, the pre-commit hook, builder.json and ADOPT.md. clone fetches a client\'s repo into workspaces/<env>/. status shows branch, ahead and behind, uncommitted Builder files and drift. pull imports live objects the repo lacks onto a drift/<date> branch. push-bundles and pull-bundles move NoUI capture bundles to and from the noui-bundles Doc Store.', status: 'abcd', replaces: 'harness_process.py get; skill and plugin GETs' },
   { cmd: 'abcd builder setup', what: 'One time per client org, run by an admin: creates the Builder workstreams, Doc Stores, tables, links and the custom property for dataset workstreams, and records their ids in builder.json. Idempotent.', status: 'abcd', replaces: 'harness_workstream.py ensure' },
-  { cmd: 'abcd cloud bootstrap', what: 'In a cloud sandbox: clones the workspace repo at a pinned ref, writes .env from the injected SANDBOX_* secrets and checks the PAT. Fails loudly on any missing variable.', status: 'abcd', replaces: 'the harness-skills/noui/ pattern' },
+  { cmd: 'abcd cloud bootstrap', what: 'In a cloud sandbox: clones the workspace repo at a pinned ref, writes .env from the injected SANDBOX_* secrets and checks the PAT. Fails loudly on any missing variable.', status: 'abcd', replaces: 'the former separate noui harness skill' },
   { cmd: 'abcd context pull <agent>', what: 'Downloads the context bundle into workspaces/<env>/context/, which the repo ignores: knowledge graph pages, decisions, open items, process docs, checks, metrics, release criteria.', status: 'abcd', replaces: '' },
   { cmd: 'abcd plan propose | approve | show', what: 'The Builder proposes skills, plugins and agents to build or change; the FDE approves items.', status: 'abcd', replaces: '' },
   { cmd: 'python cli/noui_workspace.py <noui-script>', what: 'NoUI and Tabby: record a site (capture_record), compile it into a skill under harness/skills/ (compile_workflow, generalize), replay it and approve the replay (verify_replay, verify_approve), which writes replay_approval.json.', status: 'branch', replaces: 'tabby_bootstrap.py, noui_workspace.py' },
@@ -409,14 +409,14 @@ const WS_TREE = [
 
 const CLOUD_ROWS = [
   ['Where', 'The FDE\'s machine, in Claude Code, Codex or Cursor', 'An Agent Harness turn in the client\'s Builder home org'],
-  ['abcd itself', 'A checkout of this repo', 'abcd-bundle.zip, unzipped into /workspace/abcd with Python\'s zipfile and run in place with PYTHONPATH=/workspace/abcd'],
-  ['Dependencies', 'poetry install', 'pip install requests python-dotenv PyYAML httpx pydantic, and pip install -e cli/noui. abcd itself cannot be pip-installed (package-mode = false), and the WDL discovery dependencies are not needed'],
+  ['abcd itself', 'A checkout of this repo, installed with poetry install (the abcd command)', 'abcd-bundle.zip, unzipped into /workspace/abcd with Python\'s zipfile and installed with pip install /workspace/abcd'],
+  ['Dependencies', 'poetry install (add -E wdl for WDL discovery)', 'The core install only. NoUI comes with it as a path dependency; the WDL extras (faiss, sentence-transformers) are not installed'],
   ['The workspace', 'workspaces/<env>/, cloned once', 'Cloned fresh into /workspace/abcd/workspaces/<env>/ on every run, at a pinned ref'],
   ['Platform credentials', 'The FDE\'s Admin PAT in workspaces/<env>/.env', 'SANDBOX_ABCD_PAT_CLIENT_ID and SANDBOX_ABCD_PAT_SECRET in the home org vault, written into the workspace .env at bootstrap'],
   ['Git credentials', 'The FDE\'s own git and gh login', 'SANDBOX_GITHUB_TOKEN: a fine-grained token limited to this client\'s workspace repo, passed to git through a credential helper and never put in a remote URL'],
   ['Pull requests and releases', 'gh', 'The GitHub REST API; gh is not assumed to be in the sandbox image'],
   ['Platform endpoint', 'ADOPT_WEBUI_ENDPOINT in .env', 'ADOPT_APP_BASE_URL, unless SANDBOX_ABCD_WEBUI_ENDPOINT overrides it'],
-  ['NoUI capture and replay', 'Yes', 'No. The Tabby broker is minted for the home org\'s conversation, not the client org, so recording and replay stay local'],
+  ['NoUI capture and replay', 'Yes', 'Only where the harness Tabby broker is configured; it is bound to the conversation\'s own org, so from the home-org runner capture stays local or runs in a client-org turn. The rest of abcd works without it'],
   ['Who pays for the model', 'The FDE\'s subscription', 'Platform tokens'],
   ['Used for', 'Authoring, NoUI capture, local evals, review, gap work, releases', 'Scheduled work, and steps 2 to 10 of the loop from a chat when the FDE has no machine'],
 ];
@@ -590,12 +590,12 @@ const ON_BRANCH = [
   ['cli/noui_workspace.py and cli/noui/', 'NoUI inside a workspace: capture, compile, generalize, replay, approve, into harness/skills/'],
   ['cli/tabby_bootstrap.py', 'Local Tabby: init, up, provision, status, down'],
   ['noui_core.verify.gate', 'The local replay gate: check_installable over replay_approval.json and its operations fingerprint. The platform\'s approval-token rule is not in abcd yet'],
-  ['harness-skills/noui/', 'NoUI shipped to the harness as a skill plus noui-bundle.zip; the pattern harness-skills/abcd/ follows'],
+  ['harness-skills/abcd/', 'abcd and NoUI shipped to the harness as one skill plus abcd-bundle.zip (the separate noui skill is retired; the platform\'s old noui Built-in skill and any process component naming it should be repointed to abcd by an owner)'],
   ['abcd-builder plugin', 'Four skills: discover-and-plan, skill-builder, action-builder, pipeline-builder. adopt-skill-review is a separate plugin in the same marketplace'],
 ];
 
 const CODE_LAYOUT = [
-  ['cli/abcd.py', 'The abcd <area> <command> dispatcher over the existing scripts and the new builder_* ones'],
+  ['pyproject.toml', 'Package mode, the abcd console script, NoUI as a path dependency, the wdl and ce extras'], ['cli/abcd.py', 'The abcd entry point: the root parser built from the command registry'], ['cli/core/', 'registry.py, context.py (--env, .env, clients), output.py (--json, exit codes), events.py (bld_dev_events), passthrough.py (abcd wdl)'], ['tests/cli/', 'Every command takes --env and --json; documented commands resolve; old scripts and abcd commands agree'],
   ['cli/builder_common/workspace.py', 'Builder paths on top of harness_common/workspace.py: builder.json, agent bundles, datasets, checks, reports; the workspace .gitignore and ADOPT.md templates'],
   ['cli/builder_common/repo.py', 'git for workspace repos (init, clone, status, tags, the default-branch check, the pre-commit hook), and pull requests and releases through gh locally or the GitHub REST API in the cloud'],
   ['cli/builder_common/orgdb.py', 'Data Store client (/v1/org-db/*), extending HarnessAPIClient'],
@@ -680,7 +680,7 @@ const RBAC_NOTES = {
 const SCENARIOS = [
   { name: 'Switch client and run the loop from the cloud', who: 'FDE, from a harness chat', trigger: 'You have been working on acme. Another client, zenith, reports that its email sorter misroutes mail with several attachments, and you are away from your machine. The fix needs no new site recording, so steps 2 to 10 can run in the cloud.', steps: [
     ['FDE', 'On a laptop you would run python cli/workspace.py env use zenith. Here you open zenith\'s Builder home org, go to its abcd-zenith workstream and ask abcd-runner: "fix multi-attachment routing for the email sorter".', 'abcd-workspace.json in that workstream tells the run it is for the zenith workspace. The home org holds only zenith\'s credentials.'],
-    ['Cloud runner', 'Unzips abcd-bundle.zip into /workspace/abcd with Python\'s zipfile, installs the few dependencies and cli/noui, and runs abcd in place with PYTHONPATH. Then abcd cloud bootstrap --env zenith.', 'The zenith repo is cloned at its pinned ref into /workspace/abcd/workspaces/zenith/. .env is written from SANDBOX_ABCD_PAT_CLIENT_ID and SANDBOX_ABCD_PAT_SECRET, and the PAT is checked. A missing variable fails loudly.'],
+    ['Cloud runner', 'Unzips abcd-bundle.zip into /workspace/abcd with Python\'s zipfile, and installs it with pip install /workspace/abcd. Then abcd cloud bootstrap --env zenith.', 'The zenith repo is cloned at its pinned ref into /workspace/abcd/workspaces/zenith/. .env is written from SANDBOX_ABCD_PAT_CLIENT_ID and SANDBOX_ABCD_PAT_SECRET, and the PAT is checked. A missing variable fails loudly.'],
     ['Cloud runner', 'abcd context pull zenith-email-sorting, edits harness/skills/attachment-split/, abcd review, then abcd push zenith-email-sorting --staged.', 'Staged shadows updated in the zenith client org. bld_dev_events rows logged as cloud:abcd-runner with the conversation id.'],
     ['Cloud runner', 'abcd eval run zenith-email-sorting --blind on dataset zenith-email-sorting@2.', 'A bld_eval_runs row with ran_in = cloud and the submitted turn ids, so the run resumes if a call is cut off.'],
     ['Cloud runner', 'Commits, pushes branch cloud/<conversation> and opens a pull request through the GitHub REST API.', 'The default branch is untouched, and nothing is lost when the sandbox is reaped.'],
@@ -815,6 +815,7 @@ const OPEN_Q = [
   ['NoUI bundles', 'The plan keeps capture bundles out of git, in a noui-bundles Doc Store, because login and non-browser recordings carry full HARs and cookies. Is a scrubber worth building so they can be committed, and do any client data terms forbid even the Doc Store copy?'],
   ['Repo hosting', 'One GitHub org for all client workspace repos, or the client\'s own GitHub when they ask for it? abcd only needs a remote URL and a token that can push.'],
   ['Default-tier dependencies', 'Should an agent be allowed to use a default-tier skill at all? Today the nightly blind gate catches changes after the fact; the alternative is copying the skill into the workspace as an org skill.'],
+  ['The installed package name', 'abcd installs its code as a top-level cli package, a generic name that could clash with another package. Rename it (e.g. to abcd_cli) now, at the cost of touching every import, or later once the CLI has settled?'],
 ];
 
 /* ------------------------------------------------------------------
@@ -894,7 +895,7 @@ function pOverview() {
 
   <h2>How the pieces fit</h2>
   <table class="t"><tr><th>Piece</th><th>What it is</th><th>Where</th><th>Status</th></tr>
-  <tr><td>abcd</td><td>The CLI your coding agent, or a cloud sandbox, uses for every loop step. The harness_*, NoUI and Tabby tools exist today; the Builder adds <code>cli/abcd.py</code> and the builder_* commands</td><td>Your machine, or a harness sandbox</td><td>${EXA} ${ABCD}</td></tr>
+  <tr><td>abcd</td><td>The one installed CLI your coding agent, or a cloud sandbox, uses for every loop step: <code>abcd &lt;group&gt; &lt;command&gt;</code> with the same --env, --json and exit codes everywhere. The harness_*, NoUI and Tabby tools exist today as scripts and move behind it; WDL stays reachable as <code>abcd wdl &lt;script&gt;</code>.</td></tr>
   <tr><td>abcd-builder plugin</td><td>The one plugin FDEs install. Four skills today; the Builder extends it to thirteen. adopt-skill-review stays a separate plugin</td><td>abcd's marketplace, installed into your coding agent</td><td>${EXA} ${ABCD}</td></tr>
   <tr><td>Client workspace repo</td><td>One private git repo per client at <code>workspaces/&lt;env&gt;/</code>: skills, agent bundles, datasets, checks, reports, training. The version store</td><td>GitHub, driven by git and gh</td><td>${SETUP}</td></tr>
   <tr><td>Builder home org</td><td>An Adopt-owned org, one per client, where abcd runs in the cloud: the abcd harness skill, abcd-runner, abcd-nightly, abcd-weekly, and that client's SANDBOX_* secrets</td><td>One org per client, with one abcd-&lt;env&gt; workstream</td><td>${SETUP} ${ABCD}</td></tr>
@@ -908,7 +909,7 @@ function pOverview() {
   <table class="t"><tr><th>#</th><th>Requirement</th><th>How it is met</th></tr>
   <tr><td>R15</td><td>NoUI and Tabby scenarios handled by the loop</td><td>Exists after the merge: tabby_bootstrap.py, noui_workspace.py and the discover-and-plan and skill-builder skills compile a site into <code>harness/skills/</code>. abcd adds the wiring into agent bundles, the gate and the knowledge graph.</td></tr>
   <tr><td>R22</td><td>Switching between clients is switching workspaces</td><td>Every Builder command takes --env and defaults to the active workspace, like the existing harness_*, noui_workspace and WDL commands. Nothing about one client lives outside its workspace.</td></tr>
-  <tr><td>R23</td><td>abcd runs headless in the cloud as well as locally</td><td><code>harness-skills/abcd/</code> ships abcd as a skill bundle, the way harness-skills/noui/ ships NoUI. Credentials come from SANDBOX_* secrets in the client's own Builder home org. NoUI capture and replay stay local.</td></tr>
+  <tr><td>R23</td><td>abcd runs headless in the cloud as well as locally</td><td><code>harness-skills/abcd/</code> ships abcd, NoUI included, as one skill bundle. Credentials come from SANDBOX_* secrets in the client's own Builder home org. NoUI capture and replay need the harness Tabby broker.</td></tr>
   <tr><td>R24</td><td>Skills, agents and the Builder's own plugin stay one system</td><td>The abcd-builder plugin is extended, not replaced. NoUI's replay approval and the default skill tier are folded into the release rules.</td></tr>
   </table>
   <div class="note">Legend: ${EX} on the platform today · ${EXA} on abcd's feat/noui-merge branch today · ${SETUP} existing platform objects, configured once · ${ABCD} new code in this repo only · ${WORK} a platform limit and how we work around it · ${DEC} needs a decision. Checked against adoptai-workflows 29a3fe717 (sandbox secrets and skill tiers at 4e39b4570), adoptwebui 88416ad0c and abcd a25c228.</div>`;
@@ -917,7 +918,7 @@ function pOverview() {
 function pLoop() {
   const s = LOOP[state.step];
   return `<h1>The builder loop</h1>
-  <p class="lead">Every agent goes through the same 10 steps. The Builder runs steps 1 to 7 itself until the gate metrics pass. Steps 8 to 10 move that exact version through staging to live. Every step runs in the active workspace (<code>--env</code> picks another), on your machine or in the cloud. In the cloud, steps 2 to 10 run; step 1's NoUI capture and replay stay local.</p>
+  <p class="lead">Every agent goes through the same 10 steps. The Builder runs steps 1 to 7 itself until the gate metrics pass. Steps 8 to 10 move that exact version through staging to live. Every step runs in the active workspace (<code>--env</code> picks another), on your machine or in the cloud. In the cloud, steps 2 to 10 run; step 1's NoUI capture and replay need the harness Tabby broker, which is bound to the conversation's own org, so from the home-org runner they stay local or run in a client-org turn.</p>
   <div class="legend"><span><span class="sw" style="background:var(--surface)"></span>Runs on your subscription (platform tokens when run in the cloud)</span><span><span class="sw" style="background:var(--sunken)"></span>Runs on platform tokens</span></div>
   <div class="loop">${LOOP.map((x, i) => `<button class="${x.where === 'platform' ? 'plat' : ''} ${i === state.step ? 'on' : ''}" data-step="${i}"><span class="n">${x.n}</span>${x.name}</button>`).join('')}</div>
   <div class="card">
@@ -938,7 +939,7 @@ function pLoop() {
     <div class="card"><h3>Step 10: the release gate</h3><p>Deterministic code in abcd release, and it refuses on any error. It only accepts a staged run on the exact staged hashes, from a commit on the workspace's default branch. A lead can force a release with a recorded reason; forced releases stay flagged until a passing run catches up. The platform cannot refuse an edit made outside abcd, so abcd audit drift flags any live object that does not match its last release.</p></div>
   </div>
   <h2>How a step is run</h2>
-  <p><code>abcd &lt;area&gt; &lt;command&gt;</code> is <code>python cli/abcd.py &lt;area&gt; &lt;command&gt;</code>. abcd's pyproject.toml has <code>package-mode = false</code>, so there is no console script; ADOPT.md suggests a shell alias. <code>cli/abcd.py</code> dispatches to the existing scripts and the new builder_* ones.</p>
+  <p><code>abcd &lt;group&gt; &lt;command&gt;</code> is the installed abcd CLI (build step 1). Every command takes <code>--env</code>, <code>--json</code>, <code>--yes</code> and <code>--verbose</code>, and exits 0 done, 1 refused or a check failed, 2 usage error, 3 platform error. The old <code>python cli/&lt;script&gt;.py</code> invocations keep working, and WDL is <code>abcd wdl &lt;script&gt;</code>.</p>
   <h2>What the loop reuses from the combined branch</h2>
   <table class="t"><tr><th>abcd command</th><th>Reuses</th></tr>${LOOP_REUSE.map(r => `<tr><td class="mono">${esc(r[0])}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>
   <div class="note">Cron pipelines have no abcd client. They are created once from a browser session, because a pipeline created with a PAT records the token id as its owner.</div>`;
@@ -949,7 +950,7 @@ function pAbcd() {
   <p class="lead">You download one file, tell your coding agent to follow it, and from then on you talk to your agent in plain words. abcd is what your agent calls underneath.</p>
   <h2>Getting started</h2>
   <ol class="steps">
-    <li>Clone abcd (this repo). NoUI, Tabby and the abcd-builder plugin come with it. <code>abcd</code> below is <code>python cli/abcd.py</code>; ADOPT.md suggests an alias.</li>
+    <li>Clone abcd (this repo) and run <code>poetry install</code> (or <code>pip install -e .</code>). That gives you the <code>abcd</code> command; NoUI, Tabby and the abcd-builder plugin come with it.</li>
     <li>Get the client's workspace. For an existing client: <code>abcd ws clone &lt;repo&gt; --env acme</code>. For a new one: <code>python cli/workspace.py env create acme</code>, then <code>abcd ws init --env acme --remote &lt;url&gt;</code>.</li>
     <li>In Adopt, mint a Personal Access Token in the client org (Settings, as today; writes need an Admin user). Put its client id and secret in <code>workspaces/acme/.env</code>, which is never committed.</li>
     <li>Tell Claude Code, Codex or Cursor: <i>follow workspaces/acme/ADOPT.md</i>. On first use it installs the abcd-builder plugin once for your machine from abcd's marketplace (<code>claude plugin marketplace add &lt;abcd checkout&gt;</code>, then <code>claude plugin install abcd-builder@abcd</code>, or <code>npx skills add &lt;abcd checkout&gt;</code> for other agents), checks the PAT and runs <code>abcd ws status</code>.</li>
@@ -1023,7 +1024,7 @@ function pWorkspaces() {
   <h2>Where abcd runs: locally and in the cloud</h2>
   <table class="t"><tr><th></th><th>Local</th><th>Cloud</th></tr>${CLOUD_ROWS.map(r => `<tr><td><b>${esc(r[0])}</b></td><td>${esc(r[1])}</td><td>${esc(r[2])}</td></tr>`).join('')}</table>
   <h2>The abcd harness skill</h2>
-  <p><code>harness-skills/abcd/</code> mirrors <code>harness-skills/noui/</code>, which ships NoUI to the harness today. ${ABCD}</p>
+  <p><code>harness-skills/abcd/</code> ships abcd and NoUI to the harness as one skill. ${ABCD}</p>
   <ul><li><b>SKILL.md</b>, frontmatter <code>name: abcd</code>. Teaches the agent to stage the bundle and run abcd in place, run <code>abcd cloud bootstrap</code> (which fails loudly, naming every missing variable), drive abcd only with bash and the same commands as locally, and never print a secret.</li>
   <li><b>build_bundle.py</b> builds abcd-bundle.zip from git-tracked files only: cli/ (NoUI included), abcd-builder/, adopt-skill-review/ and pyproject.toml. It leaves out workspaces/, tabby/ and every .env.</li>
   <li><b>Deployment:</b> <code>harness_skill.py push --aux abcd-bundle.zip=...</code> to the org tier of the Builder home org only. Never to the default tier, which every org sees.</li>
@@ -1409,14 +1410,15 @@ function pGaps() {
   <div class="note rv"><b>Blocking, but not a Builder feature.</b> <code>/v1/end-user/docstore/*</code> authenticates only optionally: a request with no bearer token takes org_id from the request and can upload and delete. This is a security fix to raise with the platform team before Builder data lives in the Doc Store.</div>
   <h2>Build order, all in abcd</h2>
   <ol class="steps" style="counter-reset: s -1">
-    <li><b>Land the base.</b> Merge abcd PR #25 (NoUI into abcd) and noui PR #150, then retarget this plan onto dev.</li>
-    <li><b>Workspace repos and agent bundles.</b> cli/abcd.py; abcd ws init, clone, status, pull, push-bundles and pull-bundles, with the workspace .gitignore, pre-commit hook, builder.json and ADOPT.md; agent bundles in harness/agents/, pushed and pulled through harness_process; the workspace-setup and agent-builder skills. Done when a client workspace cloned on a second machine redeploys its skills and agents from the repo and a PAT alone, and abcd ws pull round-trips an existing client's live objects.</li>
+    <li><b>Land the base.</b> This plan is merged into feat/noui-merge (PR #29). Merge abcd PR #25 and noui PR #150 into dev. Implementation happens on feat/adopt-builder, branched from feat/noui-merge.</li>
+    <li><b>One CLI.</b> Package mode, the abcd console script and extras; cli/core/ (registry, context, output, events, passthrough); the harness, NoUI and Tabby scripts moved behind abcd with their old entry points kept; abcd wdl passthrough; the abcd-builder skills, README and agents.md switched over; tests/cli/. Done when pip install . in a clean venv gives a working abcd, every non-WDL command takes --env and --json, and every old python cli/... invocation still works.</li>
+    <li><b>Workspace repos and agent bundles.</b> abcd ws init, clone, status, pull, push-bundles and pull-bundles, with the workspace .gitignore, pre-commit hook, builder.json and ADOPT.md; agent bundles in harness/agents/, pushed and pulled through harness_process; the workspace-setup and agent-builder skills. Done when a client workspace cloned on a second machine redeploys its skills and agents from the repo and a PAT alone, and abcd ws pull round-trips an existing client's live objects.</li>
     <li><b>Versions and releases.</b> abcd builder setup and the tables; shadow staged objects, push --staged with the lock, stage, release, rollback and audit drift; the browser-skill gate on every push, and the default-tier rules; the release-manager skill. Done when a skill change goes draft, staged, live and back, with tags on the workspace repo and version rows, and a browser skill with a stale approval or no approval token is refused.</li>
     <li><b>The cloud runner.</b> harness-skills/abcd/ and abcd cloud bootstrap; a Builder home org for the first client, with its vault secrets and abcd-&lt;env&gt; workstream; the abcd-runner and abcd-nightly processes, and the nightly drift audit. Done when an FDE runs steps 2 to 10 of the loop from a harness chat with no local machine, and the nightly run reports drift for a workspace with no FDE online.</li>
     <li><b>Datasets, metrics, blind evals and the gate.</b> Dataset CRUD, checks, metrics and criteria; the eval runner with blind mode; context gaps, the SME workstream and Context agent, and instructions with the leak check; the gate and the eval report; the dataset-builder, eval-runner and context-gaps skills. Done when abcd refuses to release a linked agent without a passing report, locally and in the cloud.</li>
     <li><b>Context, status and training.</b> The Context curator and the Status agent; abcd status publish and abcd-weekly, and the client status workstreams; explain and train; wiring NoUI output into the knowledge graph and draft goal_reached checks.</li>
   </ol>
-  <div class="note">The NoUI and Tabby scenario is not a build step any more. It ships with the base, and steps 1 and 2 wire it into agent bundles and the gate.</div>`;
+  <div class="note">The NoUI and Tabby scenario is not a build step any more. It ships with the base; step 1 puts it behind abcd noui and abcd tabby, and steps 2 and 3 wire it into agent bundles and the gate.</div>`;
 }
 
 function pStatus() {

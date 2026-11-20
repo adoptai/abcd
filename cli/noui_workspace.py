@@ -11,7 +11,7 @@ workspace-scoped:
         bundles/<name>-<session>.json   raw capture bundles (the source of truth)
         sessions/<session_id>.json      provision ledger (how a session was opened)
         skills/<skill_id>/              compiled skills -- the same directory
-                                        `harness_skill.py push` reads, so a compiled
+                                        `abcd skill push` reads, so a compiled
                                         skill can be pushed to the harness as-is
         mcp_servers/<app>/<server>/     compiled MCP servers
         login_recordings/               compiled login drafts
@@ -34,16 +34,17 @@ own -- this is the only place they meet):
     NOUI_TABBY_AUTH_MODE    <- always set explicitly: the workspace value if given,
                                else agent_token when TABBY_CLIENT_ID/SECRET are set,
                                else platform_jwt when a platform PAT is set, else
-                               agent_token (local Tabby; see cli/tabby_bootstrap.py)
+                               agent_token (local Tabby; see `abcd tabby`)
 
-Usage:
-    python cli/noui_workspace.py [--env ENV] env              # resolved config (secrets masked)
-    python cli/noui_workspace.py [--env ENV] paths            # workbench layout
-    python cli/noui_workspace.py [--env ENV] list             # bundles, sessions, compiled skills
-    python cli/noui_workspace.py [--env ENV] doctor           # config + Tabby reachability checks
-    python cli/noui_workspace.py [--env ENV] scripts          # list NoUI scripts
-    python cli/noui_workspace.py [--env ENV] run <script> [args...]
-    python cli/noui_workspace.py [--env ENV] <script> [args...]   # shorthand for run
+Usage (global flags such as --env/--json go before a script name; the old
+`python cli/noui_workspace.py [--env ENV] <command> ...` form still works):
+    abcd noui env              # resolved config (secrets masked)
+    abcd noui paths            # workbench layout
+    abcd noui list             # bundles, sessions, compiled skills
+    abcd noui doctor           # config + Tabby reachability checks
+    abcd noui scripts          # list NoUI scripts
+    abcd noui run <script> [args...]
+    abcd noui <script> [args...]   # shorthand for run
 
     Arguments of the form ws:<relative path> are expanded to a path under the
     workspace harness root, e.g.  verify_replay ws:skills/acme-1a2b3c4d
@@ -56,13 +57,21 @@ import json
 import os
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from dotenv import dotenv_values
+
+from cli.core.context import apply_workspaces_override
+from cli.core.output import Result
+from cli.core.registry import Registry
+
+if TYPE_CHECKING:
+    from cli.core.context import Context
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 NOUI_ROOT = PROJECT_ROOT / "cli" / "noui"
@@ -180,7 +189,7 @@ def resolve_noui_env(
     if auth_mode == "agent_token" and not has_agent_creds:
         notes.append(
             "agent_token needs TABBY_CLIENT_ID/TABBY_CLIENT_SECRET from your Tabby setup "
-            "(run `python cli/tabby_bootstrap.py status` for a local Tabby)."
+            "(run `abcd tabby status` for a local Tabby)."
         )
     if auth_mode == "broker":
         notes.append(
@@ -315,11 +324,16 @@ def inventory(noui_env: NouiEnv) -> dict[str, object]:
     }
 
 
-def run_script(noui_env: NouiEnv, name: str, args: list[str]) -> int:
+def run_script(noui_env: NouiEnv, name: str, args: list[str], *, capture: bool = False) -> int:
+    """Run one NoUI script. ``capture``: relay its stdout through ``sys.stdout`` (for ``--json``)."""
     path = script_path(name)
     ensure_workbench(noui_env)
     cmd = [sys.executable, str(path), *expand_ws_args(args, noui_env)]
-    return subprocess.call(cmd, env=noui_env.child_env)
+    if not capture:
+        return subprocess.call(cmd, env=noui_env.child_env)
+    proc = subprocess.run(cmd, env=noui_env.child_env, stdout=subprocess.PIPE, text=True)
+    sys.stdout.write(proc.stdout)
+    return proc.returncode
 
 
 def doctor(noui_env: NouiEnv) -> int:
@@ -340,7 +354,7 @@ def doctor(noui_env: NouiEnv) -> int:
     )
     print(f"Tabby at {tabby}: {'reachable' if alive else 'NOT reachable'}")
     if not alive and noui_env.auth_mode == "agent_token":
-        print("  -> start a local Tabby with: python cli/tabby_bootstrap.py up")
+        print("  -> start a local Tabby with: abcd tabby up")
     return 0 if alive and not noui_env.notes else 1
 
 
@@ -352,8 +366,89 @@ def _default_env_name(explicit: str | None) -> str:
     return get_workspace_manager().active_env or DEFAULT_ENV
 
 
+def _noui_env(ctx: Context) -> NouiEnv:
+    return resolve_noui_env(ctx.env, workspaces_dir=ctx.workspaces_dir)
+
+
+def _guarded(ctx: Context, fn: Callable[[NouiEnv], int | Result]) -> int | Result:
+    try:
+        return fn(_noui_env(ctx))
+    except NouiWorkspaceError as e:
+        return Result.usage(str(e))
+
+
+def _cmd_env(ctx: Context) -> int | Result:
+    return _guarded(ctx, lambda e: Result.done(describe(e), None))
+
+
+def _cmd_paths(ctx: Context) -> int | Result:
+    def run(e: NouiEnv) -> Result:
+        ensure_workbench(e)
+        paths = {sub: str(e.workbench_dir / sub) for sub in WORKBENCH_SUBDIRS}
+        return Result.done(paths, "\n".join(f"{sub:17} {p}" for sub, p in paths.items()))
+
+    return _guarded(ctx, run)
+
+
+def _cmd_list(ctx: Context) -> int | Result:
+    return _guarded(ctx, lambda e: Result.done(inventory(e), None))
+
+
+def _cmd_doctor(ctx: Context) -> int | Result:
+    return _guarded(ctx, doctor)
+
+
+def _cmd_scripts(ctx: Context) -> Result:
+    scripts = list_scripts()
+    return Result.done({"scripts": scripts}, "\n".join(scripts))
+
+
+def _cmd_run(ctx: Context) -> int | Result:
+    rest = list(ctx.args.rest)
+    if not rest:
+        return Result.usage("run needs a script name")
+    return _guarded(ctx, lambda e: run_script(e, rest[0], rest[1:], capture=ctx.as_json))
+
+
+def _script_handler(name: str) -> Callable[[Context], int | Result]:
+    def handler(ctx: Context) -> int | Result:
+        return _guarded(
+            ctx, lambda e: run_script(e, name, list(ctx.args.rest), capture=ctx.as_json)
+        )
+
+    return handler
+
+
+def register(registry: Registry) -> None:
+    """Register ``abcd noui ...``: the bridge commands plus one command per NoUI script.
+
+    Global flags (``--env``, ``--json``) go before a script's own arguments; everything after the
+    script name is passed to the script untouched.
+    """
+    group = registry.group("noui", "The NoUI toolkit inside a workspace")
+    group.command("env", _cmd_env, help="Resolved NoUI config (secrets masked)")
+    group.command("paths", _cmd_paths, help="Workbench layout")
+    group.command("list", _cmd_list, help="Bundles, sessions, compiled skills")
+    group.command("doctor", _cmd_doctor, help="Config + Tabby reachability checks")
+    group.command("scripts", _cmd_scripts, help="List NoUI scripts")
+    group.command(
+        "run",
+        _cmd_run,
+        help="Run a NoUI script: run <script> [args...]",
+        passthrough=True,
+    )
+    for name in list_scripts():
+        group.command(
+            name,
+            _script_handler(name),
+            help=f"Run the NoUI script {name} (arguments after the name go to the script)",
+            passthrough=True,
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    apply_workspaces_override()
     parser = argparse.ArgumentParser(
         description="Run the NoUI toolkit inside an abcd workspace.",
         usage="noui_workspace.py [--env ENV] {env,paths,list,doctor,scripts,run,<script>} ...",

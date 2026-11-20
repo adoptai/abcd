@@ -484,6 +484,7 @@ ADOPT_CLIENT_SECRET=your-client-secret-here
 # NOUI_TABBY_AUTH_MODE=platform_jwt
 """
             (env_path / ".env").write_text(env_content)
+            (env_path / ".env").chmod(0o600)  # credentials go here
 
             return True, env_path, f"Environment created: {env_id}"
 

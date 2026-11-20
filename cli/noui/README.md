@@ -4,8 +4,8 @@
 > `python cli/noui_workspace.py [--env ENV] <script> [args]` — and the
 > `discover-and-plan` / `skill-builder` skills. The bridge points the workbench at
 > `workspaces/<env>/harness/`, maps the workspace credentials and pins the auth mode.
-> This README is the toolkit's own reference (it also ships inside `noui-bundle.zip`
-> for the Agent Harness edition, `harness-skills/noui/`).
+> This README is the toolkit's own reference (it also ships inside `abcd-bundle.zip`
+> as `cli/noui/`, part of the `abcd` Agent Harness skill, `harness-skills/abcd/`).
 
 NoUI records what a site's browser already does and ships it as tools your agent calls directly — no DOM-walking, no computer-use, no Chrome extension. Capture happens **server-side inside Tabby**; this skill is a self-contained Python toolkit that drives Tabby and compiles the result.
 
@@ -19,7 +19,7 @@ NoUI records what a site's browser already does and ships it as tools your agent
 > ADMIN_TOKEN`**), recording is **human-driven through one VNC link** (login +
 > workflow in one session; Autopilot is the optional fallback for an existing
 > profile), and you compile with **`--execution-mode harness`** (never `tabby`/`http`).
-> Follow the **`noui` harness skill** instructions, not this file.
+> Follow the **`abcd` harness skill** instructions (its NoUI part), not this file.
 
 ---
 

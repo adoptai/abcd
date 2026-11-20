@@ -166,6 +166,48 @@ class HarnessAPIClient:
         params = {"search": search} if search else {}
         return self._request("GET", "/v1/org/workstreams", params=params)
 
+    def find_builder_workstream(self) -> dict[str, Any] | None:
+        """The org's Builder workstream: the one marked ``custom_properties.system == "builder"``
+        (found by the marker, never by name: a customer's own "Builder" can exist)."""
+        page = 1
+        while True:
+            data = self._request(
+                "GET", "/v1/org/workstreams", params={"page": page, "page_size": 100}
+            )
+            rows = (
+                data
+                if isinstance(data, list)
+                else (data.get("workstreams") or data.get("items") or [])
+            )
+            for row in rows:
+                props = row.get("custom_properties") or {}
+                if isinstance(props, str):  # some backends return JSON columns as text
+                    try:
+                        props = json.loads(props)
+                    except ValueError:
+                        props = {}
+                if isinstance(props, dict) and props.get("system") == "builder":
+                    return dict(row)
+            if len(rows) < 100:
+                return None
+            page += 1
+
+    def get_workstream(self, workstream_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/org/workstreams/{workstream_id}")
+
+    def workstream_exists(self, workstream_id: str) -> bool:
+        """True unless the platform answers 404 for this id.
+
+        A by-id read, not a scan of ``list_workstreams``: that listing is paged (20 per page by
+        default), so a live workstream past page one would look deleted."""
+        try:
+            self.get_workstream(workstream_id)
+        except HarnessAPIError as e:
+            if e.status_code == 404:
+                return False
+            raise
+        return True
+
     def delete_workstream(self, workstream_id: str) -> dict[str, Any]:
         """POST .../delete, not a DELETE verb -- that's how this route is wired."""
         return self._request("POST", f"/v1/org/workstreams/{workstream_id}/delete")
@@ -223,6 +265,44 @@ class HarnessAPIClient:
     def delete_process(self, process_id: str) -> dict[str, Any]:
         """Soft-delete only -- the platform has no hard delete for processes."""
         return self._request("DELETE", f"/v1/org/processes/{process_id}")
+
+    # -- Org policies (escalation / allow / deny rules) ---------------------
+    #
+    # /v1/org/policies (adoptwebui backend/app/routes/policy.py). Reads are open to any org
+    # member; create/update/delete need an Admin PAT (403 otherwise). A new policy always starts
+    # as a draft; PUT {"status": "active"} activates it (the rules are validated again).
+
+    def list_policies(
+        self, scope_kind: str | None = None, scope_id: str | None = None
+    ) -> dict[str, Any]:
+        params = {"scope_kind": scope_kind, "scope_id": scope_id} if scope_kind and scope_id else {}
+        return self._request("GET", "/v1/org/policies", params=params)
+
+    def get_policy(self, policy_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/v1/org/policies/{policy_id}")
+
+    def create_policy(
+        self,
+        name: str,
+        rules_json: dict[str, Any],
+        bindings: list[dict[str, Any]] | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/v1/org/policies",
+            json={
+                "name": name,
+                "description": description,
+                "rules_json": rules_json,
+                "bindings": bindings or [],
+            },
+        )
+
+    def update_policy(self, policy_id: str, **fields: Any) -> dict[str, Any]:
+        """PUT a policy. Only the fields passed change (name, description, rules_json,
+        status draft|active|disabled, bindings)."""
+        return self._request("PUT", f"/v1/org/policies/{policy_id}", json=fields)
 
     # -- Conversations (Agents-tab chat history) ---------------------------
     #
@@ -356,6 +436,10 @@ class HarnessAPIClient:
             json={"name": name, "workstream_id": workstream_id},
         )
 
+    def list_stores(self, workstream_id: str | None = None) -> dict[str, Any]:
+        params = {"workstream_id": workstream_id} if workstream_id else {}
+        return self._request("GET", "/v1/docstore/stores", params=params)
+
     def link_store_to_workstreams(self, store_id: str, workstream_ids: list[str]) -> dict[str, Any]:
         return self._request(
             "POST",
@@ -397,8 +481,13 @@ class HarnessAPIClient:
     def start_turn(self, payload: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/v1/end-user/agent-harness/turns", json=payload)
 
-    def stop_turn(self, turn_id: str) -> dict[str, Any]:
-        return self._request("POST", f"/v1/end-user/agent-harness/turns/{turn_id}/stop")
+    def stop_turn(self, turn_id: str, conversation_id: str) -> dict[str, Any]:
+        # The route validates a body: without conversation_id it answers 422.
+        return self._request(
+            "POST",
+            f"/v1/end-user/agent-harness/turns/{turn_id}/stop",
+            json={"conversation_id": conversation_id},
+        )
 
     def turn_status(self, turn_id: str, conversation_id: str) -> dict[str, Any]:
         return self._request(
@@ -477,11 +566,18 @@ def get_harness_client_for_env(env_name: str | None = None) -> HarnessAPIClient:
     if env_dotenv.exists():
         load_dotenv(env_dotenv, override=True)
 
-    webui_endpoint = os.getenv("ADOPT_WEBUI_ENDPOINT")
+    # A harness sandbox gets the vault names (ABCD_WEBUI_ENDPOINT / ADOPT_APP_BASE_URL) in its
+    # environment; the workspace .env, when there is one, wins.
+    webui_endpoint = (
+        os.getenv("ADOPT_WEBUI_ENDPOINT")
+        or os.getenv("ABCD_WEBUI_ENDPOINT")
+        or os.getenv("ADOPT_APP_BASE_URL")
+    )
     if not webui_endpoint:
         raise ValueError(
             "ADOPT_WEBUI_ENDPOINT is required (the base URL of the Adopt webui backend). "
-            f"Set it in workspaces/{env}/.env."
+            f"Set it in workspaces/{env}/.env; in a cloud sandbox run "
+            "`abcd cloud bootstrap --platform-only` (or set ABCD_WEBUI_ENDPOINT)."
         )
 
     token = get_harness_bearer_token_for_env(env)

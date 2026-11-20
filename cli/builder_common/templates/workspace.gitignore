@@ -1,0 +1,27 @@
+# Written by `abcd ws init`. Credentials, runtime data and capture bundles never go in git.
+
+# Credentials
+.env
+.env.*
+harness/.token_cache.json
+*.pem
+*.key
+
+# Harness runtime
+harness/traces/
+harness/sessions/
+harness/workstreams.json
+
+# NoUI captures (kept in the noui-bundles Doc Store, see harness/bundles.lock.json)
+harness/bundles/
+harness/skills/*/recording_bundle.json
+*.har
+
+# WDL runtime
+.cache/
+agents/*/traces/
+actions/*/traces/
+
+# Builder local state
+context/
+.builder/
