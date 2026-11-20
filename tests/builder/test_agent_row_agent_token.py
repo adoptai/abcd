@@ -54,3 +54,10 @@ def test_agent_token_403_on_write_grants_reads_as_no_grants(monkeypatch) -> None
     )
     with pytest.raises(HarnessAPIError):
         c.get_write_workstreams("p1")
+
+
+def test_a_403_that_is_not_the_agent_token_refusal_still_surfaces() -> None:
+    """A person's credential refused on org-db is a real permission problem, not 'no row'."""
+    exc = HarnessAPIError("GET", "http://x/v1/org-db/tables", 403, '{"detail":"Forbidden"}')
+    with pytest.raises(HarnessAPIError):
+        agent_row(_work(exc), "a")
