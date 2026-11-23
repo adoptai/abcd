@@ -258,7 +258,7 @@ class HarnessAPIClient:
     # Open agent tasks (escalations + waiting questions): preview and soft-remove
     # by filter. See backend/app/routes/agent_task_cleanup.py. ``filters`` is the
     # request body: created_before, created_after, user, workstream_id,
-    # process_id, conversation_id, status, ids.
+    # process_id, conversation_id, task_category, status, ids.
 
     def preview_tasks(self, filters: dict[str, Any], page: int = 1, per_page: int = 100) -> dict[str, Any]:
         return self._request(

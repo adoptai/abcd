@@ -17,6 +17,9 @@ Filters (at least one is required; they combine with AND):
     --before / --after   ISO date or datetime, UTC (2026-11-23 = midnight UTC)
     --user               user id or email of whoever started the conversation
     --workstream-id, --process-id (the agent), --conversation-id
+    --category           task category: its key or label (missing_statements, "Tax inputs",
+                         release_decision, ...); the Task type filter of the Tasks tab.
+                         Selects escalations only: waiting questions have no category
     --ids                explicit task ids (a question wait is q:<conversation_id>)
     --status             open (default) | resolved | skipped | dismissed | any
 
@@ -32,6 +35,10 @@ Examples:
     python cli/harness_tasks.py delete --user jane@client.com
     # Everything in one workstream
     python cli/harness_tasks.py delete --workstream-id <workstream_id>
+    # One category, before a date (waiting questions are never part of it)
+    python cli/harness_tasks.py delete --category missing_statements --before 2026-11-01
+    # See what a category holds first
+    python cli/harness_tasks.py list --category "Tax inputs"
     # One agent, before a date
     python cli/harness_tasks.py delete --process-id <agent_id> --before 2026-11-23
     # Look first, change nothing
@@ -75,6 +82,7 @@ def build_filters(args: argparse.Namespace) -> dict[str, Any]:
         "workstream_id": args.workstream_id,
         "process_id": args.process_id,
         "conversation_id": args.conversation_id,
+        "task_category": args.category,
         "ids": args.ids or None,
     }
     filters = {k: v for k, v in filters.items() if v}
@@ -82,7 +90,7 @@ def build_filters(args: argparse.Namespace) -> dict[str, Any]:
     if not {k for k in filters if k != "status"}:
         raise ValueError(
             "Give at least one filter: --before, --after, --user, --workstream-id, "
-            "--process-id, --conversation-id or --ids."
+            "--process-id, --conversation-id, --category or --ids."
         )
     return filters
 
@@ -99,13 +107,15 @@ def print_preview(preview: dict[str, Any]) -> None:
         f"📋 {preview.get('total', 0)} task(s): {by_kind.get('escalation', 0)} escalation(s), "
         f"{by_kind.get('question_wait', 0)} waiting question(s)"
     )
+    for note in preview.get("notes") or []:
+        print(f"   Note: {note}")
     if not items:
         return
-    print(f"   {'created':<17} {'kind':<14} {'agent':<24} {'workstream':<24} {'started by':<24} title")
+    print(f"   {'created':<17} {'kind':<14} {'category':<22} {'agent':<24} {'workstream':<24} {'started by':<24} title")
     for t in items:
         created = (t.get("created_at") or "?")[:16].replace("T", " ")
         print(
-            f"   {created:<17} {t.get('kind', '?'):<14} {_clip(t.get('process_name') or t.get('process_id'), 24):<24} "
+            f"   {created:<17} {t.get('kind', '?'):<14} {_clip((t.get('category') or {}).get('label') or '-', 22):<22} {_clip(t.get('process_name') or t.get('process_id'), 24):<24} "
             f"{_clip(t.get('workstream_name') or t.get('workstream_id'), 24):<24} "
             f"{_clip(t.get('created_by') or t.get('created_by_user_id'), 24):<24} {_clip(t.get('title'), 60)}"
         )
@@ -243,6 +253,11 @@ def add_filter_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--workstream-id")
     p.add_argument("--process-id", help="Agent (process) id")
     p.add_argument("--conversation-id")
+    p.add_argument(
+        "--category",
+        help='Task category, key or label (e.g. missing_statements or "Missing statements"). '
+        "Selects escalations only; waiting questions have no category",
+    )
     p.add_argument("--ids", nargs="+", help="Explicit task ids (a question wait is q:<conversation_id>)")
     p.add_argument("--status", default="open", choices=["open", "resolved", "skipped", "dismissed", "any"])
     p.add_argument("--env", help="Environment to use (defaults to active env)")
