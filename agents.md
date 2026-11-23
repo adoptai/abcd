@@ -4,6 +4,22 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 
 ---
 
+## ⛔ CRITICAL: ALWAYS USE THE VENV
+
+**NEVER call `python` or `python3` directly.** Always activate the project's virtual environment first, or prefix commands with the venv Python binary:
+
+```bash
+# Option A — activate once per shell session (run from repo root)
+source .venv/bin/activate
+
+# Option B — single-command prefix (no activation needed)
+.venv/bin/python cli/elicit.py ...
+```
+
+All `python` commands in this document assume the venv is active or you are using `.venv/bin/python`.
+
+---
+
 ## ⛔ CRITICAL: ALWAYS USE CLI SCRIPTS
 
 **NEVER bypass or circumvent the CLI tools.** All operations MUST be performed using the provided CLI scripts.
@@ -18,6 +34,51 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 - **DO NOT** circumvent the workspace manager or context system
 
 ### ✅ REQUIRED Workflow
+
+**Step 0 (when target APIs are not yet in the discovery index) — API Elicitation:**
+
+If `cli/discover.py` returns no relevant results for the APIs you need, use the elicitation tool to record a live browser session and generate a draft workspace bundle:
+
+```bash
+# 1. Start the elicitation backend (uses abcd's Poetry venv)
+python cli/elicit.py backend start
+# → Follow the printed instructions to load the Chrome extension
+
+# 2. In Chrome: create Project → Process, start recording, navigate the target app
+#    (click through flows, narrate via voice what each step does), then stop capture
+
+# 3. Find your process_id and import the bundle into the active workspace
+python cli/elicit.py status                              # lists projects + process IDs
+python cli/elicit.py import <process_id>                # standalone action
+python cli/elicit.py import <process_id> --agent <id>   # sub-action under an agent
+
+# 4. Stop the backend when done
+python cli/elicit.py backend stop
+```
+
+The `import` command places a pre-populated workspace under `workspaces/{env}/actions/{action_id}/` containing:
+- `widdle.json` — draft WDL generated from recorded HTTP calls
+- `requirements.md` — requirements derived from narration and clicks
+- `test_cases/` — auto-generated test cases
+- `adopt_profile.json` — detected base URL and auth pattern
+- `metadata.json` — action metadata
+
+**Step 0b — HAR Analysis & Action Generalization (always do this after import or when given a HAR file):**
+
+The imported bundle (or a raw HAR file) contains hardcoded values that must be generalized before the action is useful. Load `prompts/system/HAR_ANALYSIS_PROMPT.md` to:
+- Identify which payload fields should be dynamic (user inputs, IDs from previous steps) vs hardcoded
+- Extract security parameters and classify them as static (API keys) vs dynamic (session tokens)
+- Populate `adopt_profile.json` with the correct `base_url` and static `security_params`
+- Create token configs in the CE token manager for each dynamic security parameter
+- Create a playground profile referencing those token configs
+
+**This step is required before CE testing will work.** Without token configs and a playground profile, the CE test runner cannot authenticate to the target application.
+
+> **If using the Chrome extension recording dump instead of a raw HAR**: prefer providing the dump as context to the agent to build a well-informed `widdle.json` from scratch rather than importing it hardcoded. Use `HAR_ANALYSIS_PROMPT.md` to guide the generalization either way.
+
+Continue from **Step 3** below (edit WDL) rather than starting from scratch.
+
+---
 
 1. **Discovery**: Use `cli/discover.py` to find APIs/actions
 2. **Creation**: Use `cli/manage_wdl_action.py --create` or `cli/workspace.py`
@@ -43,6 +104,9 @@ This document provides comprehensive guidance for AI agents (like Cursor) workin
 7. **Saving**: Use `cli/save_wdl_draft.py` ONLY after all tests pass
 8. **Publishing**: Use `cli/publish_wdl_action.py` when approved
 9. **CE Testing** (production validation via Chrome Extension):
+   - **Prerequisites** (one-time per client, do this first — see `HAR_ANALYSIS_PROMPT.md`):
+     - Token configs must exist for all dynamic security parameters
+     - A playground profile must exist and reference those token configs
    - One-time setup per agent: `python cli/ce_test.py configure <agent-name>`
    - Generate test cases: `python cli/ce_test.py generate <agent-name>`
    - Start Chrome (separate terminal): `python cli/ce_test.py start <agent-name>`
@@ -311,6 +375,7 @@ For in-depth information, load the appropriate prompt from `prompts/system/`:
 |--------|--------------|
 | **CURSOR_WDL_WORKFLOW_SYSTEM_PROMPT.md** | Creating NEW WDL workflows from scratch |
 | **REMOTE_ACTION_WORKFLOW_PROMPT.md** | Loading, editing, and pushing EXISTING remote actions |
+| **HAR_ANALYSIS_PROMPT.md** | Analyzing HAR files / extension recordings, generalizing actions, setting up token manager and playground profile |
 | **WORKSPACE_HIERARCHY_PROMPT.md** | Managing workspaces, environments, config inheritance |
 | **UBER_AGENT_PROMPT.md** | Creating Uber Agents with sub-actions |
 | **TESTING_PROMPT.md** | Testing strategies, parallel tests, via-agent tests |
@@ -686,8 +751,17 @@ User Request
     │   → python cli/discover.py --actions "query"
     │   → python cli/discover.py --list-all
     │
+    ├─ "Analyze HAR file" / "Generalize recorded action" / "Set up token manager" / "Set up playground profile"
+    │   → Read: HAR_ANALYSIS_PROMPT.md
+    │
     ├─ "Test a tool/action"
     │   → python cli/test_runner.py <workflow_id>
+    │
+    ├─ "Run CE tests" / "Set up CE testing"
+    │   → Verify token configs exist: python cli/workspace.py token-config list
+    │   → Verify playground profile exists: python cli/workspace.py playground-profile list
+    │   → If missing: Read HAR_ANALYSIS_PROMPT.md (Steps 6-7)
+    │   → python cli/ce_test.py configure <agent-name>
     │
     ├─ "Diagnose and fix issues"
     │   → Read: DIAGNOSE_AND_FIX_SYSTEM_PROMPT.md
