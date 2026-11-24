@@ -253,6 +253,31 @@ class HarnessAPIClient:
             params={"turn_id": turn_id, "conversation_id": conversation_id},
         )
 
+    # -- Task cleanup (admin only) -----------------------------------------
+    #
+    # Open agent tasks (escalations + waiting questions): preview and soft-remove
+    # by filter. See backend/app/routes/agent_task_cleanup.py. ``filters`` is the
+    # request body: created_before, created_after, user, workstream_id,
+    # process_id, conversation_id, task_category, status, ids.
+
+    def preview_tasks(self, filters: dict[str, Any], page: int = 1, per_page: int = 100) -> dict[str, Any]:
+        return self._request(
+            "POST", "/v1/end-user/agent-escalations/cleanup/preview",
+            json={**filters, "page": page, "per_page": per_page},
+        )
+
+    def delete_tasks(self, filters: dict[str, Any], expected_count: int) -> dict[str, Any]:
+        """Removes the matching tasks; expected_count is the preview's total."""
+        return self._request(
+            "POST", "/v1/end-user/agent-escalations/cleanup/delete",
+            json={**filters, "expected_count": expected_count}, timeout=300,
+        )
+
+    def restore_tasks(self, ids: list[str]) -> dict[str, Any]:
+        return self._request(
+            "POST", "/v1/end-user/agent-escalations/cleanup/restore", json={"ids": ids}, timeout=300,
+        )
+
     def get_process_workstreams(self, process_id: str) -> dict[str, Any]:
         return self._request("GET", f"/v1/org/processes/{process_id}/workstreams")
 

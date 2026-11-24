@@ -15,6 +15,7 @@ WDL actions.
             turn-<seq>.ndjson          # raw NDJSON stream for that turn
             turn-<seq>-trace.json
             turn-<seq>-temporal-history.json
+        task_cleanup/removed-<time>.json  # ids from harness_tasks.py delete, for restore
 """
 
 import json
@@ -51,6 +52,13 @@ def skill_dir(skill_name: str, env_name: str | None = None) -> Path:
 
 def traces_root(env_name: str | None = None) -> Path:
     d = harness_root(env_name) / "traces"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def task_cleanup_dir(env_name: str | None = None) -> Path:
+    """Where harness_tasks.py delete keeps the ids it removed, for restore."""
+    d = harness_root(env_name) / "task_cleanup"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

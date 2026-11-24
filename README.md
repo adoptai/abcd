@@ -547,6 +547,23 @@ python cli/harness_trace.py review <run_id>
 
 Every turn's raw NDJSON stream + trace + temporal-history is persisted under `workspaces/{env}/harness/traces/<run_id>/` regardless of what you do next — pausing to fix a skill never loses history.
 
+### Clearing out old agent tasks (admin)
+
+Old test runs leave hundreds of open tasks (Tasks tab, "Needs review (N Tasks)" on the Agents list) that bury current work. With an Admin PAT, `cli/harness_tasks.py` removes them by filter; delete is a soft delete, shows a preview and asks first, and never resumes or notifies a workflow. The ids it removes are saved under `workspaces/{env}/harness/task_cleanup/` so `restore` can undo it.
+
+`--category` is the same Task type filter as the Tasks tab (`missing_statements`, `tax_inputs`, `release_decision`, `suspense_decision`, `classify_transactions`, `check_failed`, `start_or_reuse_answers`, `other_question`, plus any the org defined; the label works too, in any case; an unknown one is refused with the valid keys). It selects escalations only: a waiting question has no workflow step, so it has no category and is never part of a category cleanup. The preview shows each task's category.
+
+```bash
+python cli/harness_tasks.py list --user jane@client.com                  # look first
+python cli/harness_tasks.py delete --before 2026-11-23                   # everything created before a date
+python cli/harness_tasks.py delete --user jane@client.com                # everything one person started
+python cli/harness_tasks.py delete --workstream-id <workstream_id>       # everything in one workstream
+python cli/harness_tasks.py list --category "Tax inputs"                 # one task category (key or label)
+python cli/harness_tasks.py delete --category missing_statements --before 2026-11-01
+python cli/harness_tasks.py delete --process-id <agent_id> --before 2026-11-23 --dry-run
+python cli/harness_tasks.py restore --ids-file workspaces/<env>/harness/task_cleanup/removed-<time>.json
+```
+
 ## Documentation
 
 - **Agent Instructions**: See `agents.md`
